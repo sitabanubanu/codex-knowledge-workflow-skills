@@ -1,0 +1,742 @@
+#!/usr/bin/env node
+/*
+Analyze large chat JSON exports into structure, stats, per-sender profiles,
+samples, and cross-time evidence. Local only; no network calls.
+*/
+
+const fs = require("fs");
+const path = require("path");
+
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 2; i < argv.length; i++) {
+    const key = argv[i];
+    if (key.startsWith("--")) {
+      args[key.slice(2)] = argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[++i] : true;
+    }
+  }
+  return args;
+}
+
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function writeJson(file, data) {
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+}
+
+function toText(value) {
+  if (value == null) return "";
+  if (Array.isArray(value)) return value.map(toText).join(" ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function normalizeTime(value) {
+  if (value == null) return null;
+  if (typeof value === "number") {
+    const ms = value > 1e12 ? value : value * 1000;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function scoreKey(obj, names, type, allowFallback = true) {
+  const keys = Object.keys(obj || {});
+  const lower = new Map(keys.map(k => [k.toLowerCase(), k]));
+  for (const name of names) {
+    if (lower.has(name)) return lower.get(name);
+  }
+  if (!allowFallback) return null;
+  return keys.find(k => type === "string" ? typeof obj[k] === "string" : typeof obj[k] === "number") || null;
+}
+
+function findMessages(data) {
+  if (Array.isArray(data)) return { msgKey: "$root", messages: data };
+  let best = null;
+  for (const [key, value] of Object.entries(data)) {
+    if (Array.isArray(value) && value.length > 0) {
+      if (!best || value.length > best.messages.length) best = { msgKey: key, messages: value };
+    }
+  }
+  if (!best) throw new Error("No message array found. Expected a root array or a large array field.");
+  return best;
+}
+
+const STOP_WORDS = new Set("我 你 他 她 它 的 了 是 不 就 都 也 这 那 在 有 和 但 要 会 可以 能 去 来 到 上 下 里 外 把 被 让 给 对 跟 从 因为 所以 如果 虽然 然后 还是 或者 没 很 还 已经 怎么 什么 为什么 哪 谁 多少 几 一个 这个 那个 不是 就是 时候 现在 今天 明天 昨天 知道 觉得 啊 吧 吗 呢 哈 嗯 呀 哦".split(/\s+/));
+
+const KEYWORD_GROUPS = {
+  "遗憾与后悔": ["后悔", "遗憾", "可惜", "要是", "如果", "早知道", "当初", "错过", "回不去"],
+  "认知转变": ["原来", "才知道", "才发现", "才明白", "意识到", "突然明白", "突然发现"],
+  "自我反思": ["我觉得我", "我发现我", "我感觉我", "我这个人", "我的问题", "我太", "我还不够"],
+  "放弃与妥协": ["算了", "不说了", "就这样吧", "随便吧", "无所谓了", "累了", "不想了"],
+  "孤独与失落": ["一个人", "没人", "不回", "不理", "冷落", "忽视", "不在乎"],
+  "愤怒与不满": ["凭什么", "不公平", "为什么我", "他妈", "操", "恶心", "气死"],
+  "渴望与期待": ["希望", "想要", "如果有一天", "将来", "以后", "总有一天"],
+  "关系不安": ["你是不是", "你为什么不", "你怎么不", "你不回我", "你在哪", "别不理我"]
+};
+
+const EMOTION_CUES = ["难过", "烦", "烦死", "累", "崩", "破防", "委屈", "生气", "想哭", "不开心", "痛苦", "焦虑", "孤独", "失望", "害怕", "慌", "气死", "emo"];
+const ANALYSIS_CUES = ["因为", "所以", "本质", "逻辑", "问题", "原因", "分析", "其实", "我觉得", "我发现", "意味着", "归根到底", "核心", "证据", "判断", "复盘"];
+const SELF_MOCKERY_CUES = ["我真是", "我就是", "我太菜", "我好废", "我不配", "我傻", "我蠢", "我有病", "废物", "垃圾", "小丑", "笑死我", "我太"];
+const PING_CUES = ["在吗", "回我", "看到回", "你在不在", "怎么不回", "别不理我"];
+const CONFLICT_CUES = ["凭什么", "不公平", "算了", "不说了", "随便", "不同意", "不一样", "争", "吵", "吵架", "烦", "恶心", "生气", "委屈", "不想理"];
+const PRINCIPLE_PATTERNS = [
+  { name: "conditional_rule", matched: "你可以X，但/只要Y，就Z", regex: /(你可以|可以).{1,50}(但|但是|只要).{1,100}(就|会|都会)/ },
+  { name: "redefinition", matched: "X不是Y，X是Z", regex: /(.{1,40})(不是|并不是)(.{1,40})(而是|是)(.{1,100})/ },
+  { name: "argument", matched: "我认为X，因为Y", regex: /(我认为|我觉得|我发现|我相信).{1,100}(因为|原因|所以)/ },
+  { name: "attribution_reframe", matched: "不是X的问题，是Y的问题", regex: /(不是|并不是).{1,70}(问题|原因).{0,20}(是|而是).{1,100}/ },
+  { name: "belief_reversal", matched: "我以前以为X，但后来Y", regex: /(我以前|以前|之前).{0,30}(以为|认为|觉得).{1,100}(但|但是|后来|现在|才发现|才知道|才明白)/ },
+  { name: "essence_claim", matched: "本质/核心问题是X", regex: /(本质上|归根到底|核心问题|说到底|本质|核心).{0,100}(是|在于)/ }
+];
+
+const TOPIC_DOMAINS = {
+  self: ["我这个人", "我的问题", "我觉得我", "自我", "废物", "天赋", "成长", "反思", "不甘"],
+  relationship: ["朋友", "恋爱", "喜欢", "爱", "关系", "你怎么", "在乎", "陪", "不回", "对象"],
+  money: ["钱", "交易", "股票", "币", "投资", "市场", "亏", "赚", "资本", "爆仓"],
+  schoolCareer: ["学校", "双非", "专业", "土木", "考研", "学习", "就业", "实习", "导师"],
+  societyLaw: ["法律", "制度", "社会", "政治", "国家", "程序正义", "资本", "阶级", "公平"],
+  future: ["未来", "以后", "将来", "出路", "改变", "规划", "目标", "方向"],
+  bodyDiscipline: ["睡眠", "失眠", "多巴胺", "戒断", "欲望", "身体", "自律", "糖", "游戏"],
+  creationTech: ["AI", "agent", "代码", "编程", "项目", "skill", "产品", "工具", "部署"]
+};
+
+function includesAny(text, cues) {
+  return cues.some(cue => text.includes(cue));
+}
+
+function hasQuestion(text) {
+  return /[?？]/.test(text) || ["为什么", "怎么", "是不是", "能不能", "可不可以", "在吗", "对吗", "行不行"].some(cue => text.includes(cue));
+}
+
+function hasPing(text) {
+  return /@[\w\u4e00-\u9fa5_-]{1,30}/.test(text) || includesAny(text, PING_CUES);
+}
+
+function minutesBetween(a, b) {
+  return Math.round((b.timestamp - a.timestamp) / 60000);
+}
+
+function compactEvidence(message, extra = {}) {
+  return {
+    index: message.index,
+    date: message.date,
+    datetime: message.datetime,
+    sender: message.sender,
+    content: message.content.slice(0, 500),
+    ...extra
+  };
+}
+
+function addPattern(patterns, sender, type, event) {
+  patterns[sender] ||= {};
+  patterns[sender][type] ||= [];
+  if (patterns[sender][type].length < 80) patterns[sender][type].push(event);
+}
+
+function summarizePatterns(patterns) {
+  const summary = {};
+  for (const [sender, byType] of Object.entries(patterns)) {
+    summary[sender] = {};
+    for (const [type, events] of Object.entries(byType)) {
+      const months = [...new Set(events.flatMap(event => {
+        const values = [];
+        for (const item of Object.values(event)) {
+          if (item && typeof item === "object" && item.date) values.push(item.date.slice(0, 7));
+        }
+        return values;
+      }))];
+      summary[sender][type] = {
+        count: events.length,
+        uniqueMonths: months.length,
+        status: months.length >= 3 ? "High" : months.length >= 2 ? "Medium" : events.length >= 2 ? "Low" : "Insufficient"
+      };
+    }
+  }
+  return summary;
+}
+
+function detectBehaviorPatterns(messages) {
+  const sorted = [...messages].sort((a, b) => a.timestamp - b.timestamp);
+  const patterns = {};
+
+  for (let i = 0; i < sorted.length; i++) {
+    const current = sorted[i];
+    const text = current.content || "";
+    const next = sorted[i + 1] || null;
+    const nextSame = sorted.slice(i + 1, Math.min(sorted.length, i + 25)).find(m => m.sender === current.sender);
+
+    if (
+      text.length > 0 &&
+      text.length <= 60 &&
+      includesAny(text, EMOTION_CUES) &&
+      nextSame &&
+      minutesBetween(current, nextSame) >= 0 &&
+      minutesBetween(current, nextSame) <= 180 &&
+      nextSame.content.length >= 150 &&
+      includesAny(nextSame.content, ANALYSIS_CUES)
+    ) {
+      addPattern(patterns, current.sender, "emotional_to_analytical", {
+        shortEmotion: compactEvidence(current),
+        laterAnalysis: compactEvidence(nextSame, { minutesLater: minutesBetween(current, nextSame) })
+      });
+    }
+
+    if (includesAny(text, SELF_MOCKERY_CUES) && nextSame) {
+      const gapMinutes = minutesBetween(current, nextSame);
+      if (gapMinutes >= 360) {
+        addPattern(patterns, current.sender, "self_mockery_then_silence", {
+          selfMockery: compactEvidence(current),
+          nextOwnMessage: compactEvidence(nextSame, { silenceMinutes: gapMinutes })
+        });
+      }
+    }
+
+    if ((hasPing(text) || hasQuestion(text)) && next) {
+      const responseWindowMinutes = 60;
+      const hasOtherResponse = sorted
+        .slice(i + 1, Math.min(sorted.length, i + 30))
+        .some(m => m.sender !== current.sender && minutesBetween(current, m) >= 0 && minutesBetween(current, m) <= responseWindowMinutes);
+      const nextOwnWithinSixHours = nextSame && minutesBetween(current, nextSame) > 0 && minutesBetween(current, nextSame) <= 360;
+      if (!hasOtherResponse && nextOwnWithinSixHours) {
+        addPattern(patterns, current.sender, "question_or_ping_without_quick_response", {
+          questionOrPing: compactEvidence(current),
+          nextOwnMessage: compactEvidence(nextSame, { minutesLater: minutesBetween(current, nextSame) })
+        });
+      }
+    }
+
+    if (
+      includesAny(text, CONFLICT_CUES) &&
+      nextSame &&
+      minutesBetween(current, nextSame) >= 0 &&
+      minutesBetween(current, nextSame) <= 180 &&
+      nextSame.content.length >= 150 &&
+      includesAny(nextSame.content, ANALYSIS_CUES)
+    ) {
+      addPattern(patterns, current.sender, "long_rationalization_after_conflict", {
+        conflictCue: compactEvidence(current),
+        laterRationalization: compactEvidence(nextSame, { minutesLater: minutesBetween(current, nextSame) })
+      });
+    }
+  }
+
+  return {
+    note: "Behavior patterns are heuristic sequence evidence, not conclusions. Use them as leads and verify with quotes, dates, and repetition.",
+    patternsBySender: patterns,
+    summary: summarizePatterns(patterns)
+  };
+}
+
+function matchPrincipleStatement(text) {
+  if (!text || text.length < 60) return null;
+  for (const pattern of PRINCIPLE_PATTERNS) {
+    if (pattern.regex.test(text)) {
+      return { pattern: pattern.name, matched: pattern.matched };
+    }
+  }
+  return null;
+}
+
+function detectPrincipleStatements(messages) {
+  const statementsBySender = {};
+  const patternCountsBySender = {};
+
+  for (const message of messages) {
+    const text = message.content || "";
+    const match = matchPrincipleStatement(text);
+    if (!match) continue;
+    const item = {
+      index: message.index,
+      date: message.date,
+      datetime: message.datetime,
+      sender: message.sender,
+      pattern: match.pattern,
+      matched: match.matched,
+      content: text.slice(0, 700)
+    };
+    statementsBySender[message.sender] ||= [];
+    patternCountsBySender[message.sender] ||= {};
+    if (statementsBySender[message.sender].length < 180) statementsBySender[message.sender].push(item);
+    patternCountsBySender[message.sender][match.pattern] = (patternCountsBySender[message.sender][match.pattern] || 0) + 1;
+  }
+
+  const summary = {};
+  for (const [sender, statements] of Object.entries(statementsBySender)) {
+    const months = new Set(statements.map(item => item.date.slice(0, 7)));
+    summary[sender] = {
+      total: statements.length,
+      uniqueMonths: months.size,
+      patterns: patternCountsBySender[sender] || {}
+    };
+  }
+
+  return {
+    note: "Heuristic sentence-structure matches. Use as principle-statement fuel for Core Thread Burn, not as final conclusions.",
+    statementsBySender,
+    summary
+  };
+}
+
+function weekStart(date) {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() - day + 1);
+  return d;
+}
+
+function classifyTopicDomains(text) {
+  const domains = [];
+  for (const [domain, cues] of Object.entries(TOPIC_DOMAINS)) {
+    if (includesAny(text, cues)) domains.push(domain);
+  }
+  return domains;
+}
+
+function detectCognitiveBreakWindows(messages, principleStatements) {
+  const principleIndexes = new Set();
+  for (const statements of Object.values(principleStatements.statementsBySender || {})) {
+    for (const item of statements) principleIndexes.add(item.index);
+  }
+
+  const windowsByKey = {};
+  for (const message of messages) {
+    const text = message.content || "";
+    const domains = classifyTopicDomains(text);
+    const isLong = text.length > 100;
+    const hasPrinciple = principleIndexes.has(message.index);
+    if (!isLong && !hasPrinciple) continue;
+
+    const start = weekStart(new Date(message.timestamp));
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 6);
+    const weekKey = start.toISOString().slice(0, 10);
+    const key = `${message.sender}::${weekKey}`;
+    windowsByKey[key] ||= {
+      weekStart: weekKey,
+      weekEnd: end.toISOString().slice(0, 10),
+      sender: message.sender,
+      longMessageCount: 0,
+      principleStatementCount: 0,
+      topicDomains: new Set(),
+      coreQuotes: []
+    };
+    const window = windowsByKey[key];
+    if (isLong) window.longMessageCount += 1;
+    if (hasPrinciple) window.principleStatementCount += 1;
+    for (const domain of domains) window.topicDomains.add(domain);
+    if (window.coreQuotes.length < 5 && (isLong || hasPrinciple)) {
+      window.coreQuotes.push(compactEvidence(message, { domains, principleStatement: hasPrinciple }));
+    }
+  }
+
+  const windows = Object.values(windowsByKey).map(window => {
+    const topicDomains = [...window.topicDomains].sort();
+    let status = "context_window";
+    if (window.longMessageCount >= 3 && topicDomains.length >= 3 && window.principleStatementCount >= 1) {
+      status = "suspected_cognitive_break";
+    } else if (window.longMessageCount >= 5 && window.principleStatementCount >= 2) {
+      status = "intense_single_or_narrow_domain_window";
+    }
+    return {
+      weekStart: window.weekStart,
+      weekEnd: window.weekEnd,
+      sender: window.sender,
+      longMessageCount: window.longMessageCount,
+      principleStatementCount: window.principleStatementCount,
+      topicDomains,
+      status,
+      coreQuotes: window.coreQuotes
+    };
+  }).filter(window => window.status !== "context_window")
+    .sort((a, b) => {
+      const scoreA = a.longMessageCount + a.principleStatementCount * 2 + a.topicDomains.length;
+      const scoreB = b.longMessageCount + b.principleStatementCount * 2 + b.topicDomains.length;
+      return scoreB - scoreA || a.weekStart.localeCompare(b.weekStart);
+    });
+
+  return {
+    note: "Candidate cognitive restructuring windows. Verify manually; these are not conclusions.",
+    windows
+  };
+}
+
+function topWords(messages, contentKey, topN = 40) {
+  const counts = {};
+  for (const m of messages) {
+    const text = toText(m[contentKey]);
+    const tokens = text.match(/[\u4e00-\u9fa5]{2,}|[A-Za-z]{3,}/g) || [];
+    for (const token of tokens) {
+      if (STOP_WORDS.has(token)) continue;
+      counts[token] = (counts[token] || 0) + 1;
+    }
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, topN);
+}
+
+function monthKey(date) {
+  return date.toISOString().slice(0, 7);
+}
+
+function safeName(name) {
+  return String(name || "unknown").replace(/[\/\\:*?"<>|]/g, "_").slice(0, 120);
+}
+
+function main() {
+  const args = parseArgs(process.argv);
+  if (!args.input) {
+    console.error("Usage: node analyze_chat.js --input chat.json [--out out_dir] [--target alias1,alias2]");
+    process.exit(1);
+  }
+
+  const inputPath = path.resolve(args.input);
+  const baseOut = path.resolve(args.out || path.join(path.dirname(inputPath), "_chat_distill"));
+  const normalizedDir = path.join(baseOut, "_normalized");
+  const analysisDir = path.join(baseOut, "_analysis");
+  const splitDir = path.join(baseOut, "_split");
+  const profilesDir = path.join(baseOut, "_profiles");
+  const samplesDir = path.join(baseOut, "_samples");
+  const evidenceDir = path.join(baseOut, "_evidence");
+  const findingsDir = path.join(baseOut, "_findings");
+  const reviewDir = path.join(baseOut, "_review");
+  const exportsDir = path.join(baseOut, "_exports");
+  [normalizedDir, analysisDir, splitDir, profilesDir, samplesDir, evidenceDir, findingsDir, reviewDir, exportsDir].forEach(ensureDir);
+
+  const data = readJson(inputPath);
+  const { msgKey, messages } = findMessages(data);
+  const first = messages.find(Boolean) || {};
+  const senderKey = args.senderKey || scoreKey(first, ["sender", "from", "author", "name", "nickname", "username", "user"], "string");
+  const contentKey = args.contentKey || scoreKey(first, ["content", "text", "message", "body", "msg"], "string");
+  const timeKey = args.timeKey || scoreKey(first, ["timestamp", "time", "date", "datetime", "created_at", "ts"], "number");
+  const typeKey = args.typeKey || scoreKey(first, ["type", "msgtype", "msg_type", "messagetype"], "string", false);
+  if (!senderKey || !contentKey || !timeKey) {
+    throw new Error(`Could not detect required fields. sender=${senderKey}, content=${contentKey}, time=${timeKey}`);
+  }
+
+  const senderCount = {};
+  let firstDate = null;
+  let lastDate = null;
+  const normalized = messages.map((m, index) => {
+    const date = normalizeTime(m[timeKey]) || new Date(0);
+    if (!firstDate || date < firstDate) firstDate = date;
+    if (!lastDate || date > lastDate) lastDate = date;
+    const sender = toText(m[senderKey]) || "(空)";
+    senderCount[sender] = (senderCount[sender] || 0) + 1;
+    return {
+      index,
+      timestamp: date.getTime(),
+      date: date.toISOString().slice(0, 10),
+      datetime: date.toISOString().slice(0, 19).replace("T", " "),
+      sender,
+      content: toText(m[contentKey]),
+      type: typeKey ? toText(m[typeKey]) : "text"
+    };
+  });
+
+  const structure = {
+    inputPath,
+    inputType: "native-chat-json",
+    msgKey,
+    senderKey,
+    contentKey,
+    timeKey,
+    typeKey,
+    totalMessages: messages.length,
+    senders: senderCount,
+    firstDate: firstDate ? firstDate.toISOString() : null,
+    lastDate: lastDate ? lastDate.toISOString() : null,
+    sampleFirst: first,
+    targetAliases: args.target ? args.target.split(",").map(s => s.trim()).filter(Boolean) : []
+  };
+  const manifest = {
+    createdAt: new Date().toISOString(),
+    skill: "chat-history-self-distiller",
+    runtimeStatus: "SmokeTested",
+    inputPath,
+    inputType: "native-chat-json",
+    outputDir: baseOut,
+    mode: args.mode || "orientation",
+    taskRoute: args.route || "orientation",
+    dataBoundary: {
+      localProcessing: true,
+      externalUpload: false,
+      thirdPartyPrivacy: "minimize quotes unless necessary"
+    },
+    targetAliases: structure.targetAliases,
+    parser: {
+      messageArray: msgKey,
+      senderKey,
+      contentKey,
+      timeKey,
+      typeKey
+    },
+    analyzerOutputs: {
+      behaviorPatternsAvailable: true,
+      principleStatementsAvailable: true,
+      cognitiveBreakWindowsAvailable: true,
+      coreThreadBurnPath: path.join(analysisDir, "core_thread_burn.md")
+    }
+  };
+  writeJson(path.join(baseOut, "_manifest.json"), manifest);
+  writeJson(path.join(normalizedDir, "messages.json"), { messages: normalized });
+  writeJson(path.join(analysisDir, "structure.json"), structure);
+
+  const yearlySender = {};
+  const monthlySender = {};
+  const senderLengths = {};
+  const activeHours = {};
+  for (const m of normalized) {
+    const d = new Date(m.timestamp);
+    const year = d.getUTCFullYear().toString();
+    const month = m.date.slice(0, 7);
+    yearlySender[year] ||= {};
+    monthlySender[month] ||= {};
+    yearlySender[year][m.sender] = (yearlySender[year][m.sender] || 0) + 1;
+    monthlySender[month][m.sender] = (monthlySender[month][m.sender] || 0) + 1;
+    senderLengths[m.sender] ||= { total: 0, count: 0 };
+    senderLengths[m.sender].total += m.content.length;
+    senderLengths[m.sender].count += 1;
+    activeHours[m.sender] ||= Array(24).fill(0);
+    activeHours[m.sender][d.getHours()] += 1;
+  }
+  const avgLengths = Object.fromEntries(Object.entries(senderLengths).map(([s, v]) => [s, Number((v.total / Math.max(v.count, 1)).toFixed(1))]));
+  const stats = {
+    yearlySender,
+    monthlySender,
+    avgMessageLength: avgLengths,
+    activeHours,
+    topWordsBySender: {}
+  };
+
+  const bySender = {};
+  for (const m of normalized) {
+    bySender[m.sender] ||= [];
+    bySender[m.sender].push(m);
+  }
+  const behaviorPatterns = detectBehaviorPatterns(normalized);
+  const principleStatements = detectPrincipleStatements(normalized);
+  const cognitiveBreakWindows = detectCognitiveBreakWindows(normalized, principleStatements);
+  for (const [sender, msgs] of Object.entries(bySender)) {
+    stats.topWordsBySender[sender] = topWords(msgs.map(x => ({ content: x.content })), "content", 30);
+  }
+  writeJson(path.join(analysisDir, "stats.json"), stats);
+  writeJson(path.join(analysisDir, "behavior_patterns.json"), behaviorPatterns);
+  writeJson(path.join(analysisDir, "principle_statements.json"), principleStatements);
+  writeJson(path.join(analysisDir, "cognitive_break_windows.json"), cognitiveBreakWindows);
+
+  const chunkSize = Number(args.chunkSize || 10000);
+  for (let i = 0; i < normalized.length; i += chunkSize) {
+    writeJson(path.join(splitDir, `part_${String(i / chunkSize + 1).padStart(3, "0")}.json`), { messages: normalized.slice(i, i + chunkSize) });
+  }
+  writeJson(path.join(analysisDir, "split_info.json"), {
+    splitDir,
+    totalParts: Math.ceil(normalized.length / chunkSize),
+    chunkSize,
+    totalMessages: normalized.length
+  });
+
+  const senderList = [];
+  for (const [sender, msgs] of Object.entries(bySender)) {
+    msgs.sort((a, b) => a.timestamp - b.timestamp);
+    const file = `${safeName(sender)}.json`;
+    senderList.push({ name: sender, count: msgs.length, safeFileName: file });
+    writeJson(path.join(profilesDir, file), {
+      sender,
+      totalMessages: msgs.length,
+      firstDate: msgs[0]?.date || null,
+      lastDate: msgs[msgs.length - 1]?.date || null,
+      messages: msgs
+    });
+  }
+  senderList.sort((a, b) => b.count - a.count);
+  writeJson(path.join(profilesDir, "_sender_list.json"), { senders: senderList });
+
+  const validation = {};
+  for (const info of senderList) {
+    const profile = readJson(path.join(profilesDir, info.safeFileName));
+    const msgs = profile.messages;
+    const byMonth = {};
+    for (const m of msgs) {
+      const key = m.date.slice(0, 7);
+      byMonth[key] ||= [];
+      if (byMonth[key].length < 20 && m.content.length > 2) byMonth[key].push(m);
+    }
+    const months = Object.keys(byMonth).sort();
+    const quarterly = {};
+    for (const key of months) {
+      const month = key.slice(5, 7);
+      if (["01", "04", "07", "10"].includes(month)) quarterly[key] = byMonth[key];
+    }
+    if (Object.keys(quarterly).length === 0) {
+      for (const key of months.filter((_, i) => i % Math.max(1, Math.ceil(months.length / 8)) === 0)) quarterly[key] = byMonth[key];
+    }
+    const keywordHits = {};
+    for (const [theme, keywords] of Object.entries(KEYWORD_GROUPS)) {
+      const hits = [];
+      for (const m of msgs) {
+        const kw = keywords.find(k => m.content.includes(k));
+        if (kw) hits.push({ date: m.date, month: m.date.slice(0, 7), keyword: kw, content: m.content.slice(0, 500) });
+      }
+      if (hits.length) keywordHits[theme] = hits.slice(0, 120);
+    }
+    const samples = {
+      sender: info.name,
+      totalMessages: msgs.length,
+      first50: msgs.slice(0, 50),
+      last50: msgs.slice(-50),
+      quarterly,
+      longMessages: msgs.filter(m => m.content.length > 100).slice(0, 200),
+      behaviorPatterns: behaviorPatterns.patternsBySender[info.name] || {},
+      principleStatements: (principleStatements.statementsBySender[info.name] || []).slice(0, 120),
+      keywordHits
+    };
+    writeJson(path.join(samplesDir, `${safeName(info.name)}_samples.json`), samples);
+
+    validation[info.name] = {};
+    for (const [theme, hits] of Object.entries(keywordHits)) {
+      const uniqueMonths = [...new Set(hits.map(h => h.month))];
+      validation[info.name][theme] = {
+        status: uniqueMonths.length >= 3 ? "High" : uniqueMonths.length >= 2 ? "Medium" : "Low",
+        uniqueMonths: uniqueMonths.length,
+        evidence: hits.slice(0, 8)
+      };
+    }
+  }
+  writeJson(path.join(analysisDir, "cross_validation.json"), validation);
+
+  const evidenceLedger = {
+    version: 1,
+    status: "scaffold",
+    note: "Populate during interpretation. Analyzer only prepares source-backed samples.",
+    claims: [],
+    evidenceSources: {
+      structure: path.join(analysisDir, "structure.json"),
+      stats: path.join(analysisDir, "stats.json"),
+      samplesDir,
+      behaviorPatterns: path.join(analysisDir, "behavior_patterns.json"),
+      principleStatements: path.join(analysisDir, "principle_statements.json"),
+      cognitiveBreakWindows: path.join(analysisDir, "cognitive_break_windows.json"),
+      coreThreadBurn: path.join(analysisDir, "core_thread_burn.md"),
+      crossValidation: path.join(analysisDir, "cross_validation.json")
+    }
+  };
+  writeJson(path.join(evidenceDir, "evidence_ledger.json"), evidenceLedger);
+
+  const findings = {
+    version: 1,
+    status: "scaffold",
+    route: args.route || "orientation",
+    findings: [],
+    confidenceSummary: {
+      high: 0,
+      medium: 0,
+      low: 0,
+      insufficient: 0
+    }
+  };
+  writeJson(path.join(findingsDir, "findings.json"), findings);
+
+  fs.writeFileSync(
+    path.join(analysisDir, "core_thread_burn.md"),
+    [
+      "# Core Thread Burn",
+      "",
+      "This file must be populated before deep profile reports, generated personal skills, or sensitive identity/persona interpretation.",
+      "",
+      "## Raw Quote Pile",
+      "",
+      "Add 15-20 mixed direct quotes here. Do not classify, rank, or sort them by topic.",
+      "",
+      "## One Problem Hypothesis",
+      "",
+      "If these quotes are all from the same person, what recurring problem are they trying to solve?",
+      "",
+      "## Contradiction Test",
+      "",
+      "Choose the two most contradictory pieces of evidence. Can the hypothesis explain both without flattening either one?",
+      "",
+      "## Mandatory Verification",
+      "",
+      "For each proposed core claim:",
+      "",
+      "1. List 3 dated quotes that directly support it.",
+      "2. Name concrete evidence that would falsify it.",
+      "3. List quotes that contradict or complicate it.",
+      "4. Name at least one alternative explanation.",
+      "",
+      "If verification is weak, mark the claim as Hypothesis and do not build the report on it.",
+      "",
+      "## Core Thread",
+      "",
+      "Only write this if verification succeeds. Compress the working thread into 1-2 sentences. Treat it as a hypothesis, not final truth.",
+      "",
+      "## Evidence That Does Not Fit",
+      "",
+      "List strong evidence that resists the thread. Revise or downgrade if necessary.",
+      "",
+      "## Burn Result",
+      "",
+      "Choose one: Core Thread Found / Weak Thread / No Stable Thread.",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  fs.writeFileSync(
+    path.join(reviewDir, "preview.md"),
+    [
+      "# Review Preview",
+      "",
+      "This file is populated after interpretation, before finalizing sensitive claims or generated personal skills.",
+      "",
+      "## Confirm Before Finalizing",
+      "",
+      "- High-confidence claims",
+      "- Medium/low-confidence claims",
+      "- Missing data or alias uncertainty",
+      "- Third-party privacy boundary",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  const summary = {
+    runtimeStatus: "SmokeTested",
+    outputDir: baseOut,
+    totalMessages: normalized.length,
+    senderCount: senderList.length,
+    topSenders: senderList.slice(0, 10),
+    files: {
+      manifest: path.join(baseOut, "_manifest.json"),
+      normalizedMessages: path.join(normalizedDir, "messages.json"),
+      structure: path.join(analysisDir, "structure.json"),
+      stats: path.join(analysisDir, "stats.json"),
+      senderList: path.join(profilesDir, "_sender_list.json"),
+      behaviorPatterns: path.join(analysisDir, "behavior_patterns.json"),
+      principleStatements: path.join(analysisDir, "principle_statements.json"),
+      cognitiveBreakWindows: path.join(analysisDir, "cognitive_break_windows.json"),
+      coreThreadBurn: path.join(analysisDir, "core_thread_burn.md"),
+      crossValidation: path.join(analysisDir, "cross_validation.json"),
+      evidenceLedger: path.join(evidenceDir, "evidence_ledger.json"),
+      findings: path.join(findingsDir, "findings.json"),
+      reviewPreview: path.join(reviewDir, "preview.md")
+    }
+  };
+  writeJson(path.join(analysisDir, "run_summary.json"), summary);
+  console.log(JSON.stringify(summary, null, 2));
+}
+
+try {
+  main();
+} catch (error) {
+  console.error(error.stack || String(error));
+  process.exit(1);
+}

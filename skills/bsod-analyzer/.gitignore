@@ -1,0 +1,6 @@
+.DS_Store
+*.ps1
+*.txt
+*.dmp
+*.log
+crash_work.dmp

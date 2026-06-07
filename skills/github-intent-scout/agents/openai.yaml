@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Intent Scout"
+  short_description: "Find GitHub projects, verify implementation evidence, and recommend adoption paths."
+  default_prompt: "Use github-intent-scout to clarify my intent, search GitHub, inspect candidate architecture enough to verify README claims, classify adoption paths, and explain true matches versus near misses."

@@ -1,0 +1,150 @@
+{
+  "description": "Known-bad third-party driver versions. Each entry has version ranges, affected OS versions, related BugCheck codes, and fixes. Add newly discovered drivers after each resolved BSOD.",
+  "last_updated": "2026-06-03",
+  "drivers": [
+    {
+      "name": "nvlddmkm.sys",
+      "vendor": "NVIDIA Corporation",
+      "type": "Display Driver",
+      "known_issues": [
+        {
+          "min_version": "516.94",
+          "max_version": "517.48",
+          "os_versions": ["Win10", "Win11"],
+          "bugcheck_codes": ["0x50"],
+          "description": "PAGE_FAULT_IN_NONPAGED_AREA with hardware acceleration enabled",
+          "fix": "Update to v518.00 or later"
+        },
+        {
+          "min_version": "456.71",
+          "max_version": "460.89",
+          "os_versions": ["Win10", "Win11"],
+          "bugcheck_codes": ["0x7E"],
+          "description": "SYSTEM_THREAD_EXCEPTION during sleep mode",
+          "fix": "Update to v461.09 or later"
+        },
+        {
+          "min_version": "471.11",
+          "max_version": "471.41",
+          "os_versions": ["Win10", "Win11"],
+          "bugcheck_codes": ["0x116"],
+          "description": "VIDEO_TDR_FAILURE with specific applications",
+          "fix": "Update to v472.12 or later"
+        }
+      ]
+    },
+    {
+      "name": "wintun.sys",
+      "vendor": "WireGuard / Various VPN providers",
+      "type": "Virtual Network Adapter",
+      "known_issues": [
+        {
+          "min_version": "0.0.0.0",
+          "max_version": "0.14.0.0",
+          "os_versions": ["Win11 23H2", "Win11 24H2"],
+          "bugcheck_codes": ["0xC2", "0xD1", "0xA"],
+          "description": "Old versions may corrupt kernel pool memory on Modern Standby wake. Repeated load/unload cycles increase risk.",
+          "fix": "Update to latest wintun.sys (bundled with WireGuard/Clash Verge updates)"
+        }
+      ]
+    },
+    {
+      "name": "Netwtw12.sys",
+      "vendor": "Intel Corporation",
+      "type": "WiFi Driver",
+      "known_issues": [
+        {
+          "min_version": "22.190.0",
+          "max_version": "22.200.0",
+          "os_versions": ["Win11"],
+          "bugcheck_codes": ["0xD1", "0x133"],
+          "description": "Specific Intel WiFi driver versions may trigger DPC_WATCHDOG or IRQL errors after sleep/wake",
+          "fix": "Update to v22.210.0 or later, or rollback to v22.180"
+        }
+      ]
+    },
+    {
+      "name": "stornvme.sys",
+      "vendor": "Microsoft Corporation (NVMe driver)",
+      "type": "Storage Driver",
+      "known_issues": [
+        {
+          "min_version": "10.0.22621.0",
+          "max_version": "10.0.22621.2506",
+          "os_versions": ["Win11 22H2"],
+          "bugcheck_codes": ["0x133", "0x9F"],
+          "description": "NVMe controller timeout under heavy I/O on specific SSDs",
+          "fix": "Install latest cumulative update and check SSD firmware"
+        }
+      ]
+    },
+    {
+      "name": "RTKVHD64.sys",
+      "vendor": "Realtek Semiconductor Corp.",
+      "type": "Audio Driver",
+      "known_issues": [
+        {
+          "min_version": "6.0.9107.1",
+          "max_version": "6.0.9107.5",
+          "os_versions": ["Win10", "Win11"],
+          "bugcheck_codes": ["0xD1"],
+          "description": "DRIVER_IRQL_NOT_LESS_OR_EQUAL on wake from sleep",
+          "fix": "Update to v6.0.9107.6 or later"
+        },
+        {
+          "min_version": "6.0.9355.1",
+          "max_version": "6.0.9371.1",
+          "os_versions": ["Win10", "Win11"],
+          "bugcheck_codes": ["0x3B"],
+          "description": "SYSTEM_SERVICE_EXCEPTION with specific audio applications",
+          "fix": "Update to v6.0.9373.1 or later"
+        }
+      ]
+    },
+    {
+      "name": "nvmedisk.sys",
+      "vendor": "Microsoft Corporation",
+      "type": "NVMe Disk Driver",
+      "known_issues": [
+        {
+          "min_version": "10.0.22621.0",
+          "max_version": "10.0.22621.0",
+          "os_versions": ["Win11 24H2"],
+          "bugcheck_codes": ["0x50", "0x1A"],
+          "description": "Win11 24H2 increases HMB allocation on DRAM-less NVMe SSDs (WD SN770/SN580, Samsung 980/990) causing BSOD. Temporary fix: HKLM\\SYSTEM\\CurrentControlSet\\Control\\StorPort\\HmbAllocationPolicy=2. Permanent: SSD vendor firmware update.",
+          "fix": "Set HmbAllocationPolicy=2 as emergency workaround. Permanent fix needs SSD firmware update."
+        }
+      ]
+    },
+    {
+      "name": "WdFilter.sys",
+      "vendor": "Microsoft Corporation (Defender)",
+      "type": "Anti-Malware Filter Driver",
+      "known_issues": [
+        {
+          "min_version": "0.0.0.0",
+          "max_version": "0.0.0.0",
+          "os_versions": ["Win11"],
+          "bugcheck_codes": ["0xC2", "0x50"],
+          "description": "Very old Defender filter driver (2021 or earlier) may conflict with newer file system filter drivers on modern Win11",
+          "fix": "Ensure Windows Update is current"
+        }
+      ]
+    },
+    {
+      "name": "ahflt.sys",
+      "vendor": "Microsoft Corporation",
+      "type": "Application Health Filter Driver",
+      "known_issues": [
+        {
+          "min_version": "0.0.0.0",
+          "max_version": "0.0.0.0",
+          "os_versions": ["Win11"],
+          "bugcheck_codes": ["0xC2"],
+          "description": "Application Health filter (Windows Update health check) may conflict with other filter drivers in certain configurations",
+          "fix": "Ensure Windows Update is current"
+        }
+      ]
+    }
+  ]
+}
