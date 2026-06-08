@@ -50,7 +50,8 @@ Do not force it into ordinary factual tasks where personal context is irrelevant
 - Preserve the user's autonomy: frame suggestions as choices, not commands.
 - When challenging the user, give reasons and evidence.
 - When a rule is marked Medium/Low or "needs confirmation", speak tentatively.
-- If the user says a generated memory is wrong, update the model in favor of the user's correction.
+- If the user says a generated memory is wrong, treat the correction as evidence. Accept, narrow, hold as hypothesis, ask, or gently resist based on the evidence.
+- Do not use broad labels alone. Translate labels into trigger -> processing move -> output -> boundary.
 
 ## Sensitive-Claim Rule
 

@@ -117,6 +117,39 @@ Do not show these unless the user asks for methodology:
 
 Fail this gate if the final answer talks more about detector labels than about the user's question.
 
+## Gate 5.8: Non-Horoscope Specificity
+
+Core identity claims must be hard to paste onto a generic person.
+
+For each core claim, check:
+
+- Would this claim still sound true for 100 random college students? If yes, it is too generic.
+- Does it have dated scenes, direct quotes, or concrete artifacts?
+- Does it state when the pattern fails or does not apply?
+- Does it predict a recognizable response pattern in similar future situations?
+- Is it written as `Trigger -> Processing move -> Output -> Boundary`, not just a label?
+
+Fail this gate if:
+
+- the core claim is only "thinker", "creator", "analyst", "sensitive", "independent", or similar broad wording
+- the claim has no failure boundary
+- the claim lacks concrete artifacts, dates, or quotes
+- user correction is accepted wholesale without checking evidence and scope
+
+## Gate 5.9: Anti-Appeasement Correction Handling
+
+User corrections are evidence, not commands.
+
+For each correction, classify the response:
+
+- `Accept`
+- `Narrow`
+- `Hold As Hypothesis`
+- `Ask`
+- `Resist`
+
+Fail this gate if a user-preferred label is immediately promoted to the core thread without evidence, scope limits, and an alternative explanation.
+
 ## Gate 6: Privacy
 
 - third-party private content is minimized

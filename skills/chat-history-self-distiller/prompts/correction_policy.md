@@ -8,11 +8,14 @@ When the user says a conclusion is wrong:
 4. Update `self.md` or `persona.md`.
 5. If the correction contradicts evidence, write: "User correction overrides prior inference."
 6. Reclassify the affected claim:
-   - user-confirmed correction -> Confirmed Pattern
-   - narrowed but still evidence-backed claim -> Probable Pattern
-   - rejected or unsupported claim -> remove from final files and keep only in `evidence.md` as retired inference
+   - Accept -> correction matches evidence and improves precision
+   - Narrow -> correction is partly right; adjust scope or wording
+   - Hold As Hypothesis -> correction may be right but evidence is not yet enough
+   - Ask -> correction reveals a missing dimension that needs a follow-up question
+   - Resist -> correction conflicts with strong evidence; keep both views visible
 7. Update `_review/preview.md` if the correction resolves or changes a pending confirmation question.
 8. If the user's correction says the overall direction is shallow, wrong, or not what they meant, rerun Phase 7.5 Core Thread Burn instead of defending the old framework.
 9. If the user challenges depth, re-test the core thread against contradictory quotes, principle statements, and cognitive break windows.
 
 Never argue that the user's self-correction is invalid. You may say the earlier inference was based on limited chat evidence.
+Never promote a user-preferred label directly into the core thread without evidence, scope boundaries, and an alternative explanation.

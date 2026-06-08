@@ -30,6 +30,15 @@ Every persona rule should include one of:
 
 Low-confidence rules are `Hypothesis`; keep them in a "Needs confirmation" section and do not present them as stable interaction rules.
 
+Every major persona rule must be written as a mechanism:
+
+- Trigger: when this pattern activates.
+- Processing move: how the person handles the situation.
+- Output: what the user tends to say, build, decide, or avoid.
+- Boundary: when the rule fails, weakens, or should not be used.
+
+Reject broad rules that could fit many people unless they are tied to dated scenes, artifacts, or repeated evidence.
+
 Use evidence types:
 
 - Direct Quote

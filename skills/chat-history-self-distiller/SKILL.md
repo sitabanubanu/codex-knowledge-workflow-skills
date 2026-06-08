@@ -288,6 +288,21 @@ Default report shape for deep profile/self analysis is "small-to-large":
 
 Do not lead with a full personality field checklist unless the user asks for a structured profile. A good report should grow from evidence, not fill boxes.
 
+Core conclusions must be written as a mechanism chain, not a loose label:
+
+```text
+Trigger -> Processing move -> Output -> Boundary / failure mode
+```
+
+Example shape:
+
+- Trigger: messy systems, unfairness, logical inconsistency, blocked paths, or unstable relationships.
+- Processing move: abstract the structure, redefine the problem, test it against examples, or turn it into a tool/project.
+- Output: long analysis, practical advice, creative artifact, plan, or reusable skill.
+- Boundary: immediate emotion, fatigue, body state, or intimate/private material may not enter the same analysis mode.
+
+Do not stop at labels such as "thinker", "creator", "analyst", "builder", or "sensitive person". A label is allowed only as a shorthand after the mechanism is shown.
+
 Burn result routing:
 
 - `Core Thread Found`: use the verified thread as the organizing hypothesis, but keep contradictions visible.
@@ -414,6 +429,14 @@ When the user corrects it:
 - Record the correction in `evidence.md`.
 - Update `self.md` or `persona.md`.
 - Keep the original evidence and explain whether the correction overrides, narrows, or adds nuance.
+
+Do not treat user correction as a command to flatter or conform. Treat it as new evidence and classify the response:
+
+- `Accept`: correction matches evidence and improves precision.
+- `Narrow`: correction is partly right; adjust scope or wording.
+- `Hold As Hypothesis`: correction may be right but evidence is not yet enough.
+- `Ask`: correction reveals a missing dimension that needs a follow-up question.
+- `Resist`: correction conflicts with strong evidence; explain gently and keep both views visible.
 
 Treat user reaction as modeling feedback, not only pass/fail validation:
 

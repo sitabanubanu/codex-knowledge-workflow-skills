@@ -34,6 +34,10 @@ Avoid diagnosis. Avoid flattering or insulting labels. Prefer specific behaviora
 
 Rules:
 
+- Core labels must be expanded into a mechanism chain: Trigger -> Processing move -> Output -> Boundary / failure mode.
+- Test each core claim against the "100 random people" check. If it could apply broadly, make it more specific or demote it.
+- Include concrete artifacts, dates, or scenes for core claims.
+- State where the pattern does not apply.
 - Confirmed Pattern may enter the main self memory.
 - Probable Pattern may enter the main file only with a confirmation caveat.
 - Hypothesis belongs in the correction/preview area or `evidence.md`, not as stable memory.
