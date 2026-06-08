@@ -171,6 +171,20 @@ For each correction, classify the response:
 
 Fail this gate if a user-preferred label is immediately promoted to the core thread without evidence, scope limits, and an alternative explanation.
 
+## Gate 5.10: Conversation Value
+
+Use this as a soft scoring axis for self-understanding reports. It does not override attribution, participant identity, privacy, or evidence gates.
+
+Check whether the report:
+
+- gives the user one clear, useful interpretive line to react to
+- explains why the line matters in ordinary human language
+- keeps enough warmth, specificity, and narrative shape to support a real conversation
+- preserves uncertainty without hiding behind it
+- invites correction or a sharper next question instead of treating the report as final
+
+Fail this soft gate if the answer is only an audit checklist, detector explanation, or cautious fragments with no usable model.
+
 ## Gate 6: Privacy
 
 - third-party private content is minimized

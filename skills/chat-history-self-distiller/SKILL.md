@@ -344,6 +344,32 @@ Burn result routing:
 - `Weak Thread`: do not organize the whole report around it. Present it as a possible line and foreground micro-scenes.
 - `No Stable Thread`: produce an evidence report only: observations, quotes, limits, and next questions.
 
+### Phase 7.7: Interpretive Conversation Mode
+
+Use this mode when the user wants a self-understanding conversation, asks "what kind of person am I?", reacts to prior reports emotionally, or values a useful narrative more than a formal audit.
+
+The rule is: hard identity, living interpretation.
+
+- Identity layer stays strict: participant count, aliases, target speaker, and non-human buckets must already be resolved by Phase 6.5.
+- Interpretation layer stays alive: after the identity layer is safe, offer a coherent narrative, not only an evidence checklist.
+- A strong narrative is allowed when it is labeled as an interpretive model, supported by evidence types, and open to correction.
+- Do not smother the answer with detector mechanics, gate names, or "insufficient evidence" language unless the user asks for audit detail.
+- Lead with the pattern that best helps the user continue the conversation. Put caveats after the main insight, not before it.
+
+Good shape:
+
+```text
+One useful line: ...
+Why I think this: ...
+Where it may be wrong: ...
+What I would ask you next: ...
+```
+
+Avoid two opposite failures:
+
+- Over-audit: the report is technically safe but refuses to model the person.
+- Over-story: the report sounds powerful but floats away from participant identity, quotes, dates, and contradictions.
+
 For each target person, the optional structured appendix may include:
 
 - Conversation footprint: message count, active years/months, relative share.
@@ -524,6 +550,7 @@ Before saying the work is done:
 - Task route was explicit: profile, relationship, theme, conflict, timeline, evidence extraction, paper/report review, or self-skill.
 - Non-native files were normalized through an adapter before interpretation.
 - Evidence ledger exists or the final answer explains why it was unnecessary for the selected mode.
+- For self-understanding reports, the final result was assessed on two axes: engineering compliance and user conversation value.
 
 ## Common Failure Modes
 
@@ -539,6 +566,7 @@ Before saying the work is done:
 | Generate a skill immediately | User feels misrepresented | Preview and correct first |
 | Force a core thread | Grand but false story | Mark `Weak Thread` or `No Stable Thread` and narrow the report |
 | Treat fuel as conclusion | Principle/window signals become hallucinated traits | Verify with dated quotes and alternative explanations |
+| Turn safety gates into the whole answer | The user gets an audit, not understanding | Keep gates internal; deliver a useful, discussable model |
 
 ## Final Answer Shape
 
