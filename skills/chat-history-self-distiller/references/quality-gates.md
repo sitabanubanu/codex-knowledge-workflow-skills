@@ -43,6 +43,27 @@ Fail this gate if a Medium/Low/Hypothesis claim is phrased as a fixed identity l
 - every relationship claim names the side(s) providing evidence
 - every document claim names the source file
 
+## Gate 4.5: Participant Identity
+
+Mandatory before profile reports, relationship maps, generated personal skills, or sensitive identity/persona interpretation.
+
+Check `_analysis/participant_map.json`:
+
+- `humanParticipants` are the only people counted in the report
+- `nonHumanBuckets` are excluded from participant count and personality analysis
+- target speaker is resolved to one canonical sender bucket
+- aliases are separated into confirmed aliases and candidates
+- @mentions, forwarded-chat speakers, old display names, group names, and empty sender buckets are not counted as separate people
+- participant names, aliases, group names, reply/file/link/media/system terms are not used as catchphrase or speech-style evidence
+- final report includes a short participant summary with human count, canonical sender buckets, confirmed aliases, and excluded non-human buckets
+
+Fail this gate if:
+
+- the report counts a system/group/empty sender bucket as a person
+- the report turns an alias or @mention into an extra person without evidence
+- the report treats a participant name, old nickname, group name, or metadata token as a catchphrase
+- the agent proceeds to deep interpretation while target identity or participant count is uncertain
+
 ## Gate 5: Core Thread Burn
 
 Mandatory before deep profile reports, generated personal skills, or sensitive identity/persona interpretation.

@@ -132,10 +132,19 @@ node "%USERPROFILE%\.codex\skills\chat-history-self-distiller\tools\analyze_chat
 
 If no target is known, omit `--target`. The script will still create per-sender profiles.
 
+If the user already knows real names, remarks, or old display names, pass them as an identity map to reduce ambiguity:
+
+```powershell
+node "%USERPROFILE%\.codex\skills\chat-history-self-distiller\tools\analyze_chat.js" `
+  --input "C:\path\to\chat.json" `
+  --identityMap "me=my_old_name|my_real_name;senderA=remark_name|old_display_name|real_name;senderB=nickname1|nickname2" `
+  --out "C:\path\to\output_dir"
+```
+
 Tool contract:
 
 - Input: native JSON chat export with detectable sender/content/time fields.
-- Output: structured run folder with normalized messages, stats, profiles, samples, behavior patterns, cross-validation, and scaffolds for evidence and findings.
+- Output: structured run folder with normalized messages, participant map, stats, profiles, samples, behavior patterns, cross-validation, and scaffolds for evidence and findings.
 - If it fails: inspect the error, then inspect only field names or a tiny sample of the raw file. Prefer passing `--senderKey`, `--contentKey`, `--timeKey`, or `--typeKey` over manual analysis.
 - If it succeeds: read generated outputs, not the raw file.
 
@@ -144,6 +153,7 @@ Outputs:
 - `_manifest.json`: run scope, input type, selected mode, task route, and data boundary.
 - `_normalized/messages.json`: normalized message records for native chat exports.
 - `_analysis/structure.json`: field mapping, message count, senders, time span.
+- `_analysis/participant_map.json`: raw sender buckets, human participant buckets, non-human/system buckets, alias candidates, outgoing mentions, unresolved names, and top-word exclusions.
 - `_analysis/stats.json`: yearly/monthly sender stats, text length, active hours, high-frequency words.
 - `_split/part_*.json`: chunks for very large files.
 - `_profiles/{sender}.json`: complete per-sender profile.
@@ -156,18 +166,42 @@ Outputs:
 - `_evidence/evidence_ledger.json`: claim/evidence ledger scaffold.
 - `_findings/findings.json`: structured findings scaffold.
 
+### Phase 6.5: Participant Identity Gate
+
+This gate is mandatory before any `standard-report`, `deep-self-skill`, relationship map, or sensitive identity/persona claim.
+
+Read `_analysis/participant_map.json` before `_analysis/stats.json` or any samples. Do not infer people from top words, @mentions, forwarded-chat names, or group/system messages.
+
+Confirm four things:
+
+1. Raw sender buckets: every bucket in `rawSenderBuckets`.
+2. Human participants: only buckets in `humanParticipants` count as people.
+3. Non-human buckets: `nonHumanBuckets` are system, group, missing-sender, media, recall, call, location, red-packet, or other event records; they cannot become people.
+4. Alias map: `confirmedAliases` are usable; `aliasCandidates`, `mentions`, `systemActors`, and `unresolvedNames` are leads that need evidence or user confirmation.
+
+If the target person, participant count, or alias map is uncertain, stop at `orientation`, show the participant map briefly, and ask for confirmation. Do not continue to deep interpretation.
+
+Rules:
+
+- A display name, old nickname, real name, @mention, or forwarded-chat speaker is not a new person unless tied to one canonical sender bucket.
+- A group name or system bucket is never a speaking person.
+- `(空)` / empty sender buckets are missing-sender event records, not a participant.
+- Do not use participant names, aliases, group names, `回复`, `引用消息`, `聊天记录`, `文件`, `链接`, `图片`, `视频`, or system-event terms as speech-style or catchphrase evidence.
+- Every final report or generated personal skill must include a short participant summary: human count, canonical sender buckets, confirmed aliases, and excluded non-human buckets.
+
 ### Phase 7: Read Evidence, Not Raw Data
 
 Read these outputs in order:
 
 1. `_analysis/structure.json`
-2. `_analysis/stats.json`
-3. `_profiles/_sender_list.json`
-4. `_samples/{target}_samples.json` for the target person
-5. `_analysis/behavior_patterns.json`
-6. `_analysis/principle_statements.json`
-7. `_analysis/cognitive_break_windows.json`
-8. `_analysis/cross_validation.json`
+2. `_analysis/participant_map.json`
+3. `_analysis/stats.json`
+4. `_profiles/_sender_list.json`
+5. `_samples/{target}_samples.json` for the target person
+6. `_analysis/behavior_patterns.json`
+7. `_analysis/principle_statements.json`
+8. `_analysis/cognitive_break_windows.json`
+9. `_analysis/cross_validation.json`
 
 If an expected analyzer output is missing, do not reconstruct it from memory or invent its contents. Mark it as missing, continue only with available evidence, and downgrade any claim that depended on the missing file.
 
@@ -176,8 +210,9 @@ Only inspect original raw messages if a conclusion needs quote-level verificatio
 Interpretation checklist:
 
 - From `structure.json`: confirm field mapping, time span, target aliases, total message count, and whether the data can support the requested route.
+- From `participant_map.json`: confirm participant count, canonical sender buckets, target resolution, non-human buckets, and aliases. If unresolved, stop and ask.
 - From `stats.json`: inspect message share, active months/years, average length, active hours, and top words. Use this for footprint and speech style, not for deep personality claims by itself.
-- From `_sender_list.json`: pick the target speaker(s) and verify aliases. If the target is ambiguous, stop at `orientation`.
+- From `_sender_list.json`: cross-check target speaker(s) against `participant_map.json`. If they disagree, trust the identity gate and stop for confirmation.
 - From `{target}_samples.json`: inspect first/last messages, quarterly samples, long messages, keyword hits, and per-sender behavior patterns.
 - From `behavior_patterns.json`: look for sequence-based evidence that keywords miss, especially emotion-to-analysis, self-mockery followed by silence, repeated pinging, ignored questions, and long rationalization after conflict.
 - From `principle_statements.json`: look for how the target defines rules, causality, self/world models, and belief reversals. These are often stronger evidence than emotion words.
@@ -469,6 +504,8 @@ Before saying the work is done:
 
 - Raw file was not directly loaded wholesale.
 - Structure and sender fields were detected.
+- `_analysis/participant_map.json` was read before interpretation.
+- Human participant count, canonical sender buckets, and excluded non-human buckets were stated.
 - Each person was separated before analysis.
 - The target person's aliases were considered.
 - Claims are supported by dated quotes.
@@ -494,6 +531,8 @@ Before saying the work is done:
 |---|---|---|
 | Read the whole JSON | Context overflow and shallow conclusions | Run analyzer first |
 | Analyze group chat as one voice | Wrong attribution | Use per-sender profiles |
+| Count aliases or system buckets as people | Wrong participant count and polluted reports | Use `participant_map.json`; confirm aliases before analysis |
+| Treat names in top words as catchphrases | Metadata becomes personality evidence | Filter aliases, group names, reply/file/link/media/system terms |
 | Trust one emotional quote | Overfitting | Require cross-time evidence |
 | Output personality labels only | Vague, not useful | Model operating pattern |
 | Hide uncertainty | False confidence | Use confidence labels |

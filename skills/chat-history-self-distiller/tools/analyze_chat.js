@@ -369,17 +369,248 @@ function detectCognitiveBreakWindows(messages, principleStatements) {
   };
 }
 
-function topWords(messages, contentKey, topN = 40) {
+const METADATA_STOP_WORDS = new Set([
+  "回复", "引用消息", "聊天记录", "群聊的聊天记录", "的聊天记录",
+  "文件", "链接", "图片", "视频", "表情", "动画表情", "语音",
+  "系统消息", "撤回了一条消息", "你撤回了一条消息", "位置共享已经结束",
+  "语音通话已经结束", "发起转账", "领取了你的", "转账", "红包", "所有人", "CDATA", "link",
+  "type", "plain", "username", "template", "sysmsgtemplate", "memberlist",
+  "member", "nickname", "profile", "sysmsg", "content", "name", "remark",
+  "wxid", "custom", "SystemMessages", "HongbaoIcon", "opendetail", "https",
+  "http", "min"
+]);
+
+function topWords(messages, contentKey, topN = 40, extraStopWords = new Set()) {
   const counts = {};
   for (const m of messages) {
     const text = toText(m[contentKey]);
     const tokens = text.match(/[\u4e00-\u9fa5]{2,}|[A-Za-z]{3,}/g) || [];
     for (const token of tokens) {
       if (STOP_WORDS.has(token)) continue;
+      if (METADATA_STOP_WORDS.has(token)) continue;
+      if (extraStopWords.has(token)) continue;
       counts[token] = (counts[token] || 0) + 1;
     }
   }
   return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, topN);
+}
+
+function cleanAlias(value) {
+  return toText(value)
+    .replace(/[\u2005\u2006\u2009\u200a\u200b]/g, "")
+    .replace(/^[@\s"'“”‘’.,，。:：；;、\[\]【】()（）<>《》]+|[@\s"'“”‘’.,，。:：；;、\[\]【】()（）<>《》]+$/g, "")
+    .trim()
+    .slice(0, 60);
+}
+
+function isValidAliasName(value) {
+  const alias = cleanAlias(value);
+  if (!alias || alias.length < 2) return false;
+  if (/^\d+$/.test(alias)) return false;
+  if (/^(我|你|他|她|它|了|所有人|all)$/i.test(alias)) return false;
+  if (/^(的)?聊天记录$/.test(alias)) return false;
+  if (/^(https?|www|com|cn|jpg|png|gif|mp4|min)$/i.test(alias)) return false;
+  return /[\u4e00-\u9fa5A-Za-z]/.test(alias);
+}
+
+function addLimited(list, item, limit = 20) {
+  if (list.length < limit) list.push(item);
+}
+
+function parseIdentityMap(value) {
+  if (!value) return {};
+  let raw = value;
+  if (fs.existsSync(value)) raw = fs.readFileSync(value, "utf8");
+  try {
+    const parsed = JSON.parse(raw);
+    const out = {};
+    const participants = parsed.humanParticipants || parsed.participants || [];
+    if (Array.isArray(participants)) {
+      for (const p of participants) {
+        const canonical = p.canonical || p.canonicalSender || p.sender || p.name;
+        if (!canonical) continue;
+        out[canonical] = Array.isArray(p.aliases) ? p.aliases.map(cleanAlias).filter(Boolean) : [];
+      }
+    } else {
+      for (const [sender, aliases] of Object.entries(parsed)) {
+        out[sender] = Array.isArray(aliases) ? aliases.map(cleanAlias).filter(Boolean) : [];
+      }
+    }
+    return out;
+  } catch (_) {
+    const out = {};
+    for (const part of raw.split(";")) {
+      const [sender, aliasText] = part.split(/[:=]/);
+      if (!sender || !aliasText) continue;
+      out[cleanAlias(sender)] = aliasText.split("|").map(cleanAlias).filter(Boolean);
+    }
+    return out;
+  }
+}
+
+function summarizeSenderTypes(messages) {
+  const bySender = {};
+  for (const m of messages) {
+    bySender[m.sender] ||= {};
+    bySender[m.sender][m.type || ""] = (bySender[m.sender][m.type || ""] || 0) + 1;
+  }
+  return bySender;
+}
+
+function looksNonHumanSender(sender, total, typeCounts) {
+  const systemCount = typeCounts.system || 0;
+  const nonTextCount = Object.entries(typeCounts)
+    .filter(([type]) => type && type !== "text" && type !== "")
+    .reduce((sum, [, count]) => sum + count, 0);
+  const systemRatio = systemCount / Math.max(total, 1);
+  const nonTextRatio = nonTextCount / Math.max(total, 1);
+  return (
+    !cleanAlias(sender) ||
+    cleanAlias(sender) === "(空)" ||
+    cleanAlias(sender).includes("空") ||
+    systemRatio >= 0.95 ||
+    (total <= 20 && nonTextRatio >= 0.8)
+  );
+}
+
+function buildParticipantMap(messages, senderCount, targetAliases = [], identityMapValue = null) {
+  const typeCountsBySender = summarizeSenderTypes(messages);
+  const providedIdentityMap = parseIdentityMap(identityMapValue);
+  const participants = [];
+  const nonHumanBuckets = [];
+  const humanSenderNames = new Set();
+
+  for (const [sender, count] of Object.entries(senderCount)) {
+    const typeCounts = typeCountsBySender[sender] || {};
+    if (looksNonHumanSender(sender, count, typeCounts)) {
+      nonHumanBuckets.push({
+        sender,
+        count,
+        typeCounts,
+        classification: "non_human_or_system",
+        reason: sender.includes("空") ? "missing sender / system-media event bucket" : "system or group-event bucket"
+      });
+    } else {
+      humanSenderNames.add(sender);
+      participants.push({
+        canonicalSender: sender,
+        count,
+        typeCounts,
+        role: "participant",
+        confirmedAliases: providedIdentityMap[sender] || [],
+        aliasCandidates: [],
+        outgoingMentions: [],
+        evidence: []
+      });
+    }
+  }
+
+  const participantBySender = Object.fromEntries(participants.map(p => [p.canonicalSender, p]));
+  const targetSet = new Set(targetAliases.map(cleanAlias).filter(Boolean));
+  for (const p of participants) {
+    if (p.canonicalSender === "me" || targetSet.has(p.canonicalSender) || p.confirmedAliases.some(a => targetSet.has(a))) {
+      p.role = "target_or_self_candidate";
+    }
+  }
+
+  const mentionCounts = {};
+  const systemActorCounts = {};
+  const forwardedNameCountsBySender = {};
+  const unresolvedNames = {};
+
+  function addUnresolved(name, source, m) {
+    const alias = cleanAlias(name);
+    if (!isValidAliasName(alias) || humanSenderNames.has(alias)) return;
+    unresolvedNames[alias] ||= { name: alias, count: 0, sources: {}, evidence: [] };
+    unresolvedNames[alias].count += 1;
+    unresolvedNames[alias].sources[source] = (unresolvedNames[alias].sources[source] || 0) + 1;
+    addLimited(unresolvedNames[alias].evidence, compactEvidence(m, { source }), 8);
+  }
+
+  for (const m of messages) {
+    const text = m.content || "";
+    const senderParticipant = participantBySender[m.sender];
+
+    for (const match of text.matchAll(/@([^\s@，,。:：；;]+)\s*/g)) {
+      const alias = cleanAlias(match[1]);
+      if (!isValidAliasName(alias) || humanSenderNames.has(alias)) continue;
+      mentionCounts[alias] ||= { name: alias, count: 0, byMentioningSender: {}, evidence: [] };
+      mentionCounts[alias].count += 1;
+      mentionCounts[alias].byMentioningSender[m.sender] = (mentionCounts[alias].byMentioningSender[m.sender] || 0) + 1;
+      addLimited(mentionCounts[alias].evidence, compactEvidence(m, { source: "at_mention" }), 8);
+      if (senderParticipant) {
+        const existing = senderParticipant.outgoingMentions.find(x => x.name === alias);
+        if (existing) existing.count += 1;
+        else senderParticipant.outgoingMentions.push({ name: alias, count: 1 });
+      }
+    }
+
+    for (const match of text.matchAll(/"([^"\n]{1,40})"\s*撤回了一条消息/g)) {
+      const alias = cleanAlias(match[1]);
+      systemActorCounts[alias] = (systemActorCounts[alias] || 0) + 1;
+      addUnresolved(alias, "system_recall_actor", m);
+    }
+
+    for (const match of text.matchAll(/<nickname><!\[CDATA\[([^\]]{1,60})\]\]><\/nickname>/g)) {
+      addUnresolved(match[1], "system_xml_nickname", m);
+    }
+
+    for (const match of text.matchAll(/^\s*\[\d+\]\s+\d{4}[-/]\d{1,2}[-/]\d{1,2}[^\n:：]{0,40}\s+([^:\n：]{1,40})[:：]/gm)) {
+      const alias = cleanAlias(match[1]);
+      if (!isValidAliasName(alias) || humanSenderNames.has(alias)) continue;
+      forwardedNameCountsBySender[m.sender] ||= {};
+      forwardedNameCountsBySender[m.sender][alias] = (forwardedNameCountsBySender[m.sender][alias] || 0) + 1;
+      addUnresolved(alias, "forwarded_chat_speaker", m);
+    }
+
+    for (const match of text.matchAll(/([^\s\n]{1,30})与([^\s\n]{1,30})的聊天记录/g)) {
+      addUnresolved(match[1], "forwarded_chat_title", m);
+      addUnresolved(match[2], "forwarded_chat_title", m);
+    }
+  }
+
+  for (const [sender, counts] of Object.entries(forwardedNameCountsBySender)) {
+    const p = participantBySender[sender];
+    if (!p) continue;
+    for (const [alias, count] of Object.entries(counts)) {
+      if (count < 2 || p.confirmedAliases.includes(alias)) continue;
+      p.aliasCandidates.push({
+        name: alias,
+        confidence: count >= 5 ? "Likely" : "Weak",
+        reason: "appears as a forwarded-chat speaker in messages sent from this sender; verify before treating as the same person",
+        count
+      });
+    }
+  }
+
+  const aliasStopWords = new Set([
+    ...Object.keys(mentionCounts),
+    ...Object.keys(systemActorCounts),
+    ...Object.keys(unresolvedNames),
+    ...participants.flatMap(p => [p.canonicalSender, ...p.confirmedAliases, ...p.aliasCandidates.map(a => a.name)]),
+    ...nonHumanBuckets.map(b => b.sender)
+  ].map(cleanAlias).filter(Boolean));
+
+  return {
+    version: 1,
+    status: Object.keys(providedIdentityMap).length ? "provided_identity_map_applied" : "candidate_map_needs_confirmation",
+    note: "Human participants are canonical sender buckets. Alias candidates are evidence leads, not final identity claims until confirmed.",
+    rawSenderBuckets: Object.entries(senderCount).map(([sender, count]) => ({
+      sender,
+      count,
+      typeCounts: typeCountsBySender[sender] || {}
+    })),
+    humanParticipants: participants,
+    nonHumanBuckets,
+    aliasSignals: {
+      mentions: Object.values(mentionCounts).sort((a, b) => b.count - a.count).slice(0, 80),
+      systemActors: Object.entries(systemActorCounts).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count })),
+      unresolvedNames: Object.values(unresolvedNames).sort((a, b) => b.count - a.count).slice(0, 120)
+    },
+    excludedFromPersonCount: nonHumanBuckets.map(b => b.sender),
+    excludedFromTopWords: [...aliasStopWords],
+    requiredInterpretationRule: "Before deep analysis, confirm humanParticipants and alias mapping. Do not count nonHumanBuckets, @mentions, forwarded-chat names, or group/system buckets as separate people."
+  };
 }
 
 function monthKey(date) {
@@ -479,6 +710,7 @@ function main() {
       typeKey
     },
     analyzerOutputs: {
+      participantMapAvailable: true,
       behaviorPatternsAvailable: true,
       principleStatementsAvailable: true,
       cognitiveBreakWindowsAvailable: true,
@@ -488,6 +720,8 @@ function main() {
   writeJson(path.join(baseOut, "_manifest.json"), manifest);
   writeJson(path.join(normalizedDir, "messages.json"), { messages: normalized });
   writeJson(path.join(analysisDir, "structure.json"), structure);
+  const participantMap = buildParticipantMap(normalized, senderCount, structure.targetAliases, args.identityMap || args.participants);
+  writeJson(path.join(analysisDir, "participant_map.json"), participantMap);
 
   const yearlySender = {};
   const monthlySender = {};
@@ -524,8 +758,9 @@ function main() {
   const behaviorPatterns = detectBehaviorPatterns(normalized);
   const principleStatements = detectPrincipleStatements(normalized);
   const cognitiveBreakWindows = detectCognitiveBreakWindows(normalized, principleStatements);
+  const topWordStopWords = new Set(participantMap.excludedFromTopWords || []);
   for (const [sender, msgs] of Object.entries(bySender)) {
-    stats.topWordsBySender[sender] = topWords(msgs.map(x => ({ content: x.content })), "content", 30);
+    stats.topWordsBySender[sender] = topWords(msgs.map(x => ({ content: x.content })), "content", 30, topWordStopWords);
   }
   writeJson(path.join(analysisDir, "stats.json"), stats);
   writeJson(path.join(analysisDir, "behavior_patterns.json"), behaviorPatterns);
@@ -619,6 +854,7 @@ function main() {
     claims: [],
     evidenceSources: {
       structure: path.join(analysisDir, "structure.json"),
+      participantMap: path.join(analysisDir, "participant_map.json"),
       stats: path.join(analysisDir, "stats.json"),
       samplesDir,
       behaviorPatterns: path.join(analysisDir, "behavior_patterns.json"),
@@ -713,11 +949,14 @@ function main() {
     outputDir: baseOut,
     totalMessages: normalized.length,
     senderCount: senderList.length,
+    humanParticipantCount: participantMap.humanParticipants.length,
+    nonHumanBucketCount: participantMap.nonHumanBuckets.length,
     topSenders: senderList.slice(0, 10),
     files: {
       manifest: path.join(baseOut, "_manifest.json"),
       normalizedMessages: path.join(normalizedDir, "messages.json"),
       structure: path.join(analysisDir, "structure.json"),
+      participantMap: path.join(analysisDir, "participant_map.json"),
       stats: path.join(analysisDir, "stats.json"),
       senderList: path.join(profilesDir, "_sender_list.json"),
       behaviorPatterns: path.join(analysisDir, "behavior_patterns.json"),

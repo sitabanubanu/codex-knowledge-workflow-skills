@@ -8,6 +8,7 @@ _normalized/
   messages.json
 _analysis/
   structure.json
+  participant_map.json
   stats.json
   behavior_patterns.json
   principle_statements.json
@@ -44,6 +45,7 @@ Core file meanings:
 
 - `_manifest.json`: run scope, input type, selected mode, task route, privacy boundary, and created time.
 - `_normalized/messages.json`: normalized records from native JSON chat data or adapted exports.
+- `_analysis/participant_map.json`: raw sender buckets, human participant buckets, non-human/system buckets, confirmed aliases, alias candidates, mention signals, unresolved names, and tokens excluded from speech-style/top-word analysis.
 - `_analysis/principle_statements.json`: extracted rule-like, redefining, causal, attribution-reframing, or belief-reversal statements.
 - `_analysis/cognitive_break_windows.json`: candidate windows where long messages, topic-domain spread, and principle statements cluster.
 - `_analysis/core_thread_burn.md`: mandatory pre-report synthesis scratchpad for deep reports and personal skills.
