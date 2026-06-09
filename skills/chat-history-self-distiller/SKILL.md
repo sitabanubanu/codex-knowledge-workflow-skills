@@ -46,13 +46,15 @@ Choose the smallest mode that can satisfy the user's current decision:
 | `orientation` | User is exploring, file quality is unknown, or the request is broad | brief data map, top senders, feasibility, likely next questions | ask before deep interpretation |
 | `standard-report` | User wants to understand one person or one group | evidence-backed portrait/report with confidence labels | confirm uncertain or sensitive claims |
 | `deep-self-skill` | User wants a reusable personal skill or long-term self memory | `self.md`, `persona.md`, `evidence.md`, `meta.json`, draft `SKILL.md` | mandatory preview and correction |
+| `report-pack` | User wants a folder of readable reports, comparisons, or multi-angle analysis artifacts | overview report, focused sub-reports, participant map, evidence ledger | confirm identity and sensitive claims |
 | `team/relationship-map` | User cares about several people and dynamics | per-person profiles plus relationship dynamics | confirm names, aliases, and privacy boundary |
 
 Default ladder:
 
 1. Run `orientation` first when the task direction or input quality is unclear.
 2. Move to `standard-report` when the user has a clear target and wants conclusions.
-3. Move to `deep-self-skill` only when the user explicitly wants a reusable skill/memory.
+3. Move to `report-pack` when the user asks for multiple readable files, comparison packs, or a more product-like report folder.
+4. Move to `deep-self-skill` only when the user explicitly wants a reusable skill/memory.
 
 ## Commercial Acceptance Criteria
 
@@ -109,6 +111,30 @@ Ask only what is needed:
 If the user gives a broad request, assume `both` only when they explicitly want a reusable self/persona skill. Otherwise produce a report first.
 
 Then classify the task using `references/task-router.md`. If direction is unclear, run `orientation` first and show the user the data map before deep interpretation.
+
+### Phase 0.8: Delivery Path Lock
+
+Before analysis, lock exactly one delivery path. This locks the product shape, not the interpretation quality.
+
+Write this note in the run manifest if possible, and keep it visible in your working plan:
+
+```text
+Delivery path: orientation / standard-report / deep-self-skill / report-pack / team/relationship-map
+Why this path: ...
+Required deliverables: ...
+Explicit non-goals: ...
+Escalation rule: what user request or evidence would justify changing paths
+```
+
+Path contracts:
+
+- `orientation`: produce a participant/data map, structure summary, feasibility notes, and next questions. Do not make deep personality claims.
+- `standard-report`: produce a participant map, core-thread burn, one main evidence-backed report, evidence ledger, and preview when sensitive. Do not generate a reusable skill unless the user asks.
+- `deep-self-skill`: produce a participant map, core-thread burn, `draft_skill/self.md`, `persona.md`, `evidence.md`, `meta.json`, draft `SKILL.md`, and confirmation preview. Do not install or present it as stable memory before user confirmation.
+- `report-pack`: produce a participant map, core-thread burn, `00_overview.md`, focused sub-reports such as `01_behavior_language.md`, `02_relationship_network.md`, `03_emotional_trajectory.md`, `04_cognitive_style.md`, optional `05_self_review.md`, and an evidence ledger. Do not pretend this is a generated self skill.
+- `team/relationship-map`: produce participant identities, per-person summaries, relationship dynamics, boundaries, and privacy notes. Do not collapse several people into one voice.
+
+Interpretive Conversation Mode may be used inside `standard-report`, `report-pack`, or `deep-self-skill` after the identity gate passes. If the user changes the goal mid-run, write a new path lock and explain which earlier deliverables are now out of scope. Do not mix delivery paths silently.
 
 ### Phase 0.5: Input Adapter
 
@@ -529,6 +555,8 @@ If `_manifest.json`, `_analysis/run_summary.json`, and produced files disagree, 
 Before saying the work is done:
 
 - Raw file was not directly loaded wholesale.
+- Delivery path was locked before analysis, and final deliverables match that path.
+- Explicit non-goals were respected.
 - Structure and sender fields were detected.
 - `_analysis/participant_map.json` was read before interpretation.
 - Human participant count, canonical sender buckets, and excluded non-human buckets were stated.
@@ -557,6 +585,7 @@ Before saying the work is done:
 | Failure | Result | Correct Move |
 |---|---|---|
 | Read the whole JSON | Context overflow and shallow conclusions | Run analyzer first |
+| Mix delivery paths | Same skill/prompt produces incompatible folders and missed expectations | Lock one path in Phase 0.8; switch only with user request and updated manifest |
 | Analyze group chat as one voice | Wrong attribution | Use per-sender profiles |
 | Count aliases or system buckets as people | Wrong participant count and polluted reports | Use `participant_map.json`; confirm aliases before analysis |
 | Treat names in top words as catchphrases | Metadata becomes personality evidence | Filter aliases, group names, reply/file/link/media/system terms |

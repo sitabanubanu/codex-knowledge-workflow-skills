@@ -32,6 +32,11 @@ _findings/
 _review/
   preview.md
 _exports/
+  00_overview.md
+  01_behavior_language.md
+  02_relationship_network.md
+  03_emotional_trajectory.md
+  04_cognitive_style.md
   report.md
 draft_skill/
   self.md
@@ -53,7 +58,7 @@ Core file meanings:
 - `_evidence/evidence_ledger.json`: claim-to-evidence index. It may start empty after the analyzer run and be populated during interpretation.
 - `_findings/findings.json`: structured findings grouped by route, confidence, and status.
 - `_review/preview.md`: user-facing confirmation preview before finalizing sensitive conclusions or generated skills.
-- `_exports/`: final report artifacts when requested.
+- `_exports/`: final report artifacts when requested, including `report.md` for a single report or numbered report-pack files for `report-pack`.
 
 Final `_manifest.json` fields after interpretation:
 
@@ -61,6 +66,21 @@ Final `_manifest.json` fields after interpretation:
 {
   "mode": "deep-self-skill",
   "taskRoute": "profile + deep-self-skill",
+  "deliveryPath": "deep-self-skill",
+  "pathReason": "user explicitly requested reusable self/persona memory",
+  "requiredDeliverables": [
+    "_analysis/participant_map.json",
+    "_analysis/core_thread_burn.md",
+    "draft_skill/self.md",
+    "draft_skill/persona.md",
+    "draft_skill/evidence.md",
+    "draft_skill/meta.json",
+    "draft_skill/SKILL.md",
+    "_review/preview.md"
+  ],
+  "explicitNonGoals": [
+    "do not install generated skill before user confirmation"
+  ],
   "interpretationStatus": "draft-skill-generated",
   "finalDeliverables": [
     "draft_skill/self.md",

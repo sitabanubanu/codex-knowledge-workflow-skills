@@ -11,6 +11,33 @@ Run these gates before final delivery. They turn fluent analysis into an auditab
 
 If not, deliver orientation only.
 
+## Gate 1.5: Delivery Path Lock
+
+Before interpretation, exactly one delivery path must be named:
+
+- `orientation`
+- `standard-report`
+- `deep-self-skill`
+- `report-pack`
+- `team/relationship-map`
+
+Check:
+
+- selected path is written in the working plan or `_manifest.json`
+- path reason matches the user's request
+- required deliverables for that path are listed
+- explicit non-goals are listed
+- final files match the locked path
+- if the path changed, the reason and new required deliverables are recorded
+
+Fail this gate if:
+
+- the run produces a report pack when the locked path was `deep-self-skill`
+- the run generates `draft_skill/` when the locked path was only `standard-report`
+- the agent treats `orientation` as permission to make deep identity claims
+- deliverables from multiple paths are mixed without an explicit user-driven switch
+- the final answer claims product-quality completion while required path deliverables are missing
+
 ## Gate 2: Parse Integrity
 
 - input format was detected
