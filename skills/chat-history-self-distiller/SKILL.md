@@ -187,6 +187,7 @@ Outputs:
 - `_analysis/cross_validation.json`: themes with evidence across different months.
 - `_analysis/behavior_patterns.json`: non-keyword behavioral patterns such as emotion-to-analysis sequences, self-mockery followed by silence, repeated pings, and ignored questions.
 - `_analysis/principle_statements.json`: sentence-structure matches where the speaker states rules, redefines concepts, explains causality, or overturns prior beliefs.
+- `_analysis/contradictions.json`: ranked structural tension candidates, especially long denial to admission, principle vs behavior, and stance reversal. These are burn inputs, not verdicts.
 - `_analysis/cognitive_break_windows.json`: suspicious time windows where long messages, multiple topic domains, and principle statements cluster.
 - `_analysis/core_thread_burn.md`: mandatory synthesis scratchpad before deep reports or personal skills.
 - `_evidence/evidence_ledger.json`: claim/evidence ledger scaffold.
@@ -226,8 +227,9 @@ Read these outputs in order:
 5. `_samples/{target}_samples.json` for the target person
 6. `_analysis/behavior_patterns.json`
 7. `_analysis/principle_statements.json`
-8. `_analysis/cognitive_break_windows.json`
-9. `_analysis/cross_validation.json`
+8. `_analysis/contradictions.json`
+9. `_analysis/cognitive_break_windows.json`
+10. `_analysis/cross_validation.json`
 
 If an expected analyzer output is missing, do not reconstruct it from memory or invent its contents. Mark it as missing, continue only with available evidence, and downgrade any claim that depended on the missing file.
 
@@ -242,6 +244,7 @@ Interpretation checklist:
 - From `{target}_samples.json`: inspect first/last messages, quarterly samples, long messages, keyword hits, and per-sender behavior patterns.
 - From `behavior_patterns.json`: look for sequence-based evidence that keywords miss, especially emotion-to-analysis, self-mockery followed by silence, repeated pinging, ignored questions, and long rationalization after conflict.
 - From `principle_statements.json`: look for how the target defines rules, causality, self/world models, and belief reversals. These are often stronger evidence than emotion words.
+- From `contradictions.json`: inspect ranked structural tension candidates. Start with `long_denial_to_admission`, then `principle_vs_behavior`, then `stance_reversal`. Treat them as hypotheses to explain and verify, not proof of hypocrisy or inconsistency.
 - From `cognitive_break_windows.json`: inspect weeks where multiple domains become intense at once. Treat them as candidate turning points, not confirmed transformations.
 - From `cross_validation.json`: decide confidence. High-confidence claims need cross-time evidence; a vivid one-off quote is not enough.
 - Only then synthesize the report. If a major claim lacks evidence, mark it `Low` or `Insufficient`.
@@ -262,7 +265,13 @@ Create `_analysis/core_thread_burn.md` with this structure:
 If these quotes are all from the same person, what recurring problem are they trying to solve? Do not answer with personality traits or types. Name the long-running problem, pressure, or fight.
 
 ## Contradiction Test
-Choose the two most contradictory pieces of evidence. Can the hypothesis explain both without flattening either one? If not, discard or revise the hypothesis.
+Open `_analysis/contradictions.json` for the target person. Start with the highest-ranked structural tension candidate.
+
+Priority: Type 6 `long_denial_to_admission` > Type 1 `principle_vs_behavior` > Type 5 `stance_reversal`. Within the same type, use High > Medium > Low.
+
+The core thread must explain both poles without flattening either pole. Flattening means dismissing one side as unimportant, temporary, fake, or not real.
+
+If the thread cannot explain a High-confidence tension after three attempts, the thread is wrong for this run or only partial. Burn again, or downgrade to `Weak Thread` / `No Stable Thread`.
 
 ## Core Thread
 Compress the revised line into 1-2 sentences only if the hypothesis survives verification. This is a working thread, not final truth.
@@ -294,6 +303,7 @@ Use these fuel sources first:
 - `principleStatements` from `{target}_samples.json`
 - `_analysis/principle_statements.json`
 - `_analysis/behavior_patterns.json`
+- `_analysis/contradictions.json`
 - `_analysis/cognitive_break_windows.json`
 
 The core question is: what long-running problem does this person repeatedly process across unrelated surfaces? Keep the question sharp, but avoid dramatic destiny claims.
@@ -311,6 +321,7 @@ Process:
    - `_findings/findings.json`
    - `_evidence/evidence_ledger.json`
    - `_analysis/cognitive_break_windows.json`
+   - `_analysis/contradictions.json`
    - `_analysis/principle_statements.json`
    - `_analysis/behavior_patterns.json`
    - `draft_skill/self.md` or `draft_skill/persona.md` when available
@@ -333,6 +344,7 @@ Important distinctions:
 - A principle statement is fuel for candidate generation, not the answer.
 - A cognitive break window is fuel for candidate generation, not proof of a life transformation.
 - A behavior pattern is fuel for candidate generation, not a diagnosis or stable trait.
+- A structural tension candidate is fuel for burn and answer generation, not proof that the person is hypocritical or inconsistent.
 
 ### Phase 8: Evidence-Backed Report
 
@@ -547,6 +559,7 @@ Required final fields:
 - `requiresUserConfirmation`: `true` for any generated personal skill or sensitive identity/persona conclusions.
 - `previewPath`: path to `_review/preview.md` if confirmation is required.
 - `behaviorPatternsAvailable`: whether `_analysis/behavior_patterns.json` exists and was used.
+- `structuralTensionsAvailable`: whether `_analysis/contradictions.json` exists and was used.
 
 If `_manifest.json`, `_analysis/run_summary.json`, and produced files disagree, fix the metadata before final delivery. If metadata cannot be updated, state the mismatch explicitly.
 
@@ -573,6 +586,7 @@ Before saying the work is done:
 - Medium/Low claims are not promoted into stable persona rules without a confirmation note.
 - `Hypothesis` claims remain in preview/evidence rather than final identity memory.
 - Core Thread Burn result is reported honestly: `Core Thread Found`, `Weak Thread`, or `No Stable Thread`.
+- High-ranked structural tension candidates were tested in the burn, and neither pole was flattened.
 - If the burn result is weak, the final deliverable is narrowed rather than forced into a grand explanation.
 - Runtime status of the analyzer is clear: `SmokeTested`, `PartiallySmokeTested`, `RuntimeBlocked`, `RuntimeUnverified`, or `RuntimeFailed`.
 - Task route was explicit: profile, relationship, theme, conflict, timeline, evidence extraction, paper/report review, or self-skill.
@@ -594,6 +608,8 @@ Before saying the work is done:
 | Hide uncertainty | False confidence | Use confidence labels |
 | Generate a skill immediately | User feels misrepresented | Preview and correct first |
 | Force a core thread | Grand but false story | Mark `Weak Thread` or `No Stable Thread` and narrow the report |
+| Treat tension candidates as verdicts | The report accuses the person of hypocrisy or inconsistency without verification | Use `contradictions.json` as burn input only; verify both poles with dated evidence |
+| Ignore high-ranked tensions | The report feels smooth but avoids the strongest internal pressure | Re-burn from the highest-ranked Type 6 / Type 1 candidate |
 | Treat fuel as conclusion | Principle/window signals become hallucinated traits | Verify with dated quotes and alternative explanations |
 | Turn safety gates into the whole answer | The user gets an audit, not understanding | Keep gates internal; deliver a useful, discussable model |
 

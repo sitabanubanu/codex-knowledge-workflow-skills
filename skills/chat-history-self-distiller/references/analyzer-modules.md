@@ -12,10 +12,13 @@ Evidence:
 - first/last/quarterly samples
 - long messages
 - behavior patterns from `_analysis/behavior_patterns.json`
+- structural tension candidates from `_analysis/contradictions.json`
 - keyword hits
 - cross-validation across months
 
 Sequence-based behavior evidence is useful when keywords are weak. Use it for patterns such as short emotion -> long analysis, self-mockery -> silence, unanswered ping/question -> self-continuation, or conflict cue -> rationalization. Treat these as clues that need interpretation, not automatic personality labels.
+
+Structural tension candidates are useful when fluent reports become too smooth. Use `_analysis/contradictions.json` to find the highest-ranked places where principle, admission, and behavior pull against each other. Treat them as burn inputs, not proof that the person is hypocritical or inconsistent.
 
 Avoid:
 

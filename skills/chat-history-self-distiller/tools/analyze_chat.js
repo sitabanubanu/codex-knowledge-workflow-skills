@@ -23,7 +23,7 @@ function ensureDir(dir) {
 }
 
 function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, "utf8"));
+  return JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
 }
 
 function writeJson(file, data) {
@@ -366,6 +366,302 @@ function detectCognitiveBreakWindows(messages, principleStatements) {
   return {
     note: "Candidate cognitive restructuring windows. Verify manually; these are not conclusions.",
     windows
+  };
+}
+
+const TENSION_ADMISSION_CUES = ["其实我", "说实话", "说真的", "老实说", "坦白说", "我自己反而", "我承认", "我发现我", "我知道我", "我其实", "我也会", "我反而"];
+const TENSION_NEGATIVE_CUES = ["不是", "并不是", "不能", "不会", "不该", "不需要", "不要", "别", "没用", "没有意义", "不重要", "不值得", "放屁", "扯淡", "否定", "不信", "拒绝", "假的", "虚伪"];
+const TENSION_POSITIVE_CUES = ["应该", "需要", "值得", "重要", "必须", "可以", "想要", "在乎", "承认", "喜欢", "希望", "相信", "接受", "改变", "做到"];
+const TENSION_EXTRA_DOMAINS = {
+  self: ["爱自己", "自尊", "自信", "自卑", "锚点", "存在", "痕迹", "价值感", "我自己", "自我"],
+  relationship: ["走心", "亲密", "喜欢", "在乎", "被爱", "陪伴", "朋友", "回应", "不回", "冷落"],
+  schoolCareer: ["成绩", "排名", "班级第一", "学习委员", "奖学金", "绩点", "保研", "考学", "考研"],
+  bodyDiscipline: ["戒断", "上瘾", "控制", "失控", "配额", "打分", "反向记分", "清单"],
+  creationTech: ["工具", "工作流", "工程化", "agent", "AI", "skill", "项目"],
+  future: ["出路", "命运", "改变命", "阶层", "未来", "规划"],
+  societyLaw: ["制度", "公平", "正义", "法律", "社会", "政治"]
+};
+const TENSION_TYPE_PRIORITY = {
+  long_denial_to_admission: 6,
+  principle_vs_behavior: 5,
+  stance_reversal: 3
+};
+const TENSION_CONFIDENCE_SCORE = { High: 3, Medium: 2, Low: 1, Insufficient: 0 };
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function classifyTensionDomains(text) {
+  const domains = new Set(classifyTopicDomains(text || ""));
+  for (const [domain, cues] of Object.entries(TENSION_EXTRA_DOMAINS)) {
+    if (includesAny(text || "", cues)) domains.add(domain);
+  }
+  return [...domains].sort();
+}
+
+function overlapsAny(a, b) {
+  const bSet = new Set(b || []);
+  return (a || []).some(item => bSet.has(item));
+}
+
+function tensionStance(text) {
+  const hasAdmission = includesAny(text || "", TENSION_ADMISSION_CUES);
+  const hasNegative = includesAny(text || "", TENSION_NEGATIVE_CUES);
+  const hasPositive = includesAny(text || "", TENSION_POSITIVE_CUES);
+  if (hasAdmission) return "admission";
+  if (hasNegative && hasPositive) return "mixed";
+  if (hasNegative) return "negative";
+  if (hasPositive) return "positive";
+  return "unknown";
+}
+
+function opposingStance(a, b) {
+  const left = new Set(["negative"]);
+  const right = new Set(["positive", "admission"]);
+  return (left.has(a) && right.has(b)) || (right.has(a) && left.has(b));
+}
+
+function statementTimestamp(statement, messageByIndex) {
+  const original = messageByIndex.get(statement.index);
+  if (original) return original.timestamp;
+  const parsed = Date.parse(statement.datetime || statement.date || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compactStatement(statement, messageByIndex, extra = {}) {
+  const original = messageByIndex.get(statement.index);
+  return {
+    source: statement.source || "principle_statements",
+    index: statement.index,
+    date: statement.date,
+    datetime: statement.datetime,
+    pattern: statement.pattern,
+    content: (statement.content || original?.content || "").slice(0, 500),
+    ...extra
+  };
+}
+
+function buildTensionStatements(messages, principleStatements) {
+  const statementsBySender = {};
+  const seenIndexes = new Set();
+  for (const [sender, statements] of Object.entries(principleStatements.statementsBySender || {})) {
+    statementsBySender[sender] ||= [];
+    for (const statement of statements) {
+      statementsBySender[sender].push({ ...statement, source: "principle_statements" });
+      seenIndexes.add(statement.index);
+    }
+  }
+
+  for (const message of messages) {
+    if (seenIndexes.has(message.index)) continue;
+    const text = message.content || "";
+    if (text.length < 20) continue;
+    const domains = classifyTensionDomains(text);
+    const stance = tensionStance(text);
+    if (domains.length === 0 || stance === "unknown" || stance === "mixed") continue;
+    statementsBySender[message.sender] ||= [];
+    statementsBySender[message.sender].push({
+      index: message.index,
+      date: message.date,
+      datetime: message.datetime,
+      sender: message.sender,
+      pattern: "tension_cue_fallback",
+      matched: "domain + stance cue",
+      source: "normalized_messages",
+      content: text.slice(0, 700)
+    });
+  }
+
+  for (const statements of Object.values(statementsBySender)) {
+    statements.sort((a, b) => (a.index || 0) - (b.index || 0));
+  }
+
+  return statementsBySender;
+}
+
+function dateRangeFromEvidence(items) {
+  const dates = items.map(item => item.date).filter(Boolean).sort();
+  if (dates.length === 0) return null;
+  return dates.length === 1 ? dates[0] : `${dates[0]} to ${dates[dates.length - 1]}`;
+}
+
+function confidenceFromEvidence(count, uniqueMonths, base = "Low") {
+  if (count >= 5 && uniqueMonths >= 2) return "High";
+  if (count >= 3 || uniqueMonths >= 2) return "Medium";
+  if (count >= 2) return base;
+  return "Insufficient";
+}
+
+function addTension(tensionsBySender, sender, tension) {
+  tensionsBySender[sender] ||= [];
+  tensionsBySender[sender].push(tension);
+}
+
+function buildTensionSummary(contradictionsBySender) {
+  const summary = {
+    totalContradictions: 0,
+    byType: {},
+    byConfidence: {},
+    bySender: {}
+  };
+  for (const [sender, tensions] of Object.entries(contradictionsBySender)) {
+    summary.bySender[sender] = tensions.length;
+    summary.totalContradictions += tensions.length;
+    for (const tension of tensions) {
+      summary.byType[tension.type] = (summary.byType[tension.type] || 0) + 1;
+      summary.byConfidence[tension.confidence] = (summary.byConfidence[tension.confidence] || 0) + 1;
+    }
+  }
+  return summary;
+}
+
+function detectStructuralTensions(messages, principleStatements, behaviorPatterns) {
+  const messageByIndex = new Map(messages.map(message => [message.index, message]));
+  const messagesBySender = {};
+  for (const message of messages) {
+    messagesBySender[message.sender] ||= [];
+    messagesBySender[message.sender].push(message);
+  }
+  for (const senderMessages of Object.values(messagesBySender)) {
+    senderMessages.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  const contradictionsBySender = {};
+  const statementsBySender = buildTensionStatements(messages, principleStatements);
+  const ninetyDays = 90 * 24 * 60 * 60 * 1000;
+  const oneYear = 365 * 24 * 60 * 60 * 1000;
+  const sixtyDays = 60 * 24 * 60 * 60 * 1000;
+
+  for (const [sender, statementsRaw] of Object.entries(statementsBySender)) {
+    const statements = [...statementsRaw].sort((a, b) => statementTimestamp(a, messageByIndex) - statementTimestamp(b, messageByIndex));
+    const senderMessages = messagesBySender[sender] || [];
+
+    for (const statement of statements) {
+      const text = statement.content || "";
+      const domains = classifyTensionDomains(text);
+      const stance = tensionStance(text);
+      if (domains.length === 0 || stance !== "negative") continue;
+      const start = statementTimestamp(statement, messageByIndex);
+      const end = start + ninetyDays;
+      const laterOccurrences = senderMessages
+        .filter(message => message.index !== statement.index && message.timestamp > start && message.timestamp <= end)
+        .map(message => ({ message, domains: classifyTensionDomains(message.content || "") }))
+        .filter(item => overlapsAny(domains, item.domains))
+        .slice(0, 12);
+      if (laterOccurrences.length < 2) continue;
+      const months = uniqueValues(laterOccurrences.map(item => item.message.date.slice(0, 7)));
+      const confidence = confidenceFromEvidence(laterOccurrences.length, months.length);
+      const evidence = laterOccurrences.slice(0, 5).map(item => compactEvidence(item.message, { topicDomains: item.domains }));
+      addTension(contradictionsBySender, sender, {
+        type: "principle_vs_behavior",
+        detectorType: "Type 1",
+        status: "tensionCandidate",
+        confidence,
+        rankScore: 5000 + TENSION_CONFIDENCE_SCORE[confidence] * 100 + laterOccurrences.length,
+        poleA: compactStatement(statement, messageByIndex, { stance, topicDomains: domains }),
+        poleB: {
+          source: "normalized_messages",
+          dateRange: dateRangeFromEvidence(evidence),
+          occurrences: laterOccurrences.length,
+          uniqueMonths: months.length,
+          topicDomains: uniqueValues(laterOccurrences.flatMap(item => item.domains)),
+          evidence
+        },
+        tensionDescription: "A principle-like statement rejects or negates a domain, but later same-domain behavior/discussion keeps appearing. Treat this as a structural tension candidate, not a verdict."
+      });
+    }
+
+    for (const current of senderMessages) {
+      const text = current.content || "";
+      if (!includesAny(text, TENSION_ADMISSION_CUES) || !text.includes("我")) continue;
+      const domains = classifyTensionDomains(text);
+      if (domains.length === 0) continue;
+      const previousDenials = statements
+        .filter(statement => {
+          const ts = statementTimestamp(statement, messageByIndex);
+          if (ts >= current.timestamp || current.timestamp - ts > oneYear) return false;
+          const statementDomains = classifyTensionDomains(statement.content || "");
+          return overlapsAny(domains, statementDomains) && tensionStance(statement.content || "") === "negative";
+        })
+        .slice(-8);
+      if (previousDenials.length < 2) continue;
+      const denialEvidence = previousDenials.map(item => compactStatement(item, messageByIndex, {
+        stance: "negative",
+        topicDomains: classifyTensionDomains(item.content || "")
+      }));
+      const months = uniqueValues(denialEvidence.map(item => item.date?.slice(0, 7)));
+      const confidence = previousDenials.length >= 3 || months.length >= 2 ? "High" : "Medium";
+      addTension(contradictionsBySender, sender, {
+        type: "long_denial_to_admission",
+        detectorType: "Type 6",
+        status: "tensionCandidate",
+        confidence,
+        rankScore: 6000 + TENSION_CONFIDENCE_SCORE[confidence] * 100 + previousDenials.length,
+        poleA: {
+          source: "tension_statements",
+          dateRange: dateRangeFromEvidence(denialEvidence),
+          occurrences: previousDenials.length,
+          topicDomains: uniqueValues(denialEvidence.flatMap(item => item.topicDomains || [])),
+          sourceTypes: uniqueValues(denialEvidence.map(item => item.source)),
+          evidence: denialEvidence.slice(0, 5)
+        },
+        poleB: {
+          source: "normalized_messages",
+          date: current.date,
+          datetime: current.datetime,
+          index: current.index,
+          stance: "admission",
+          topicDomains: domains,
+          content: text.slice(0, 500)
+        },
+        tensionDescription: "Earlier same-domain statements repeatedly negate or reject something; a later self-directed admission leaks the opposite need or fact. This is a high-value burn input, not a final diagnosis."
+      });
+    }
+
+    for (let i = 0; i < statements.length; i++) {
+      const earlier = statements[i];
+      const earlierDomains = classifyTensionDomains(earlier.content || "");
+      const earlierStance = tensionStance(earlier.content || "");
+      if (earlierDomains.length === 0 || !["negative", "positive", "admission"].includes(earlierStance)) continue;
+      for (let j = i + 1; j < statements.length; j++) {
+        const later = statements[j];
+        const gap = statementTimestamp(later, messageByIndex) - statementTimestamp(earlier, messageByIndex);
+        if (gap < sixtyDays) continue;
+        const laterDomains = classifyTensionDomains(later.content || "");
+        const laterStance = tensionStance(later.content || "");
+        if (!overlapsAny(earlierDomains, laterDomains) || !opposingStance(earlierStance, laterStance)) continue;
+        const confidence = gap >= oneYear ? "Medium" : "Low";
+        addTension(contradictionsBySender, sender, {
+          type: "stance_reversal",
+          detectorType: "Type 5",
+          status: "tensionCandidate",
+          confidence,
+          rankScore: 3000 + TENSION_CONFIDENCE_SCORE[confidence] * 100 + Math.round(gap / (30 * 24 * 60 * 60 * 1000)),
+          poleA: compactStatement(earlier, messageByIndex, { stance: earlierStance, topicDomains: earlierDomains }),
+          poleB: compactStatement(later, messageByIndex, { stance: laterStance, topicDomains: laterDomains }),
+          tensionDescription: "The same speaker appears to reverse stance in the same domain across time. Verify manually; this may be growth, context change, irony, or a real tension."
+        });
+      }
+    }
+  }
+
+  for (const [sender, tensions] of Object.entries(contradictionsBySender)) {
+    tensions.sort((a, b) => b.rankScore - a.rankScore || (a.poleA.date || "").localeCompare(b.poleA.date || ""));
+    contradictionsBySender[sender] = tensions.slice(0, 40).map((tension, index) => ({
+      tensionId: `T${String(index + 1).padStart(3, "0")}`,
+      ...tension,
+      burnPriority: index + 1
+    }));
+  }
+
+  return {
+    note: "Structural tension candidates. These are ranked leads for Core Thread Burn, not proof that a person is inconsistent or hypocritical.",
+    priorityOrder: ["long_denial_to_admission", "principle_vs_behavior", "stance_reversal"],
+    generatedFrom: ["principle_statements.json", "behavior_patterns.json", "_normalized/messages.json"],
+    behaviorPatternSummaryAvailable: Boolean(behaviorPatterns && behaviorPatterns.summary),
+    contradictionsBySender,
+    summary: buildTensionSummary(contradictionsBySender)
   };
 }
 
@@ -713,6 +1009,7 @@ function main() {
       participantMapAvailable: true,
       behaviorPatternsAvailable: true,
       principleStatementsAvailable: true,
+      structuralTensionsAvailable: true,
       cognitiveBreakWindowsAvailable: true,
       coreThreadBurnPath: path.join(analysisDir, "core_thread_burn.md")
     }
@@ -758,6 +1055,7 @@ function main() {
   const behaviorPatterns = detectBehaviorPatterns(normalized);
   const principleStatements = detectPrincipleStatements(normalized);
   const cognitiveBreakWindows = detectCognitiveBreakWindows(normalized, principleStatements);
+  const structuralTensions = detectStructuralTensions(normalized, principleStatements, behaviorPatterns);
   const topWordStopWords = new Set(participantMap.excludedFromTopWords || []);
   for (const [sender, msgs] of Object.entries(bySender)) {
     stats.topWordsBySender[sender] = topWords(msgs.map(x => ({ content: x.content })), "content", 30, topWordStopWords);
@@ -765,6 +1063,7 @@ function main() {
   writeJson(path.join(analysisDir, "stats.json"), stats);
   writeJson(path.join(analysisDir, "behavior_patterns.json"), behaviorPatterns);
   writeJson(path.join(analysisDir, "principle_statements.json"), principleStatements);
+  writeJson(path.join(analysisDir, "contradictions.json"), structuralTensions);
   writeJson(path.join(analysisDir, "cognitive_break_windows.json"), cognitiveBreakWindows);
 
   const chunkSize = Number(args.chunkSize || 10000);
@@ -831,6 +1130,7 @@ function main() {
       longMessages: msgs.filter(m => m.content.length > 100).slice(0, 200),
       behaviorPatterns: behaviorPatterns.patternsBySender[info.name] || {},
       principleStatements: (principleStatements.statementsBySender[info.name] || []).slice(0, 120),
+      structuralTensions: (structuralTensions.contradictionsBySender[info.name] || []).slice(0, 20),
       keywordHits
     };
     writeJson(path.join(samplesDir, `${safeName(info.name)}_samples.json`), samples);
@@ -859,6 +1159,7 @@ function main() {
       samplesDir,
       behaviorPatterns: path.join(analysisDir, "behavior_patterns.json"),
       principleStatements: path.join(analysisDir, "principle_statements.json"),
+      structuralTensions: path.join(analysisDir, "contradictions.json"),
       cognitiveBreakWindows: path.join(analysisDir, "cognitive_break_windows.json"),
       coreThreadBurn: path.join(analysisDir, "core_thread_burn.md"),
       crossValidation: path.join(analysisDir, "cross_validation.json")
@@ -897,7 +1198,13 @@ function main() {
       "",
       "## Contradiction Test",
       "",
-      "Choose the two most contradictory pieces of evidence. Can the hypothesis explain both without flattening either one?",
+      "Open `_analysis/contradictions.json` for the target person. Start with the highest-ranked structural tension candidate.",
+      "",
+      "Priority: Type 6 long_denial_to_admission > Type 1 principle_vs_behavior > Type 5 stance_reversal. Within the same type, use High > Medium > Low.",
+      "",
+      "The hypothesis must explain both poles without flattening either pole. Flattening means dismissing one side as unimportant, temporary, fake, or not real.",
+      "",
+      "If the hypothesis cannot explain a High-confidence tension after three attempts, either burn again or downgrade to Weak Thread / No Stable Thread. Do not force one grand explanation.",
       "",
       "## Mandatory Verification",
       "",
@@ -961,6 +1268,7 @@ function main() {
       senderList: path.join(profilesDir, "_sender_list.json"),
       behaviorPatterns: path.join(analysisDir, "behavior_patterns.json"),
       principleStatements: path.join(analysisDir, "principle_statements.json"),
+      structuralTensions: path.join(analysisDir, "contradictions.json"),
       cognitiveBreakWindows: path.join(analysisDir, "cognitive_break_windows.json"),
       coreThreadBurn: path.join(analysisDir, "core_thread_burn.md"),
       crossValidation: path.join(analysisDir, "cross_validation.json"),

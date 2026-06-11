@@ -12,6 +12,7 @@ _analysis/
   stats.json
   behavior_patterns.json
   principle_statements.json
+  contradictions.json
   cognitive_break_windows.json
   core_thread_burn.md
   candidate_answers.json
@@ -52,6 +53,7 @@ Core file meanings:
 - `_normalized/messages.json`: normalized records from native JSON chat data or adapted exports.
 - `_analysis/participant_map.json`: raw sender buckets, human participant buckets, non-human/system buckets, confirmed aliases, alias candidates, mention signals, unresolved names, and tokens excluded from speech-style/top-word analysis.
 - `_analysis/principle_statements.json`: extracted rule-like, redefining, causal, attribution-reframing, or belief-reversal statements.
+- `_analysis/contradictions.json`: ranked structural tension candidates. These are inputs for Core Thread Burn, not final conclusions.
 - `_analysis/cognitive_break_windows.json`: candidate windows where long messages, topic-domain spread, and principle statements cluster.
 - `_analysis/core_thread_burn.md`: mandatory pre-report synthesis scratchpad for deep reports and personal skills.
 - `_analysis/candidate_answers.json`: optional internal candidate-answer ledger for interpretive questions; do not expose raw mechanics as the final answer.
@@ -93,6 +95,7 @@ Final `_manifest.json` fields after interpretation:
   "previewPath": "_review/preview.md",
   "behaviorPatternsAvailable": true,
   "principleStatementsAvailable": true,
+  "structuralTensionsAvailable": true,
   "cognitiveBreakWindowsAvailable": true,
   "coreThreadBurnPath": "_analysis/core_thread_burn.md"
 }
@@ -123,6 +126,51 @@ Final `_manifest.json` fields after interpretation:
 }
 ```
 
+`_analysis/contradictions.json` shape:
+
+```json
+{
+  "note": "Structural tension candidates, not proof of inconsistency.",
+  "priorityOrder": [
+    "long_denial_to_admission",
+    "principle_vs_behavior",
+    "stance_reversal"
+  ],
+  "contradictionsBySender": {
+    "me": [
+      {
+        "tensionId": "T001",
+        "type": "long_denial_to_admission",
+        "detectorType": "Type 6",
+        "status": "tensionCandidate",
+        "confidence": "High",
+        "burnPriority": 1,
+        "poleA": {
+          "source": "principle_statements",
+          "dateRange": "2025-01-01 to 2025-06-01",
+          "occurrences": 3,
+          "topicDomains": ["self"],
+          "evidence": []
+        },
+        "poleB": {
+          "source": "normalized_messages",
+          "date": "2026-01-01",
+          "stance": "admission",
+          "topicDomains": ["self"],
+          "content": "..."
+        },
+        "tensionDescription": "..."
+      }
+    ]
+  },
+  "summary": {
+    "totalContradictions": 1,
+    "byType": { "long_denial_to_admission": 1 },
+    "byConfidence": { "High": 1 }
+  }
+}
+```
+
 `_analysis/cognitive_break_windows.json` shape:
 
 ```json
@@ -147,7 +195,7 @@ Final `_manifest.json` fields after interpretation:
 
 - `Raw Quote Pile`
 - `One Problem Hypothesis`
-- `Contradiction Test`
+- `Contradiction Test`: must start from `_analysis/contradictions.json` when tension candidates exist.
 - `Mandatory Verification`
 - `Core Thread`
 - `Evidence That Does Not Fit`
