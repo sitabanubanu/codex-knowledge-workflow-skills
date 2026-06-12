@@ -131,7 +131,7 @@ Path contracts:
 - `orientation`: produce a participant/data map, structure summary, feasibility notes, and next questions. Do not make deep personality claims.
 - `standard-report`: produce a participant map, core-thread burn, one main evidence-backed report, evidence ledger, and preview when sensitive. Do not generate a reusable skill unless the user asks.
 - `deep-self-skill`: produce a participant map, core-thread burn, `draft_skill/self.md`, `persona.md`, `evidence.md`, `meta.json`, draft `SKILL.md`, and confirmation preview. Do not install or present it as stable memory before user confirmation.
-- `report-pack`: produce a participant map, core-thread burn, `00_overview.md`, focused sub-reports such as `01_behavior_language.md`, `02_relationship_network.md`, `03_emotional_trajectory.md`, `04_cognitive_style.md`, optional `05_self_review.md`, and an evidence ledger. Do not pretend this is a generated self skill.
+- `report-pack`: produce a participant map, identity lock, multi-line burn, `00_overview.md`, focused sub-reports such as `01_behavior_language.md`, `02_relationship_network.md`, `03_emotional_trajectory.md`, `04_cognitive_style.md`, optional `05_self_review.md`, optional `08_user_questions_and_evidence.md`, optional `09_mental_health_signals.md`, and an evidence ledger. Do not pretend this is a generated self skill.
 - `team/relationship-map`: produce participant identities, per-person summaries, relationship dynamics, boundaries, and privacy notes. Do not collapse several people into one voice.
 
 Interpretive Conversation Mode may be used inside `standard-report`, `report-pack`, or `deep-self-skill` after the identity gate passes. If the user changes the goal mid-run, write a new path lock and explain which earlier deliverables are now out of scope. Do not mix delivery paths silently.
@@ -180,6 +180,7 @@ Outputs:
 - `_normalized/messages.json`: normalized message records for native chat exports.
 - `_analysis/structure.json`: field mapping, message count, senders, time span.
 - `_analysis/participant_map.json`: raw sender buckets, human participant buckets, non-human/system buckets, alias candidates, outgoing mentions, unresolved names, and top-word exclusions.
+- `_analysis/identity_lock.md`: created after the identity gate; the final report must not contradict it.
 - `_analysis/stats.json`: yearly/monthly sender stats, text length, active hours, high-frequency words.
 - `_split/part_*.json`: chunks for very large files.
 - `_profiles/{sender}.json`: complete per-sender profile.
@@ -190,6 +191,7 @@ Outputs:
 - `_analysis/contradictions.json`: ranked structural tension candidates, especially long denial to admission, principle vs behavior, and stance reversal. These are burn inputs, not verdicts.
 - `_analysis/cognitive_break_windows.json`: suspicious time windows where long messages, multiple topic domains, and principle statements cluster.
 - `_analysis/core_thread_burn.md`: mandatory synthesis scratchpad before deep reports or personal skills.
+- `_analysis/candidate_answers.json`: optional candidate-answer ledger for direct user questions.
 - `_evidence/evidence_ledger.json`: claim/evidence ledger scaffold.
 - `_findings/findings.json`: structured findings scaffold.
 
@@ -214,7 +216,22 @@ Rules:
 - A group name or system bucket is never a speaking person.
 - `(空)` / empty sender buckets are missing-sender event records, not a participant.
 - Do not use participant names, aliases, group names, `回复`, `引用消息`, `聊天记录`, `文件`, `链接`, `图片`, `视频`, or system-event terms as speech-style or catchphrase evidence.
+- Do not infer gender from pronoun counts, language style, nicknames, emoji, topic interest, or "masculine/feminine" writing style. Gender/pronouns may be stated only when the user provided them, a direct self-statement exists, or the report marks them as `unknown`.
 - Every final report or generated personal skill must include a short participant summary: human count, canonical sender buckets, confirmed aliases, and excluded non-human buckets.
+
+Before writing any profile report, create a visible identity lock in `_analysis/identity_lock.md` or at the top of the report:
+
+```text
+Identity lock:
+- Target canonical sender:
+- Confirmed aliases:
+- Human participants counted:
+- Excluded non-human/system buckets:
+- Gender/pronoun source: user-provided / direct self-statement / unknown
+- Prohibited inferences: no gender/person count from pronoun frequency, top words, @mentions, forwarded-chat names, group names, or empty sender buckets
+```
+
+If the draft later says a different participant count, treats a system bucket as a person, or assigns gender from style/pronoun counts, the report fails and must be rewritten from the identity lock.
 
 ### Phase 7: Read Evidence, Not Raw Data
 
@@ -249,7 +266,7 @@ Interpretation checklist:
 - From `cross_validation.json`: decide confidence. High-confidence claims need cross-time evidence; a vivid one-off quote is not enough.
 - Only then synthesize the report. If a major claim lacks evidence, mark it `Low` or `Insufficient`.
 
-### Phase 7.5: Core Thread Burn
+### Phase 7.5: Multi-Line Core Thread Burn
 
 This phase is mandatory before any `standard-report`, `deep-self-skill`, or sensitive profile interpretation. Do not skip from evidence reading directly to the report.
 
@@ -261,8 +278,26 @@ Create `_analysis/core_thread_burn.md` with this structure:
 ## Raw Quote Pile
 15-20 strong direct quotes. Do not classify, rank, or sort them by topic. Mix politics, friendship, self-talk, future imagination, conflict, care, and principles.
 
+## Candidate Lines
+Do not force one totalizing line. Generate 3-5 candidate lines when evidence supports them, for example:
+
+- historical root line: an older wound, label, or formative self-story
+- current dominant line: the pressure most active in the latest 6-12 months
+- relationship/self-worth line
+- study/work/future line
+- body/health/emotion-regulation line
+- expression/cognitive-style line
+
+For each line, write:
+
+- one-sentence claim
+- strongest dated evidence
+- recency: early / middle / recent / continuous
+- scope: where this line applies and where it does not
+- status: `current dominant`, `historical root`, `active secondary`, `contextual`, or `weak`
+
 ## One Problem Hypothesis
-If these quotes are all from the same person, what recurring problem are they trying to solve? Do not answer with personality traits or types. Name the long-running problem, pressure, or fight.
+If a single thread exists, state it only after comparing candidate lines. If not, keep multiple lines. Do not answer with personality traits or types. Name the recurring problem, pressure, or fight, and say whether it is current or historical.
 
 ## Contradiction Test
 Open `_analysis/contradictions.json` for the target person. Start with the highest-ranked structural tension candidate.
@@ -274,7 +309,9 @@ The core thread must explain both poles without flattening either pole. Flatteni
 If the thread cannot explain a High-confidence tension after three attempts, the thread is wrong for this run or only partial. Burn again, or downgrade to `Weak Thread` / `No Stable Thread`.
 
 ## Core Thread
-Compress the revised line into 1-2 sentences only if the hypothesis survives verification. This is a working thread, not final truth.
+Compress the revised line into 1-2 sentences only if the hypothesis survives verification and recent evidence still supports it. This is a working thread, not final truth.
+
+Also write a `Current Dominant Line` section. A vivid old quote may explain origins, but it cannot become the report's main line if the latest 6-12 months show that another pressure has become more active.
 
 ## Evidence That Does Not Fit
 List any strong quote that resists the thread. If important evidence does not fit, either revise the thread or downgrade the final report to an evidence report.
@@ -289,10 +326,20 @@ For each claim in the proposed Core Thread:
 
 If any answer is weak, vague, or missing, the claim is not ready for the final report.
 
+## Time-Weight Check
+
+For every candidate line, answer:
+
+1. Is this line supported in the latest 6-12 months?
+2. If it is mostly older than one year, should it be called `historical root` instead of `current dominant`?
+3. Which line best explains recent behavior, current user questions, and the target person's own feedback?
+4. Which line is attractive because it has a sharp quote, but may be outdated or too narrow?
+
 ## Burn Result
 Choose one:
 
 - `Core Thread Found`: verified enough to organize a deep report.
+- `Multi-Line Model`: no single line should dominate; use several verified lines with a named current dominant line.
 - `Weak Thread`: useful hypothesis, but not strong enough to organize the report. Keep it as `Hypothesis`.
 - `No Stable Thread`: evidence does not support a single organizing line. Downgrade to evidence report or ask the user for direction.
 ```
@@ -306,7 +353,7 @@ Use these fuel sources first:
 - `_analysis/contradictions.json`
 - `_analysis/cognitive_break_windows.json`
 
-The core question is: what long-running problem does this person repeatedly process across unrelated surfaces? Keep the question sharp, but avoid dramatic destiny claims.
+The core question is: what long-running problems does this person repeatedly process across unrelated surfaces, and which one is most alive now? Keep the question sharp, but avoid dramatic destiny claims.
 
 Important: the burn is allowed to fail. A failed burn is a valid result and should lower hallucination risk. Do not invent a core thread to satisfy the workflow. If the best answer is `Weak Thread` or `No Stable Thread`, say so and write a narrower report.
 
@@ -379,8 +426,58 @@ Do not stop at labels such as "thinker", "creator", "analyst", "builder", or "se
 Burn result routing:
 
 - `Core Thread Found`: use the verified thread as the organizing hypothesis, but keep contradictions visible.
+- `Multi-Line Model`: organize the main report around multiple lines. Lead with the current dominant line, then show historical roots and active secondary lines.
 - `Weak Thread`: do not organize the whole report around it. Present it as a possible line and foreground micro-scenes.
 - `No Stable Thread`: produce an evidence report only: observations, quotes, limits, and next questions.
+
+### Phase 8.5: Report Pack, User Questions, And Sensitive Topic Separation
+
+For `report-pack`, keep the product readable by separating stable identity modeling from user-specific questions and sensitive topics.
+
+Recommended report pack:
+
+- `00_overview.md`: main persona/profile report. It may summarize sensitive or user-question findings, but should not absorb every answer.
+- `01_behavior_language.md`: speech style, rhythm, interaction style.
+- `02_relationship_network.md`: relationship roles and dynamics.
+- `03_emotional_trajectory.md`: emotional and growth trajectory.
+- `04_cognitive_style.md`: thinking, values, judgment priority, decision style.
+- `05_self_review.md`: optional first-person self-review when requested.
+- `08_user_questions_and_evidence.md`: answers to explicit user questions, with evidence and whether each answer should update the main profile.
+- `09_mental_health_signals.md`: only when explicitly requested or clearly necessary; keep it separate from the main persona report.
+- `99_corrections_and_review.md`: user corrections, accepted/narrowed/held hypotheses, and report changes.
+
+User question report shape:
+
+```markdown
+# User Questions And Evidence
+
+## Q1: ...
+
+Short answer:
+
+Evidence:
+- date/source + quote or pointer
+- date/source + quote or pointer
+
+Complication:
+
+Relationship to main report:
+- promote to main report / summarize only / keep as topical answer / do not promote
+
+Confidence:
+```
+
+Promotion rule: a user-question answer enters the main report only when it changes stable understanding of the person and has enough evidence. Otherwise keep it in `08_user_questions_and_evidence.md` and add only a short pointer in `00_overview.md`.
+
+Mental-health separation rule: if the user asks "what psychological problems do I have?" or similar, answer in `09_mental_health_signals.md`. The main profile may say "recent anxiety/stress signals are strong; see the mental-health signal report" but must not turn the person's identity into a diagnosis.
+
+For mental-health signal reports:
+
+- Use "signals", "patterns", and "worth professional evaluation", not fixed diagnosis.
+- Do not recommend medication changes.
+- Do not infer disorders from keyword counts alone.
+- Include protective factors and counter-evidence.
+- Keep the report separate from `self.md` and stable persona rules unless the user explicitly confirms the pattern as part of their self-model.
 
 ### Phase 7.7: Interpretive Conversation Mode
 

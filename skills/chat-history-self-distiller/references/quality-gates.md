@@ -83,12 +83,16 @@ Check `_analysis/participant_map.json`:
 - @mentions, forwarded-chat speakers, old display names, group names, and empty sender buckets are not counted as separate people
 - participant names, aliases, group names, reply/file/link/media/system terms are not used as catchphrase or speech-style evidence
 - final report includes a short participant summary with human count, canonical sender buckets, confirmed aliases, and excluded non-human buckets
+- final report includes or points to `_analysis/identity_lock.md`
+- gender/pronoun claims are sourced from user-provided information, direct self-statement, or marked `unknown`
 
 Fail this gate if:
 
 - the report counts a system/group/empty sender bucket as a person
 - the report turns an alias or @mention into an extra person without evidence
 - the report treats a participant name, old nickname, group name, or metadata token as a catchphrase
+- the report infers gender from pronoun frequency, language style, nicknames, emoji, or topic interest
+- the report's body contradicts the identity lock, such as saying "5 participants" after the lock says three human participants
 - the agent proceeds to deep interpretation while target identity or participant count is uncertain
 
 ## Gate 5: Core Thread Burn
@@ -98,14 +102,17 @@ Mandatory before deep profile reports, generated personal skills, or sensitive i
 Check `_analysis/core_thread_burn.md`:
 
 - contains 15-20 mixed direct quotes
-- states one recurring-problem hypothesis, or explicitly says no stable hypothesis is supported
+- lists multiple candidate lines when the person has several active life/personality lines
+- separates `historical root`, `current dominant`, `active secondary`, `contextual`, and `weak` lines when evidence supports that distinction
+- states one recurring-problem hypothesis only after candidate-line comparison, or explicitly says no single stable hypothesis is supported
 - tests the hypothesis against ranked structural tension candidates from `_analysis/contradictions.json`
 - starts with the highest-ranked available tension candidate, especially `long_denial_to_admission` and `principle_vs_behavior`
 - explains both poles of the tension without flattening either pole
 - verifies each core claim with 3 dated quotes
+- performs a time-weight check, especially whether the main line is still supported in the latest 6-12 months
 - names concrete falsifying evidence for each core claim
 - names at least one alternative explanation
-- chooses a burn result: `Core Thread Found`, `Weak Thread`, or `No Stable Thread`
+- chooses a burn result: `Core Thread Found`, `Multi-Line Model`, `Weak Thread`, or `No Stable Thread`
 - compresses the working core thread into 1-2 sentences only when verified
 - names strong evidence that does not fit
 
@@ -113,6 +120,8 @@ Fail this gate if:
 
 - the report jumps from samples directly to conclusions
 - the core thread is only a personality label
+- one sharp old quote becomes the whole report's main line without checking whether it is still current
+- the report flattens a diverse person into one line when several active lines are better supported
 - contradictory evidence is ignored
 - high-ranked structural tension candidates are ignored
 - one pole of a tension is dismissed as unimportant, temporary, fake, or not real without evidence
@@ -122,6 +131,8 @@ Fail this gate if:
 - the burn file does not exist for a deep report or draft personal skill
 
 If the core thread fails contradiction or falsification tests, downgrade the deliverable to an evidence report or rerun the burn. If it cannot explain a High-confidence structural tension after three attempts, mark the thread `Weak Thread` or `No Stable Thread`. A failed burn is acceptable; a forced thread is not.
+
+If the latest 6-12 months point to a different active pressure than older high-salience quotes, mark the older line as `historical root` and lead the main report with the current dominant line.
 
 ## Gate 5.5: Small-To-Large Report Shape
 
@@ -215,6 +226,26 @@ Check whether the report:
 - invites correction or a sharper next question instead of treating the report as final
 
 Fail this soft gate if the answer is only an audit checklist, detector explanation, or cautious fragments with no usable model.
+
+## Gate 5.11: Report Separation
+
+For report packs and user-facing analysis, stable identity/persona modeling must be separated from explicit user questions and sensitive topics.
+
+Check:
+
+- `00_overview.md` or `report.md` gives the stable multi-line profile and points to topical files instead of absorbing every answer.
+- explicit user questions are answered in `_analysis/candidate_answers.json` and/or `_exports/08_user_questions_and_evidence.md`.
+- each user-question answer says whether it should be promoted to the main report, summarized only, kept topical, or not promoted.
+- mental-health or psychological-problem analysis is in `_exports/09_mental_health_signals.md` when requested.
+- the main report may summarize mental-health signals, but does not turn the person into a diagnosis.
+- user corrections are recorded in `_exports/99_corrections_and_review.md` or a corrections folder.
+
+Fail this gate if:
+
+- user-specific Q&A is mixed into the main persona report with no separation.
+- a sensitive mental-health answer becomes a stable personality label without user confirmation.
+- psychological signal analysis recommends medication changes or presents keyword counts as diagnosis.
+- user correction is silently accepted or ignored without a trace file.
 
 ## Gate 6: Privacy
 

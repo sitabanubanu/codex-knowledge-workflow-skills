@@ -9,6 +9,7 @@ _normalized/
 _analysis/
   structure.json
   participant_map.json
+  identity_lock.md
   stats.json
   behavior_patterns.json
   principle_statements.json
@@ -38,6 +39,10 @@ _exports/
   02_relationship_network.md
   03_emotional_trajectory.md
   04_cognitive_style.md
+  05_self_review.md
+  08_user_questions_and_evidence.md
+  09_mental_health_signals.md
+  99_corrections_and_review.md
   report.md
 draft_skill/
   self.md
@@ -52,6 +57,7 @@ Core file meanings:
 - `_manifest.json`: run scope, input type, selected mode, task route, privacy boundary, and created time.
 - `_normalized/messages.json`: normalized records from native JSON chat data or adapted exports.
 - `_analysis/participant_map.json`: raw sender buckets, human participant buckets, non-human/system buckets, confirmed aliases, alias candidates, mention signals, unresolved names, and tokens excluded from speech-style/top-word analysis.
+- `_analysis/identity_lock.md`: human count, canonical target, confirmed aliases, excluded non-human/system buckets, and gender/pronoun source. This lock must be copied into or summarized by final profile reports.
 - `_analysis/principle_statements.json`: extracted rule-like, redefining, causal, attribution-reframing, or belief-reversal statements.
 - `_analysis/contradictions.json`: ranked structural tension candidates. These are inputs for Core Thread Burn, not final conclusions.
 - `_analysis/cognitive_break_windows.json`: candidate windows where long messages, topic-domain spread, and principle statements cluster.
@@ -61,6 +67,9 @@ Core file meanings:
 - `_findings/findings.json`: structured findings grouped by route, confidence, and status.
 - `_review/preview.md`: user-facing confirmation preview before finalizing sensitive conclusions or generated skills.
 - `_exports/`: final report artifacts when requested, including `report.md` for a single report or numbered report-pack files for `report-pack`.
+- `_exports/08_user_questions_and_evidence.md`: explicit user questions, selected answers, evidence, complications, confidence, and whether each answer should update the main profile.
+- `_exports/09_mental_health_signals.md`: optional sensitive-topic report for psychological/mental-health signal analysis. It is separate from the main persona report and must not be treated as a diagnosis.
+- `_exports/99_corrections_and_review.md`: user corrections, accepted/narrowed/held hypotheses, and what changed in the report.
 
 Final `_manifest.json` fields after interpretation:
 
@@ -194,12 +203,34 @@ Final `_manifest.json` fields after interpretation:
 `_analysis/core_thread_burn.md` required sections:
 
 - `Raw Quote Pile`
+- `Candidate Lines`
 - `One Problem Hypothesis`
 - `Contradiction Test`: must start from `_analysis/contradictions.json` when tension candidates exist.
 - `Mandatory Verification`
+- `Time-Weight Check`
 - `Core Thread`
+- `Current Dominant Line`
 - `Evidence That Does Not Fit`
-- `Burn Result`: `Core Thread Found`, `Weak Thread`, or `No Stable Thread`
+- `Burn Result`: `Core Thread Found`, `Multi-Line Model`, `Weak Thread`, or `No Stable Thread`
+
+`_analysis/identity_lock.md` required shape:
+
+```markdown
+# Identity Lock
+
+| Field | Value | Source |
+|---|---|---|
+| Target canonical sender | ... | participant_map |
+| Confirmed aliases | ... | participant_map / user |
+| Human participants counted | ... | participant_map |
+| Excluded non-human/system buckets | ... | participant_map |
+| Gender/pronoun source | unknown / user-provided / direct self-statement | ... |
+
+## Prohibited Inferences
+
+- Do not count group names, empty sender buckets, system buckets, forwarded-chat speakers, @mentions, or old display names as people.
+- Do not infer gender from pronoun counts, language style, nicknames, emoji, or topics.
+```
 
 `_analysis/candidate_answers.json` optional shape:
 
@@ -221,6 +252,27 @@ Final `_manifest.json` fields after interpretation:
   ],
   "userFacingAnswer": "plain answer without detector mechanics"
 }
+```
+
+`_exports/08_user_questions_and_evidence.md` required shape:
+
+```markdown
+# User Questions And Evidence
+
+## Q1: 用户原问题
+
+Short answer:
+
+Evidence:
+- date/source + quote or pointer
+- date/source + quote or pointer
+
+Complication:
+
+Relationship to main report:
+- promote to main report / summarize only / keep as topical answer / do not promote
+
+Confidence:
 ```
 
 `_review/preview.md` required structure:

@@ -23,10 +23,32 @@ Goal: give useful conclusions without generating a reusable skill.
 Deliver:
 
 - person or group profile
+- identity lock summary
+- current dominant line plus historical roots or active secondary lines when relevant
 - evidence table
 - high/medium/low confidence labels
 - uncertainty and missing data
 - practical reading of the findings
+
+If the user asks a direct interpretive question, include a concise answer in the response and record the candidate-answer logic in `_analysis/candidate_answers.json` when a run folder is being produced.
+
+## Report Pack
+
+Goal: produce a readable product-like folder without collapsing every topic into one main report.
+
+Deliver:
+
+- `00_overview.md`: stable multi-line persona/profile report
+- `01_behavior_language.md`: speech style and interaction rhythm
+- `02_relationship_network.md`: relationship roles and dynamics
+- `03_emotional_trajectory.md`: emotional and growth trajectory
+- `04_cognitive_style.md`: thinking, values, judgment priority, decision style
+- optional `05_self_review.md`: first-person self-review when requested
+- optional `08_user_questions_and_evidence.md`: explicit user questions and answers
+- optional `09_mental_health_signals.md`: psychological/mental-health signal analysis when requested
+- optional `99_corrections_and_review.md`: user corrections and what changed
+
+The main report may point to user-question and mental-health files, but should not absorb them wholesale.
 
 ## Deep Self Skill
 
@@ -54,3 +76,16 @@ Deliver:
 - privacy-aware summary
 
 Never present third-party portraits as complete personality truth.
+
+## Mental-Health Signals
+
+Goal: answer a user's explicit psychological/mental-health concern without turning the whole profile into a diagnosis.
+
+Deliver:
+
+- signal categories with evidence and dates
+- protective factors and counter-evidence
+- confidence and limits
+- professional-evaluation wording when appropriate
+
+Do not recommend medication changes. Do not infer disorders from keyword counts alone. Keep this output separate from stable persona files unless the user confirms it as part of their self-model.
