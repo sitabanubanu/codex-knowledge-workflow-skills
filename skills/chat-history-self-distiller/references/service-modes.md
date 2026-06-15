@@ -46,9 +46,12 @@ Deliver:
 - optional `05_self_review.md`: first-person self-review when requested
 - optional `08_user_questions_and_evidence.md`: explicit user questions and answers
 - optional `09_mental_health_signals.md`: psychological/mental-health signal analysis when requested
+- optional `10_targeted_questioner_handoff.md`: downstream handoff for targeted questioning, calibration, or final-report workflows
 - optional `99_corrections_and_review.md`: user corrections and what changed
 
 The main report may point to user-question and mental-health files, but should not absorb them wholesale.
+
+If a downstream handoff is produced, it must not become a second report or a question interview. It should summarize upstream locks, seed claims, follow-up leverage points, report routing, question routing, and compatibility boundaries for a later workflow.
 
 ## Deep Self Skill
 

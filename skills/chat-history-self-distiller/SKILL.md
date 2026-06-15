@@ -36,6 +36,7 @@ Read references only when needed:
 - `references/quality-gates.md`: before final delivery, especially for high-impact conclusions or generated personal skills.
 - `references/service-modes.md`: when choosing `orientation`, `standard-report`, `deep-self-skill`, or `relationship-map`.
 - `references/output-schema.md`: when writing or inspecting deliverable files.
+- `references/downstream-handoff.md`: when a report may feed a follow-up questioning, calibration, or final-report skill.
 
 ## Product Modes
 
@@ -131,7 +132,7 @@ Path contracts:
 - `orientation`: produce a participant/data map, structure summary, feasibility notes, and next questions. Do not make deep personality claims.
 - `standard-report`: produce a participant map, core-thread burn, one main evidence-backed report, evidence ledger, and preview when sensitive. Do not generate a reusable skill unless the user asks.
 - `deep-self-skill`: produce a participant map, core-thread burn, `draft_skill/self.md`, `persona.md`, `evidence.md`, `meta.json`, draft `SKILL.md`, and confirmation preview. Do not install or present it as stable memory before user confirmation.
-- `report-pack`: produce a participant map, identity lock, multi-line burn, `00_overview.md`, focused sub-reports such as `01_behavior_language.md`, `02_relationship_network.md`, `03_emotional_trajectory.md`, `04_cognitive_style.md`, optional `05_self_review.md`, optional `08_user_questions_and_evidence.md`, optional `09_mental_health_signals.md`, and an evidence ledger. Do not pretend this is a generated self skill.
+- `report-pack`: produce a participant map, identity lock, multi-line burn, `00_overview.md`, focused sub-reports such as `01_behavior_language.md`, `02_relationship_network.md`, `03_emotional_trajectory.md`, `04_cognitive_style.md`, optional `05_self_review.md`, optional `08_user_questions_and_evidence.md`, optional `09_mental_health_signals.md`, optional `_exports/10_targeted_questioner_handoff.md`, and an evidence ledger. Do not pretend this is a generated self skill or a completed interview-calibrated final report.
 - `team/relationship-map`: produce participant identities, per-person summaries, relationship dynamics, boundaries, and privacy notes. Do not collapse several people into one voice.
 
 Interpretive Conversation Mode may be used inside `standard-report`, `report-pack`, or `deep-self-skill` after the identity gate passes. If the user changes the goal mid-run, write a new path lock and explain which earlier deliverables are now out of scope. Do not mix delivery paths silently.
@@ -444,6 +445,7 @@ Recommended report pack:
 - `05_self_review.md`: optional first-person self-review when requested.
 - `08_user_questions_and_evidence.md`: answers to explicit user questions, with evidence and whether each answer should update the main profile.
 - `09_mental_health_signals.md`: only when explicitly requested or clearly necessary; keep it separate from the main persona report.
+- `10_targeted_questioner_handoff.md`: optional but recommended when the user may continue into a targeted follow-up, calibration, or final-report workflow. This is a handoff artifact, not another report.
 - `99_corrections_and_review.md`: user corrections, accepted/narrowed/held hypotheses, and report changes.
 
 User question report shape:
@@ -478,6 +480,25 @@ For mental-health signal reports:
 - Do not infer disorders from keyword counts alone.
 - Include protective factors and counter-evidence.
 - Keep the report separate from `self.md` and stable persona rules unless the user explicitly confirms the pattern as part of their self-model.
+
+### Phase 8.6: Downstream Handoff For Targeted Questioning
+
+Use this phase when a report could feed a separate targeted-questioning, user-calibration, or final-report skill. Do not turn this phase into a multi-round interview inside this skill.
+
+Read `references/downstream-handoff.md` and produce `_exports/10_targeted_questioner_handoff.md` for `report-pack` and for any `standard-report` where the user is likely to continue with targeted follow-up questions.
+
+The handoff must preserve upstream locks and summarize only what the downstream workflow needs:
+
+- identity lock and non-negotiable boundaries
+- source files produced by this run
+- current dominant line, historical roots, active secondary lines, and downgraded/excluded lines
+- seed claim table with confidence and risk
+- follow-up leverage points that could change report conclusions
+- suggested report routing based on evidence center of gravity
+- suggested question routing based on unresolved high-value claims
+- user corrections already applied
+
+Do not ask the follow-up questions here unless the user requested that inside the current turn. The handoff tells the next skill what to ask and what not to break.
 
 ### Phase 7.7: Interpretive Conversation Mode
 
@@ -657,6 +678,7 @@ Required final fields:
 - `previewPath`: path to `_review/preview.md` if confirmation is required.
 - `behaviorPatternsAvailable`: whether `_analysis/behavior_patterns.json` exists and was used.
 - `structuralTensionsAvailable`: whether `_analysis/contradictions.json` exists and was used.
+- `downstreamHandoffPath`: `_exports/10_targeted_questioner_handoff.md` when a handoff was produced.
 
 If `_manifest.json`, `_analysis/run_summary.json`, and produced files disagree, fix the metadata before final delivery. If metadata cannot be updated, state the mismatch explicitly.
 
@@ -690,6 +712,7 @@ Before saying the work is done:
 - Non-native files were normalized through an adapter before interpretation.
 - Evidence ledger exists or the final answer explains why it was unnecessary for the selected mode.
 - For self-understanding reports, the final result was assessed on two axes: engineering compliance and user conversation value.
+- If a downstream handoff is appropriate, `_exports/10_targeted_questioner_handoff.md` exists and preserves identity, privacy, source-separation, and mental-health boundaries.
 
 ## Common Failure Modes
 

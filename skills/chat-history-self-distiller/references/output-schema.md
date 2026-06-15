@@ -42,6 +42,7 @@ _exports/
   05_self_review.md
   08_user_questions_and_evidence.md
   09_mental_health_signals.md
+  10_targeted_questioner_handoff.md
   99_corrections_and_review.md
   report.md
 draft_skill/
@@ -69,6 +70,7 @@ Core file meanings:
 - `_exports/`: final report artifacts when requested, including `report.md` for a single report or numbered report-pack files for `report-pack`.
 - `_exports/08_user_questions_and_evidence.md`: explicit user questions, selected answers, evidence, complications, confidence, and whether each answer should update the main profile.
 - `_exports/09_mental_health_signals.md`: optional sensitive-topic report for psychological/mental-health signal analysis. It is separate from the main persona report and must not be treated as a diagnosis.
+- `_exports/10_targeted_questioner_handoff.md`: optional handoff file for downstream targeted-questioning, calibration, or final-report workflows. It preserves upstream locks, seed claims, follow-up leverage points, report routing, question routing, and compatibility boundaries.
 - `_exports/99_corrections_and_review.md`: user corrections, accepted/narrowed/held hypotheses, and what changed in the report.
 
 Final `_manifest.json` fields after interpretation:
@@ -106,7 +108,8 @@ Final `_manifest.json` fields after interpretation:
   "principleStatementsAvailable": true,
   "structuralTensionsAvailable": true,
   "cognitiveBreakWindowsAvailable": true,
-  "coreThreadBurnPath": "_analysis/core_thread_burn.md"
+  "coreThreadBurnPath": "_analysis/core_thread_burn.md",
+  "downstreamHandoffPath": "_exports/10_targeted_questioner_handoff.md"
 }
 ```
 
@@ -273,6 +276,60 @@ Relationship to main report:
 - promote to main report / summarize only / keep as topical answer / do not promote
 
 Confidence:
+```
+
+`_exports/10_targeted_questioner_handoff.md` recommended shape:
+
+```markdown
+# Targeted Questioner Handoff
+
+## 1. Upstream Locks
+- Target canonical sender:
+- User-provided aliases:
+- Confirmed aliases:
+- Human participants counted:
+- Excluded non-human/system buckets:
+- Gender/pronoun source:
+- Mental-health boundary:
+- Third-party privacy boundary:
+
+## 2. Source Materials
+| File | Purpose | Notes |
+|---|---|---|
+
+## 3. Current Model
+- Current dominant line:
+- Historical root:
+- Active secondary lines:
+- Contextual or weak lines:
+- Downgraded or excluded lines:
+- Evidence that does not fit:
+
+## 4. Claim Table Seed
+| Claim | Tier | Confidence | Evidence Pointer | Risk | Needs Follow-up |
+|---|---|---|---|---|---|
+
+## 5. Follow-Up Leverage Points
+| Point | Why It Matters | If Confirmed | If Denied | Suggested Question |
+|---|---|---|---|---|
+
+## 6. Suggested Report Routing
+- Evidence center of gravity:
+- Sections to emphasize:
+- Sections to keep short:
+- Candidate appendices:
+
+## 7. Suggested Question Routing
+- Highest-leverage question areas:
+- Do not ask / avoid over-weighting:
+- User corrections already applied:
+
+## 8. Compatibility Contract
+- Do not override identity lock unless explicitly asked.
+- Do not reinterpret participant map by default.
+- Do not promote system buckets, forwarded names, @mentions, aliases, group names, or empty senders into people.
+- Preserve evidence / inference / user correction separation.
+- Preserve mental-health boundaries.
 ```
 
 `_review/preview.md` required structure:

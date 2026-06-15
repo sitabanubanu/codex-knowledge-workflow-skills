@@ -247,6 +247,32 @@ Fail this gate if:
 - psychological signal analysis recommends medication changes or presents keyword counts as diagnosis.
 - user correction is silently accepted or ignored without a trace file.
 
+## Gate 5.12: Downstream Handoff
+
+Use this gate when the run produces `_exports/10_targeted_questioner_handoff.md` or when a report is likely to feed a targeted-questioning, calibration, or final-report workflow.
+
+Check:
+
+- the handoff preserves `identity_lock.md` and does not contradict participant count, target sender, aliases, or excluded buckets
+- the handoff states non-negotiable upstream boundaries: identity, privacy, source separation, and mental-health separation
+- the handoff lists source materials a downstream agent should read instead of raw large chat files
+- the handoff separates current dominant line, historical root, active secondary lines, weak/contextual lines, and downgraded/excluded lines
+- the handoff includes a seed claim table with confidence, evidence pointer, risk, and whether follow-up is needed
+- every follow-up leverage point can change a meaningful report decision if the user answers it
+- suggested questions are specific to evidence and claims, not generic personality prompts
+- report routing follows evidence center of gravity instead of a fixed one-size-fits-all final report
+- question routing names what to ask and what to avoid over-weighting
+- user corrections already applied are visible
+- metadata includes the handoff in final deliverables when produced
+
+Fail this gate if:
+
+- the handoff asks a full interview inside the upstream skill instead of preparing a downstream workflow
+- the handoff reopens identity mapping without user request
+- generic questions such as "what are your strengths?" appear without a tied claim and evidence risk
+- low-weight episodes are placed as if they were core lines
+- the handoff lets downstream work override mental-health, privacy, or participant boundaries by default
+
 ## Gate 6: Privacy
 
 - third-party private content is minimized
