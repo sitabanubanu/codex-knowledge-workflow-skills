@@ -57,3 +57,9 @@ For policy/fact searches:
 | Claim | Source | Stronger Evidence | Status | Caveat |
 |---|---|---|---|---|
 ```
+
+## Escalate To Claim Ledger
+
+For standard/deep searches, do not stop at this table. Move recommendation-changing claims into `claim-ledger.md`, including supporting sources, conflicting sources, freshness, confidence, and actionability.
+
+Use this file to test whether individual claims survive evidence checks. Use `claim-ledger.md` to assemble the decision.

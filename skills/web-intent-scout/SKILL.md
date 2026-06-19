@@ -11,6 +11,8 @@ Use this skill to find reliable web information and practical recommendations, n
 
 Core rule: search for the user's decision and evidence needs, not only the user's literal words.
 
+Hard rule: do not answer directly from raw search results. Convert sources into source notes, source notes into claims, and claims into a final answer.
+
 This is a web scouting and recommendation workflow. It covers open-web information, products, tools, services, courses, policies, institutions, news, documentation, reviews, and current facts. For GitHub repositories, code projects, skills, plugins, or MCP servers, prefer `github-intent-scout`.
 
 ## Search Depth
@@ -40,9 +42,14 @@ Browse before answering when the user asks for:
 Read references only when needed:
 
 - `references/intent-map.md`: before searching broad or ambiguous requests.
+- `references/research-brief.md`: after intent mapping and before searching, especially for standard/deep tasks.
+- `references/task-type-routing.md`: when the target is a product, tool, course, policy, service, news, tutorial, institution, or high-stakes topic.
 - `references/query-families.md`: before building search queries.
-- `references/source-ledger.md`: before ranking source credibility.
+- `references/source-ledger.md`: before classifying sources and writing source notes.
+- `references/source-credibility.md`: before ranking source strength or using a source to support a core claim.
 - `references/claim-check.md`: before recommending or trusting a product/service/tool claim.
+- `references/claim-ledger.md`: before final recommendations on standard/deep searches.
+- `references/conflict-resolution.md`: when credible sources disagree or old/current information conflicts.
 - `references/freshness-check.md`: for current, changing, policy, price, news, or product-feature searches.
 - `references/risk-bias-check.md`: for products, services, courses, reviews, SEO-heavy topics, privacy, or safety.
 - `references/scorecard.md`: before comparing candidates.
@@ -61,7 +68,31 @@ Build a compact intent map when wording is broad:
 
 Ask up to 3 direction-setting questions only when branch choice materially changes the answer. Otherwise state assumptions and search multiple branches.
 
-### Phase 2: Orientation Run
+### Phase 2: Research Brief
+
+For `standard` and `deep` work, write a compact research brief before searching:
+
+- the user's real decision;
+- the 3-7 questions that must be answered;
+- the claims or facts that must be verified;
+- boundaries: what not to search or over-answer;
+- source types required for confidence;
+- whether user clarification is necessary.
+
+For `quick` work, include a one-line brief internally or in the answer if assumptions matter.
+
+### Phase 3: Task Type Routing
+
+Route the task before building queries. Different tasks need different evidence:
+
+- products/tools: official docs, pricing, limits, user feedback, risk sources;
+- policies/laws/current facts: primary sources, effective dates, jurisdiction;
+- courses/services/institutions: official pages, pricing, outcomes, complaints;
+- news/events: timeline, original reporting, later corrections, primary statements;
+- tutorials/docs: version, environment, update date, maintainer credibility;
+- high-stakes topics: primary/official sources and explicit uncertainty.
+
+### Phase 4: Orientation Run
 
 Use an orientation run when the request has several strong branches, such as "best AI tool", "good course", "reliable website", "document tool", "research support", or "which platform".
 
@@ -69,7 +100,7 @@ Orientation output is not a final ranking. It should map 2-5 likely directions, 
 
 If the user explicitly says not to ask, write `Search Assumptions` and continue.
 
-### Phase 3: Query Families
+### Phase 5: Query Families
 
 Generate search queries in families:
 
@@ -84,7 +115,7 @@ Generate search queries in families:
 
 Use Chinese and English queries when it may change the result.
 
-### Phase 4: Source Ledger
+### Phase 6: Source Notes And Ledger
 
 Do not mix source types as if they have equal authority.
 
@@ -98,7 +129,31 @@ Track serious sources as:
 - `RiskSource`: complaints, refund issues, security/privacy reports, outages;
 - `Secondary`: summaries that cite primary sources.
 
-### Phase 5: Claim Check
+For substantial searches, convert each serious source into a source note before using it:
+
+```text
+Source:
+Type:
+Date:
+What it says:
+What it proves:
+What it does not prove:
+Credibility:
+Caveat:
+```
+
+### Phase 7: Source Credibility
+
+Score or rank sources before using them to support core conclusions:
+
+- `A`: official, primary, laws/regulations, standards, original papers, official docs;
+- `B`: reputable professional sources, specialist reviews with methods, credible media;
+- `C`: user communities, forums, app reviews, personal blogs;
+- `D`: SEO listicles, affiliate pages, sponsored pages, copied summaries, unclear sources.
+
+Use `D` sources only for discovery. Do not let a `D` source support a final claim by itself. Use `C` sources for lived experience, not product facts or legal/policy facts.
+
+### Phase 8: Claim Ledger
 
 For every recommendation-changing claim, compare marketing/summary claims against stronger evidence.
 
@@ -124,7 +179,31 @@ Unverified
 Opinion
 ```
 
-### Phase 6: Freshness Check
+For substantial searches, use a claim ledger:
+
+```text
+Claim:
+Supporting sources:
+Conflicting sources:
+Freshness:
+Confidence:
+Actionability:
+```
+
+### Phase 9: Conflict Resolution
+
+When credible sources conflict, do not average them. Resolve using:
+
+1. official/primary source;
+2. current effective date or current version;
+3. source proximity to the event/product/policy;
+4. method transparency;
+5. repeated independent confirmation;
+6. user feedback pattern for lived experience only.
+
+If the conflict cannot be resolved, say so and lower confidence.
+
+### Phase 10: Freshness Check
 
 Check recency when the topic can change:
 
@@ -136,7 +215,7 @@ Check recency when the topic can change:
 
 When dates conflict, prefer current official/primary sources and explain the conflict.
 
-### Phase 7: Risk And Bias Check
+### Phase 11: Risk And Bias Check
 
 For products, services, tools, and courses, inspect:
 
@@ -150,7 +229,7 @@ For products, services, tools, and courses, inspect:
 
 Do not present affiliate/SEO pages as neutral proof.
 
-### Phase 8: Score And Recommend
+### Phase 12: Score And Recommend
 
 Score candidates against the user's decision, not search ranking.
 
@@ -179,15 +258,18 @@ For substantial searches, produce a `Web Scout Dossier`:
 1. `Search Depth`
 2. `Search Assumptions` or `Orientation Result`
 3. `Intent Map`
-4. `Query Families`
-5. `Source Ledger`
-6. `Candidate List`
-7. `Claim Checks`
-8. `Freshness Check`
-9. `Risk / Bias Check`
-10. `Scorecard`
-11. `Recommendation`
-12. `Remaining Uncertainty`
+4. `Research Brief`
+5. `Task Type Routing`
+6. `Query Families`
+7. `Source Notes / Source Ledger`
+8. `Source Credibility`
+9. `Claim Ledger`
+10. `Conflict Resolution`
+11. `Freshness Check`
+12. `Risk / Bias Check`
+13. `Scorecard`
+14. `Recommendation`
+15. `Remaining Uncertainty`
 
 Always include links to used sources.
 
@@ -204,3 +286,15 @@ Treat these as search risk:
 - sources cite each other but no primary source.
 
 When red flags appear, pivot queries and say what changed.
+
+## Failure Output
+
+Use explicit uncertainty when evidence is insufficient:
+
+- `InsufficientEvidence`: not enough reliable sources found;
+- `StaleEvidence`: sources are old for the decision;
+- `ConflictingEvidence`: strong sources disagree;
+- `NeedsUserConstraint`: budget, region, platform, risk tolerance, or purpose changes the answer;
+- `UnverifiedCandidate`: promising but not enough evidence to recommend.
+
+Do not force a recommendation when the evidence cannot support one.

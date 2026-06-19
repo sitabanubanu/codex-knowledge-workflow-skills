@@ -1,6 +1,6 @@
 # Source Ledger
 
-Use this to classify sources before trusting them.
+Use this to classify sources and write source notes before trusting them.
 
 ## Source Types
 
@@ -31,9 +31,28 @@ For substantial searches:
 | Source | Type | Date | What It Supports | Caveat |
 |---|---|---|---|---|
 
+## Source Note Shape
+
+Before using a source in a final claim, compress it:
+
+```markdown
+Source Note:
+- Source:
+- Type:
+- Date:
+- What it says:
+- What it proves:
+- What it does not prove:
+- Credibility:
+- Caveat:
+```
+
+Use source notes as the bridge between web pages and the claim ledger.
+
 ## Rules
 
 - Do not treat SEO listicles as neutral evidence.
 - Do not treat one complaint as decisive unless it matches a broader pattern or high-severity risk.
 - Do not trust copied summaries when no primary source is available.
 - Do not mix official feature claims with user experience as if they answer the same question.
+- Do not write final conclusions from raw webpages; write from source notes and checked claims.

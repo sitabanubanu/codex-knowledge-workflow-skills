@@ -2,6 +2,8 @@
 
 Use this before comparing candidates.
 
+Base scores on the claim ledger, not on general impressions from search results.
+
 ## Standard Criteria
 
 Score 0-5 when comparing serious candidates:
@@ -54,3 +56,11 @@ Adjust weights when the user states priorities.
 | `unverified` | insufficient evidence |
 
 Do not make a top recommendation without at least one caveat or limit.
+
+## Scoring Rules
+
+- Give `unverified` when core claims are `Low` or `Insufficient`.
+- Penalize candidates with unresolved high-impact conflicts.
+- Penalize stale evidence when currentness affects the decision.
+- Do not let popularity outweigh source strength for facts.
+- For user-fit decisions, explain weight changes instead of silently changing the score.

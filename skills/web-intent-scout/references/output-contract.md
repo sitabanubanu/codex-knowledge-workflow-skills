@@ -19,6 +19,12 @@ Caveat:
 Next step:
 ```
 
+If uncertainty matters, add:
+
+```markdown
+Uncertainty:
+```
+
 ## Web Scout Dossier
 
 For substantial searches:
@@ -32,23 +38,29 @@ For substantial searches:
 
 ## 3. Intent Map
 
-## 4. Query Families
+## 4. Research Brief
 
-## 5. Source Ledger
+## 5. Task Type Routing
 
-## 6. Candidate List
+## 6. Query Families
 
-## 7. Claim Checks
+## 7. Source Notes / Source Ledger
 
-## 8. Freshness Check
+## 8. Source Credibility
 
-## 9. Risk / Bias Check
+## 9. Claim Ledger
 
-## 10. Scorecard
+## 10. Conflict Resolution
 
-## 11. Recommendation
+## 11. Freshness Check
 
-## 12. Remaining Uncertainty
+## 12. Risk / Bias Check
+
+## 13. Scorecard
+
+## 14. Recommendation
+
+## 15. Remaining Uncertainty
 ```
 
 ## Recommendation Shape
@@ -61,6 +73,17 @@ Give practical answers:
 - what evidence supports it;
 - what caveat matters;
 - what the user should verify next.
+
+For decisions, structure the conclusion as:
+
+```markdown
+Best answer:
+Why:
+Do not choose / exclude:
+Key evidence:
+Remaining uncertainty:
+Next action:
+```
 
 ## Citation Rule
 
@@ -79,3 +102,4 @@ For recommendations, include at least:
 - hiding uncertainty;
 - presenting old information as current;
 - giving medical/legal/financial certainty from weak sources.
+- recommending from raw search snippets without a source-note and claim-ledger pass.
