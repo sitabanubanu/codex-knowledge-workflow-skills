@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web Intent Scout"
+  short_description: "Evidence-led web search and source scouting."
+  default_prompt: "Use this skill to search the web with intent mapping, source ledgers, claim checks, freshness checks, bias checks, and practical recommendations."
