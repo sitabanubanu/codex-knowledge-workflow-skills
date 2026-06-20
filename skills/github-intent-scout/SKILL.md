@@ -88,6 +88,16 @@ escalate to `standard`. If a `standard` search finds a strong direct match but
 an important claim is easy to fake, escalate the evidence check for that
 candidate only.
 
+## Output Mode
+
+Search Depth controls internal work. Output Mode controls what is shown.
+
+- `compact`: normal chat answer with conclusions, key candidates, minimal evidence, caveats, and runtime status.
+- `dossier`: fuller scout report with scorecard, claim checks, and more candidates.
+- `appendix`: audit/save mode with full Project Notes, Claim Ledger, Execution Log, and handoff details when needed.
+
+Default to `compact` unless the user asks for a full report or audit trail. Deep searches can still use compact output.
+
 ## Navigation
 
 Read references only when needed. The main file keeps the route; references keep
@@ -335,6 +345,7 @@ Explain:
 - Claim status and caveats when relevant.
 - Adoption class.
 - Runtime status when relevant.
+- Execution log summary for standard/deep work.
 - Remaining uncertainty.
 - Search terms or query families that worked.
 
@@ -345,6 +356,7 @@ Read:
 
 Include design-miner handoff only when it will prevent duplicated search work or
 when candidates are not directly usable but contain useful design ideas.
+When the user asks to learn from projects, improve their own skill/plugin/tool, or hand off to design miner, include a brief handoff by default instead of doing full design mining here.
 
 ## Mandatory Gates
 
@@ -388,6 +400,14 @@ If candidates are not directly usable but contain useful design ideas, prepare
 optional design-miner handoff material instead of expanding the scout output
 into a migration plan.
 
+### Family Map Gate
+
+If candidates share upstreams, forks, wrappers, host ports, or near-identical names/READMEs, show a short family map before ranking.
+
+### Late Candidate Re-rank Gate
+
+If a late candidate changes answer shape, mechanism fit, or adoption class, revisit earlier rankings before final recommendation.
+
 ## Red Flags
 
 Treat these as search drift or recommendation risk:
@@ -403,6 +423,7 @@ Treat these as search drift or recommendation risk:
 - Project is archived, stale, or depends on unavailable services.
 - Recommendation would send private data to an unknown service without a clear privacy story.
 - Results are all generic LLM frameworks when the user asked for installable skills/plugins or file/terminal tools.
+- High-star projects can be wrong-category for the current task; explain exclusion without treating popularity as a negative.
 - Scout output drifts from "should the user use this project?" into "how should the user's project be redesigned?" without the user asking for design mining.
 
 When drift appears, pivot vocabulary and say why.

@@ -27,6 +27,7 @@ Project Note:
 - Repo:
 - URL:
 - Answer shape:
+- Direction:
 - Candidate category:
 - Best use role:
 - Adoption class:
@@ -40,6 +41,8 @@ Project Note:
 - Weak / overstated claims:
 - Runtime status:
 - Data boundary:
+- Install source:
+- Security/data boundary:
 - Maintenance signal:
 - Smallest adoption path:
 - Caveat:
@@ -56,6 +59,9 @@ Project Note:
 | Adoption class | Direct-use, light-adapt, component-use, reference-only, near-miss, or exclude. |
 | Evidence strength | Strongest evidence level and adoption-critical gaps. |
 | Runtime status | SmokeTested, PartiallySmokeTested, RuntimeBlocked, RuntimeUnverified, or RuntimeFailed. |
+| Direction | Source/target direction for skill migration, sync, converter, or host-bridge projects. |
+| Install source | GitHub only, npm, pip, cargo/crates, Homebrew, binary release, install script, or unknown. |
+| Security/data boundary | Local files only, runs install scripts, starts MCP server, may call external API, writes config/files, or unknown. |
 | Recommendation impact | Why this note changes ranking, caveats, or adoption action. |
 
 ## Evidence Compression Rules
@@ -68,6 +74,7 @@ Project Note:
 - Mark missing evidence explicitly.
 - Treat stars and topics as discovery/adoption signals, not capability proof.
 - Note the data boundary when user files, private repos, logs, embeddings, or API calls matter.
+- Do not imply local/privacy safety when the security/data boundary is unknown.
 
 ## Decision Use
 
@@ -77,6 +84,14 @@ The Project Note:
 - Feeds `scorecard.md` by summarizing verified fit, maturity, installability, and caveats.
 - Feeds `adoption-classification.md` by naming the smallest realistic adoption path.
 - Can feed `design-miner-handoff.md` when adoption is weak but patterns are valuable.
+
+## Compact Output
+
+Project Notes may be summarized instead of fully printed in compact output. When doing that, include:
+
+```text
+Deviation: Project Notes and Claim Ledger were summarized rather than fully printed to keep output compact.
+```
 
 ## Project Note Quality Check
 

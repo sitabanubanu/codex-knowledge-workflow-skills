@@ -39,5 +39,12 @@ If credentials, paid APIs, GPU, large models, unavailable services, OS mismatch,
 | `RuntimeUnverified` | No runtime check was attempted. |
 | `RuntimeFailed` | A reasonable minimal run failed. |
 
-Source inspection is not equivalent to runtime verification.
+All serious candidates must show runtime status. If no test was run, default to:
 
+```text
+RuntimeUnverified: No install/run was requested or performed in this scout pass.
+```
+
+This does not mean the project is unusable; it only means runtime behavior was not verified in this pass.
+
+Source inspection is not equivalent to runtime verification.

@@ -6,6 +6,18 @@ Use this reference when multiple candidates share a concept, naming pattern, REA
 
 Map families before ranking so the scout does not double-count the same idea or let a weak host-port outrank a stronger upstream solely because it names the user's host.
 
+## When To Show A Family Map
+
+Show a short family map when:
+
+- Multiple projects share the same upstream.
+- Multiple projects are forks, host-ports, wrappers, or adapters.
+- Names or README phrasing are very similar.
+- A strong upstream and weaker adapters appear together.
+- The user asks to compare similar projects.
+
+Compact output can list only the 2-5 most relevant projects. Dossier or appendix output can expand.
+
 ## Family Map
 
 | Project | Family role | Relationship evidence | Practical consequence |
@@ -38,4 +50,3 @@ For low-star adapters, wrappers, MCP servers, or host ports, score wrapper and u
 | Data boundary | Does the adapter clearly state what data goes local, to APIs, or to external services? |
 
 Do not reject a thin adapter only because it has few stars if it wraps a strong upstream and has clear setup. Label adapter maturity risk separately from upstream strength.
-

@@ -59,6 +59,16 @@ gh search code "<claimed format or adapter>" "<project family term>" --limit 20 
 
 See `github-search-syntax.md` for qualifier and command syntax patterns.
 
+## Code Search Low-Yield Fallback
+
+If GitHub code search is empty, noisy, or unavailable:
+
+1. Split combined queries into smaller evidence terms.
+2. Run repo search with mechanism terms.
+3. Inspect serious candidate file trees with repo contents or `gh api`.
+4. Record `Code Search: attempted / low-yield / unavailable`.
+5. Do not conclude no project exists from empty code search alone.
+
 ## Niche Scout / Repo Research Vocabulary
 
 When searching for projects similar to GitHub scouting, repository research, codebase discovery, or codebase mapping tools, try combinations such as:

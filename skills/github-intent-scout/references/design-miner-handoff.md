@@ -14,8 +14,24 @@ Use handoff only when at least one condition is true:
 - The user says they already have a skill/plugin/tool and may want to improve it.
 - The user asks what can be learned from candidates, while the current task is still primarily scouting.
 - Architecture checks surfaced promising patterns, but a full migration plan would exceed scout scope.
+- The user asks to learn how other projects work, borrow from similar projects, inspect architecture/bottom-level logic, or hand results to design miner.
 
-Do not include this section by default in compact lookups.
+For these trigger cases, include a brief handoff by default. Do not include it by default in compact lookups unrelated to learning or design transfer.
+
+## Brief Handoff
+
+Use this format in compact or dossier output:
+
+```text
+Design Miner Handoff:
+- Target repo:
+- Why hand off:
+- Patterns to inspect:
+- Weak or overstated claims:
+- Remaining unknowns:
+```
+
+This is not a design migration report. Stop at the evidence package needed for design miner to continue.
 
 ## Handoff YAML Template
 
@@ -56,4 +72,3 @@ handoff_to_design_miner:
 - Suggested deep-dive targets.
 - Promising patterns, not a full migration plan.
 - Remaining unknowns that design mining should resolve.
-

@@ -32,7 +32,15 @@ Use the strongest available evidence for adoption-critical claims. Do not let po
 | Active maintenance | Recent commits, releases, issue activity, changelog. |
 | Production readiness | Tests, examples, CI, release history, documented failure modes. |
 | Upstream wrapper quality | Dependency pins, config clarity, interface docs, data boundary. |
-| Installability | Package metadata, lockfiles, install docs, first command, smoke test. |
+| Installability | Package registry, release artifact, install script, package metadata, first command, smoke test. |
+
+## Install Source Strength
+
+For serious candidates, identify install source when adoption matters: `GitHub only`, `npm`, `pip`, `cargo/crates`, `Homebrew`, `binary release`, `install script`, or `unknown`. Registry entries, release artifacts, and install scripts are stronger installability evidence than README wording alone. `unknown` lowers installability confidence.
+
+## Security/Data Boundary Signal
+
+For tools, scripts, plugins, MCP servers, or private-data workflows, identify the boundary when evidence allows: `local files only`, `runs install scripts`, `starts MCP server`, `may call external API`, `writes config/files`, or `unknown`. Unknown boundary is a caveat; do not imply local/private safety without evidence.
 
 ## Evidence Labels
 

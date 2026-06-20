@@ -25,6 +25,24 @@ Do not force the final answer to be a skill or plugin if the evidence points to 
 - Would a library plus a thin skill be better than a host-specific low-star port?
 - Is the desired result a single project or a layered toolchain?
 
+## Agent Skill Ecosystem Subtypes
+
+When the task is about agent skills, plugins, MCP, or cross-agent migration, identify a subtype when useful:
+
+| Subtype | Meaning |
+|---|---|
+| `skill-pack` | Collection of reusable skills; not necessarily executable conversion logic. |
+| `skill-creator` | Generates or scaffolds skills. |
+| `skill-converter` | Converts skills from one host format to another. |
+| `skill-sync` | Synchronizes skills across hosts or folders. |
+| `skill-manager` | Installs, lists, updates, or manages skill sets. |
+| `skill-marketplace` | Discovery/catalog layer for skills. |
+| `migrator-to-host` | Migrates content into one target host. |
+| `host-bridge` | Bridges one host's workflow into another host. |
+| `plugin-mcp-wrapper` | Exposes functionality through plugin or MCP tools. |
+
+This refines answer shape; it does not replace `skill`, `plugin-mcp`, `workflow`, or `composite-toolchain`.
+
 ## Adoption Guidance By Shape
 
 | Shape | Evidence to require | Recommendation wording |
@@ -42,4 +60,3 @@ Do not force the final answer to be a skill or plugin if the evidence points to 
 - Results are all chat apps when the user asked for task/workflow tools.
 - Results are all model orchestration when the user asked for file or terminal tools.
 - The final answer assumes one answer shape while the evidence points to a toolchain.
-

@@ -33,6 +33,10 @@ Architecture inspection is "验货": inspect enough to recommend, reject, mark a
 - What does it require from the user: credentials, host, runtime, model, database, local files?
 - What parts are verified, partial, inferred, or unimplemented?
 
+## Codex Path Check
+
+For Codex-related claims, verify which skill path the project actually targets: `.codex/skills`, `~/.codex/skills`, `.agents/skills`, `~/.agents/skills`, or a custom path. Flag version/path ambiguity instead of treating all "Codex support" claims as equal.
+
 ## Stop Conditions
 
 | Decision | Meaning |
@@ -63,4 +67,3 @@ Escalate from README inspection to code/dependency inspection when:
 | L4 | Runtime check | Clone/install/run sample or smoke test | User asks to install/use now, or behavior is uncertain |
 
 Deep dive can include shallow clone or file-by-file API reads, entry point inspection, examples/tests/dependency checks, code search for claimed adapters, and minimal smoke tests when safe.
-

@@ -17,6 +17,7 @@ Use one row per adoption-relevant claim. Keep rows concise and link or name chec
 
 - Installability.
 - Host compatibility.
+- Direction for skill sync/conversion/migration.
 - Supported formats.
 - Parser/adapter coverage.
 - Local/private vs cloud/API behavior.
@@ -27,6 +28,7 @@ Use one row per adoption-relevant claim. Keep rows concise and link or name chec
 - Runtime behavior.
 - License or adoption constraints.
 - User workflow completeness.
+- Install source and security/data boundary when adoption may run code or touch private files.
 
 ## Confidence Rules
 
@@ -80,7 +82,20 @@ Every Best Match should check at least:
 | "Easy install" | Check package metadata, lockfiles, setup command, first run path. |
 | "Actively maintained" | Check current commits, releases, issues, archived status. |
 | "Wrapper for upstream Y" | Check dependency pins, supported versions, config clarity, data boundary. |
+| "Codex support" | Check target path such as `.codex/skills`, `~/.codex/skills`, `.agents/skills`, or custom path. |
+| "Migrates/syncs skills" | Check direction: source -> target, bidirectional, sync-only, migrator-into-host, from-host-supported, or unknown. |
+| "Safe/local tool" | Check whether it reads local files, runs install scripts, starts MCP servers, calls APIs, or writes config/files. |
 
 ## Link To Scoring
 
 Do not score a serious candidate until required and important claims have status and confidence. If a required claim is `Unverified`, `Unsupported`, or unresolved, lower confidence or change adoption class instead of forcing a recommendation.
+
+## Compact Output
+
+Claim Ledger rows may be summarized instead of fully printed in compact output, but each Best Match must still show claim status, caveat, files checked, and runtime status.
+
+Use this deviation note when rows are compressed:
+
+```text
+Deviation: Project Notes and Claim Ledger were summarized rather than fully printed to keep output compact.
+```
