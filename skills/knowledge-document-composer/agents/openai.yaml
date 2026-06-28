@@ -1,0 +1,4 @@
+interface:
+  display_name: "Knowledge Document Composer"
+  short_description: "Composes structured knowledge documents."
+  default_prompt: "Use $knowledge-document-composer to compose a source-grounded report from this analysis pack or transcript."

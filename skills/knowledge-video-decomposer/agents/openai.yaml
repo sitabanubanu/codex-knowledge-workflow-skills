@@ -1,0 +1,4 @@
+interface:
+  display_name: "Knowledge Video Decomposer"
+  short_description: "Decomposes videos into structured analysis."
+  default_prompt: "Use $knowledge-video-decomposer to analyze this video or transcript and produce a structured video analysis pack."

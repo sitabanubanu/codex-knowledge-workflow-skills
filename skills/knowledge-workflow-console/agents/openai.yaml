@@ -1,0 +1,4 @@
+interface:
+  display_name: "Knowledge Workflow Console"
+  short_description: "Routes knowledge workflow stages."
+  default_prompt: "Use $knowledge-workflow-console to route this knowledge workflow and execute the needed stages."
