@@ -2,10 +2,76 @@
 
 Use this order when a workflow needs transcript material:
 
-1. Prefer existing reliable subtitles or transcripts from the source page, yt-dlp, user-provided files, or platform caption APIs.
-2. If Chrome can play the page but no visible transcript exists, do not treat Chrome playback as an audio file. First check whether a user-provided local video/audio file or a public, non-cookie media extraction is actually available.
-3. If an allowed local video/audio file exists, run the direct local faster-whisper fallback script.
-4. Use Hearsay MCP, WhisperX, or another ASR route only as a backup when the direct script is unavailable or fails.
+## Priority of Paths (highest to lowest)
+
+1. **Already-available subtitles or transcripts** — from the source page, platform caption APIs, or user-provided transcript/subtitle files.
+2. **yt-dlp with Chrome cookies** — when yt-dlp bare is blocked by a platform, retry with `--cookies-from-browser chrome`. This uses the user's own browser identity to fetch subtitles or audio that they are already authorized to access. This is the fastest path from "blocked" to "primary material in hand" and must be attempted before falling back to slower routes.
+3. **yt-dlp bare** — when the platform does not block bare requests, use yt-dlp without cookies to download subtitles or audio.
+4. **Chrome-derived media probe** — when neither direct yt-dlp nor yt-dlp with Chrome cookies has succeeded, use the Chrome deep-probe sequence (defined in `chrome-routing.md`) to search for exportable subtitle or media assets through the Codex Chrome extension. This path is slower and more involved than yt-dlp with Chrome cookies, so it runs only after yt-dlp paths have been exhausted.
+5. **User-provided local video/audio file** — when no remote path yields material and the user provides a local `.mp4`, `.m4a`, `.mp3`, `.wav`, `.webm`, `.mkv`, or similar media file, run the direct local faster-whisper fallback script.
+6. **Hearsay MCP, WhisperX, or another ASR route** — only as a backup when the direct script is unavailable or fails.
+
+## Path 1: Already-Available Subtitles or Transcripts
+
+Prefer existing reliable subtitles or transcripts from the source page, yt-dlp, user-provided files, or platform caption APIs. Record the source and confidence.
+
+## Path 2: yt-dlp with Chrome Cookies (primary fast path after block)
+
+When a yt-dlp bare request returns HTTP 429, bot check, sign-in required, RequestBlocked, or a similar platform block on a platform like YouTube, the agent MUST retry with:
+
+```
+yt-dlp --cookies-from-browser chrome <URL>
+```
+
+This uses the user's own Chrome profile cookies. It is the user's own browser identity on their own machine — not a credential handoff to a third party, not a bypass technique.
+
+After yt-dlp with Chrome cookies:
+
+- **If subtitles are obtained** (`.vtt`, `.srt`, etc.): they qualify as `primary_transcript`. The source may enter `source_confirmed`.
+- **If audio is obtained** (`.m4a`, `.opus`, `.mp3`, etc.): it qualifies as `primary_audio_asr` after local ASR succeeds. The source may enter `source_confirmed`.
+- **If yt-dlp with Chrome cookies also fails**: record the failure and continue to Path 4 (Chrome-derived media probe).
+
+Useful yt-dlp flags for this path:
+
+```
+# Subtitles only, with auto-generated captions
+yt-dlp --cookies-from-browser chrome --skip-download --write-subs --write-auto-subs <URL>
+
+# Audio only for downstream ASR
+yt-dlp --cookies-from-browser chrome -f bestaudio --extract-audio --audio-format mp3 <URL>
+
+# List available subtitles
+yt-dlp --cookies-from-browser chrome --list-subs <URL>
+```
+
+## Path 3: yt-dlp Bare
+
+When the platform does not block bare requests, use yt-dlp without cookies. Same flags as above, without `--cookies-from-browser chrome`.
+
+## Path 4: Chrome-Derived Media Probe
+
+When yt-dlp with Chrome cookies also fails, execute the Chrome deep-probe sequence defined in `chrome-routing.md`:
+
+1. Visible transcript / caption UI inspection
+2. `pageAssets.list()` — inventory page assets
+3. `pageAssets.bundle()` — export discovered subtitle or media assets
+4. Playwright `evaluate()` — inspect DOM for captionTracks, player response data, `<track>` elements, public media `<source>` tags
+5. Network / media asset inspection — when supported by the current plugin documentation
+
+A Chrome-derived media asset qualifies as `browser_derived_media` (see `source-status.md`) only when:
+- An actual local subtitle or media file was exported via pageAssets; or
+- A public downloadable media/subtitle URL was confirmed and fetched, then saved locally; and
+- Subsequent ASR or subtitle parsing succeeds.
+
+"Chrome can play the page" alone does NOT qualify as `browser_derived_media`.
+
+## Path 5: User-Provided Local File + Direct faster-whisper
+
+If an allowed local video/audio file exists, run the direct local faster-whisper fallback script.
+
+## Path 6: Hearsay MCP / WhisperX / Other ASR
+
+Use Hearsay MCP, WhisperX, or another ASR route only as a backup when the direct script is unavailable or fails.
 
 ## Allowed ASR Inputs
 
@@ -13,15 +79,16 @@ Allowed inputs:
 
 - User-provided local `.mp4`, `.m4a`, `.mp3`, `.wav`, `.webm`, `.mkv`, or similar media files.
 - User-provided transcript/subtitle files.
-- Public subtitles or media files obtained without passing Chrome cookies, logged-in browser state, private tokens, or restricted player streams to an extractor.
+- Public subtitles or media files obtained through yt-dlp (bare or with `--cookies-from-browser chrome`).
+- Subtitle or media files exported through Chrome pageAssets, or fetched from a confirmed public downloadable URL discovered during the Chrome deep-probe.
 
 Not allowed as ASR inputs:
 
-- A Chrome tab merely playing a video.
-- Chrome cookies, browser session state, signed player URLs, private playback tokens, or restricted media segments copied from the browser into `yt-dlp` or another extractor.
+- A Chrome tab merely playing a video (no actual file exported).
 - Material that requires bypassing CAPTCHA, paywall, login, region lock, account permission, or platform anti-bot controls.
+- Restricted media segments obtained by circumventing access controls.
 
-If none of the allowed inputs exists, stop and request primary material instead of inventing content from metadata.
+If none of the allowed inputs exists after all six paths have been exhausted, stop and request primary material instead of inventing content from metadata.
 
 ## ASR Quality Policy
 
@@ -70,7 +137,7 @@ Record the chosen source and any failed branches in `00_source/acquisition_notes
 
 Every transcript artifact must record:
 
-- Source type: official subtitle, automatic caption, user transcript, direct faster-whisper, Hearsay, WhisperX, or other.
+- Source type: official subtitle, automatic caption, user transcript, yt-dlp Chrome cookies subtitle, yt-dlp Chrome cookies audio + ASR, Chrome pageAssets export, Chrome deep-probe URL fetch, direct faster-whisper, Hearsay, WhisperX, or other.
 - Tool and version if available.
 - Model name for ASR.
 - Language setting.

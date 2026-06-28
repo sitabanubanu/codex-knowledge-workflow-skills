@@ -25,6 +25,9 @@ PRIMARY_FULL_SIGNALS = {
     "chrome_visible_transcript",
     "user_file",
     "local_transcript",
+    "subtitles_acquired_via_chrome_cookies",
+    "audio_acquired_via_chrome_cookies",
+    "browser_derived_media_acquired",
 }
 PRIMARY_PARTIAL_SIGNALS = {"partial_transcript"}
 BLOCKED_SIGNALS = {
@@ -37,11 +40,17 @@ BLOCKED_SIGNALS = {
     "paywall",
     "permission_required",
 }
-FAILED_SIGNALS = {"timeout", "tool_failed", "chrome_no_transcript"}
+FAILED_SIGNALS = {
+    "timeout",
+    "tool_failed",
+    "chrome_no_transcript",
+    "chrome_deep_probe_exhausted",
+}
 SECONDARY_SIGNALS = {"secondary_summary_available", "metadata_available"}
 
 KNOWN_PROBES = {
     "yt-dlp",
+    "yt-dlp-chrome-cookies",
     "youtube_transcript_api",
     "Chrome",
     "Hearsay",
@@ -66,6 +75,10 @@ SIGNAL_ALIASES = {
     "signin_required": "login_required",
     "requestblocked": "request_blocked",
     "too_many_requests": "http_429",
+    "ytdlp_chrome_cookies_subtitles": "subtitles_acquired_via_chrome_cookies",
+    "ytdlp_chrome_cookies_audio": "audio_acquired_via_chrome_cookies",
+    "pageassets_exported_media": "browser_derived_media_acquired",
+    "deep_probe_exhausted": "chrome_deep_probe_exhausted",
 }
 
 
@@ -107,12 +120,16 @@ def source_classes_for(
         classes.add("primary_transcript")
     if "user_file" in probes and source_type != "local_media":
         classes.add("primary_transcript")
-    if "audio_available" in signals or (
+    if "subtitles_acquired_via_chrome_cookies" in signals:
+        classes.add("primary_transcript")
+    if "audio_available" in signals or "audio_acquired_via_chrome_cookies" in signals or (
         ("user_file" in signals or "user_file" in probes) and source_type == "local_media"
     ):
         classes.add("primary_audio_asr")
     if "chrome_visible_transcript" in signals:
         classes.add("browser_visible_transcript")
+    if "browser_derived_media_acquired" in signals:
+        classes.add("browser_derived_media")
     if "partial_transcript" in signals:
         classes.add("primary_transcript")
 
@@ -125,7 +142,7 @@ def source_classes_for(
     if "Firecrawl" in probes:
         classes.add("firecrawl_context")
     if "Chrome" in probes and not classes.intersection(
-        {"browser_visible_transcript", "primary_transcript"}
+        {"browser_visible_transcript", "primary_transcript", "browser_derived_media"}
     ):
         classes.add("page_observation")
 
@@ -133,6 +150,7 @@ def source_classes_for(
         "primary_transcript",
         "primary_audio_asr",
         "browser_visible_transcript",
+        "browser_derived_media",
         "platform_metadata",
         "secondary_summary",
         "search_snippet",
@@ -146,6 +164,8 @@ def probe_source_class(probe: str) -> str:
     if probe == "youtube_transcript_api":
         return "primary_transcript"
     if probe == "yt-dlp":
+        return "primary_transcript"
+    if probe == "yt-dlp-chrome-cookies":
         return "primary_transcript"
     if probe == "Chrome":
         return "browser_visible_transcript"
@@ -171,6 +191,8 @@ def result_for_probe(probe: str, signals: set[str], status: str) -> tuple[str, s
         return "failed", "tool_failed"
     if "chrome_no_transcript" in signals and probe == "Chrome":
         return "failed", "chrome_no_transcript"
+    if "chrome_deep_probe_exhausted" in signals and probe == "Chrome":
+        return "failed", "chrome_deep_probe_exhausted"
     if status == "source_partial":
         return "partial", "partial_transcript"
     if status in {"source_confirmed", "secondary_only"}:
@@ -185,14 +207,23 @@ def build_failed_probes(
     attempts: int,
     max_time_seconds: int,
     chrome_required: bool,
+    yt_dlp_chrome_cookies_needed: bool,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    blocked_or_failed_results = {"blocked", "failed", "timeout"}
+
     for probe in sorted(probes, key=str.lower):
         result, reason = result_for_probe(probe, signals, status)
-        if result not in {"blocked", "failed", "timeout"}:
+        if result not in blocked_or_failed_results:
             continue
         next_route = ""
-        if chrome_required and result in {"blocked", "failed", "timeout"}:
+        if probe == "yt-dlp" and result in {"blocked", "failed", "timeout"}:
+            # The immediate next step after yt-dlp bare fails is to retry with Chrome cookies.
+            next_route = "retry_yt_dlp_with_chrome_cookies"
+        elif probe == "yt-dlp-chrome-cookies" and result in {"blocked", "failed", "timeout"}:
+            # After yt-dlp with Chrome cookies fails, go to Chrome deep-probe.
+            next_route = "chrome_deep_probe"
+        elif chrome_required and result in {"blocked", "failed", "timeout"} and probe not in {"yt-dlp", "yt-dlp-chrome-cookies"}:
             next_route = "Chrome"
         elif result in {"failed", "timeout"}:
             next_route = "user_provided_primary_material"
@@ -215,21 +246,31 @@ def determine_status(
     probes: set[str],
     signals: set[str],
 ) -> tuple[str, str]:
+    # yt-dlp-chrome-cookies success produces primary material just like bare yt-dlp would.
+    has_yt_cookies_success = bool(
+        signals & {"subtitles_acquired_via_chrome_cookies", "audio_acquired_via_chrome_cookies"}
+    ) and "yt-dlp-chrome-cookies" in probes
+
     has_primary_full = (
         bool(signals & PRIMARY_FULL_SIGNALS)
         or source_type == "local_transcript"
         or ("user_file" in probes and not bool(signals & (BLOCKED_SIGNALS | FAILED_SIGNALS)))
+        or has_yt_cookies_success
     )
     has_primary_partial = bool(signals & PRIMARY_PARTIAL_SIGNALS)
     has_block = bool(signals & BLOCKED_SIGNALS)
     has_failure = bool(signals & FAILED_SIGNALS)
     has_secondary = bool(signals & SECONDARY_SIGNALS) or bool(probes & SECONDARY_PROBES)
 
+    # Browser-derived media can support source_confirmed:
+    if "browser_derived_media_acquired" in signals:
+        return "source_confirmed", "Browser-derived media was exported and processed into transcript material."
+
     # Primary material wins over failed helper probes; partial remains explicitly marked.
     if has_primary_partial:
         return "source_partial", "Primary transcript material is available only in partial form."
     if has_primary_full:
-        return "source_confirmed", "Primary transcript, audio, Chrome-visible transcript, or user file is available."
+        return "source_confirmed", "Primary transcript, audio, Chrome-visible transcript, Chrome-cookies subtitles/audio, or user file is available."
     if has_block:
         return "source_blocked", "A platform or page access block prevents primary source acquisition."
     if has_secondary:
@@ -243,13 +284,32 @@ def chrome_summary(
     source_type: str,
     probes: set[str],
     signals: set[str],
-) -> tuple[bool, bool, str, str, str]:
+) -> tuple[bool, bool, bool, str, str, str, bool, bool]:
     chrome_used = "Chrome" in probes
-    chrome_failed_or_no_transcript = bool(signals & {"chrome_no_transcript"})
+    chrome_deep_probe_done = chrome_used and (
+        "chrome_no_transcript" in signals
+        or "chrome_deep_probe_exhausted" in signals
+        or "browser_derived_media_acquired" in signals
+    )
+    chrome_failed_or_no_transcript = bool(
+        signals & {"chrome_no_transcript", "chrome_deep_probe_exhausted"}
+    )
     blocked_platform = source_type == "platform_url" and bool(signals & BLOCKED_SIGNALS)
-    hearsay_platform_timeout = source_type == "platform_url" and "Hearsay" in probes and "timeout" in signals
-    chrome_required = (blocked_platform or hearsay_platform_timeout) and not (
-        chrome_used and chrome_failed_or_no_transcript
+    hearsay_platform_timeout = (
+        source_type == "platform_url" and "Hearsay" in probes and "timeout" in signals
+    )
+
+    # yt-dlp bare blocked → yt-dlp Chrome cookies should be tried
+    yt_dlp_bare_blocked = "yt-dlp" in probes and bool(signals & BLOCKED_SIGNALS)
+    yt_dlp_chrome_cookies_attempted = "yt-dlp-chrome-cookies" in probes
+    yt_dlp_chrome_cookies_succeeded = bool(
+        signals & {"subtitles_acquired_via_chrome_cookies", "audio_acquired_via_chrome_cookies"}
+    )
+
+    chrome_required = (
+        (blocked_platform or hearsay_platform_timeout)
+        and not (chrome_used and chrome_failed_or_no_transcript)
+        and not yt_dlp_chrome_cookies_succeeded
     )
 
     if "chrome_visible_transcript" in signals:
@@ -258,6 +318,10 @@ def chrome_summary(
         visible = "partial"
     elif "chrome_no_transcript" in signals:
         visible = "not_visible"
+    elif "chrome_deep_probe_exhausted" in signals:
+        visible = "not_visible"
+    elif "browser_derived_media_acquired" in signals and chrome_used:
+        visible = "available"
     elif bool(signals & BLOCKED_SIGNALS) and chrome_used:
         visible = "blocked"
     elif chrome_used:
@@ -275,7 +339,11 @@ def chrome_summary(
         page_state = "permission_required"
     elif "chrome_visible_transcript" in signals:
         page_state = "opened"
+    elif "browser_derived_media_acquired" in signals:
+        page_state = "opened"
     elif "chrome_no_transcript" in signals:
+        page_state = "opened"
+    elif "chrome_deep_probe_exhausted" in signals:
         page_state = "opened"
     elif "metadata_available" in signals:
         page_state = "metadata_only"
@@ -287,15 +355,46 @@ def chrome_summary(
         page_state = "unknown"
 
     if chrome_used:
-        why = "Chrome route was reported as used by the probe input."
+        if yt_dlp_chrome_cookies_succeeded:
+            why = (
+                "Chrome route was used alongside yt-dlp with Chrome cookies, "
+                "which succeeded in acquiring primary material."
+            )
+        elif chrome_deep_probe_done:
+            why = (
+                "Chrome deep-probe sequence was executed after yt-dlp Chrome cookies "
+                "did not produce primary material."
+            )
+        else:
+            why = "Chrome route was reported as used by the probe input."
+    elif yt_dlp_bare_blocked and not yt_dlp_chrome_cookies_attempted:
+        why = (
+            "yt-dlp bare was blocked. yt-dlp with --cookies-from-browser chrome "
+            "must be attempted before Chrome page-state inspection."
+        )
     elif chrome_required and hearsay_platform_timeout:
-        why = "Hearsay URL ingestion timed out on a platform URL, so Chrome page-state inspection is required next."
+        why = (
+            "Hearsay URL ingestion timed out on a platform URL. "
+            "yt-dlp with Chrome cookies or Chrome page-state inspection is required next."
+        )
     elif chrome_required:
-        why = "Platform URL had an access-block signal, so Chrome page-state inspection is required next."
+        why = (
+            "Platform URL had an access-block signal. "
+            "yt-dlp with Chrome cookies or Chrome page-state inspection is required next."
+        )
     else:
         why = "Chrome was not required by the provided source type and signals."
 
-    return chrome_required, chrome_used, visible, page_state, why
+    return (
+        chrome_required,
+        chrome_used,
+        chrome_deep_probe_done,
+        visible,
+        page_state,
+        why,
+        yt_dlp_chrome_cookies_attempted,
+        yt_dlp_chrome_cookies_succeeded,
+    )
 
 
 def permissions_for_status(status: str) -> tuple[bool, bool, str, str]:
@@ -318,17 +417,31 @@ def build_summary(args: argparse.Namespace) -> dict[str, object]:
     status, reason = determine_status(args.source_type, probes, signals)
     full, composer, report_type, next_step = permissions_for_status(status)
     classes = source_classes_for(args.source_type, probes, signals)
-    chrome_required, chrome_used, visible, page_state, chrome_reason = chrome_summary(
-        args.source_type,
-        probes,
-        signals,
-    )
-    if chrome_required and not chrome_used:
+    (
+        chrome_required,
+        chrome_used,
+        chrome_deep_probe_done,
+        visible,
+        page_state,
+        chrome_reason,
+        yt_cookies_attempted,
+        yt_cookies_succeeded,
+    ) = chrome_summary(args.source_type, probes, signals)
+
+    # Determine next_step based on acquisition state
+    yt_dlp_bare_blocked = "yt-dlp" in probes and bool(signals & BLOCKED_SIGNALS)
+    if yt_dlp_bare_blocked and not yt_cookies_attempted:
+        next_step = "retry_yt_dlp_with_chrome_cookies"
+    elif yt_cookies_attempted and not yt_cookies_succeeded and not chrome_used:
+        next_step = "perform_chrome_deep_probe"
+    elif chrome_required and not chrome_used and not yt_cookies_succeeded:
         next_step = "perform_chrome_page_state_inspection"
+    elif chrome_used and signals & {"chrome_deep_probe_exhausted"}:
+        next_step = "request_user_provided_local_file_or_accept_degraded_report"
 
     primary_available = bool(
         set(classes)
-        & {"primary_transcript", "primary_audio_asr", "browser_visible_transcript"}
+        & {"primary_transcript", "primary_audio_asr", "browser_visible_transcript", "browser_derived_media"}
     )
 
     return {
@@ -340,8 +453,13 @@ def build_summary(args: argparse.Namespace) -> dict[str, object]:
         "primary_material_available": primary_available,
         "chrome_required": chrome_required,
         "chrome_route_used": chrome_used,
+        "chrome_deep_probe_exhausted": chrome_deep_probe_done and bool(
+            signals & {"chrome_deep_probe_exhausted"}
+        ),
         "visible_transcript_status": visible,
         "page_state_observed": page_state,
+        "yt_dlp_chrome_cookies_attempted": yt_cookies_attempted,
+        "yt_dlp_chrome_cookies_succeeded": yt_cookies_succeeded,
         "why_chrome_was_or_was_not_used": chrome_reason,
         "status_reason": reason,
         "failed_probes": build_failed_probes(
@@ -351,6 +469,7 @@ def build_summary(args: argparse.Namespace) -> dict[str, object]:
             args.attempts,
             args.max_time_seconds,
             chrome_required,
+            yt_cookies_succeeded,
         ),
         "next_step": next_step,
         "cost_limits": {
@@ -426,21 +545,138 @@ def run_self_test() -> int:
         (
             "yt-dlp 429 platform url",
             ["--source-type", "platform_url", "--probe", "yt-dlp", "--signal", "http_429"],
-            {"source_status": "source_blocked", "chrome_required": True},
+            {
+                "source_status": "source_blocked",
+                "chrome_required": True,
+                "next_step": "retry_yt_dlp_with_chrome_cookies",
+                "yt_dlp_chrome_cookies_attempted": False,
+            },
         ),
         (
             "yt-dlp bot check platform url",
-            ["--source-type", "platform_url", "--probe", "yt-dlp", "--signal", "bot_check"],
-            {"source_status": "source_blocked", "chrome_required": True, "next_step": "perform_chrome_page_state_inspection"},
+            [
+                "--source-type",
+                "platform_url",
+                "--probe",
+                "yt-dlp",
+                "--signal",
+                "bot_check",
+            ],
+            {
+                "source_status": "source_blocked",
+                "chrome_required": True,
+                "next_step": "retry_yt_dlp_with_chrome_cookies",
+            },
         ),
         (
             "yt-dlp sign in to confirm alias",
-            ["--source-type", "platform_url", "--probe", "yt-dlp", "--signal", "sign_in_to_confirm"],
-            {"source_status": "source_blocked", "chrome_required": True},
+            [
+                "--source-type",
+                "platform_url",
+                "--probe",
+                "yt-dlp",
+                "--signal",
+                "sign_in_to_confirm",
+            ],
+            {
+                "source_status": "source_blocked",
+                "chrome_required": True,
+                "next_step": "retry_yt_dlp_with_chrome_cookies",
+            },
+        ),
+        (
+            "yt-dlp Chrome cookies subtitles success",
+            [
+                "--source-type",
+                "platform_url",
+                "--probe",
+                "yt-dlp,yt-dlp-chrome-cookies",
+                "--signal",
+                "subtitles_acquired_via_chrome_cookies",
+            ],
+            {
+                "source_status": "source_confirmed",
+                "can_enter_full_decomposition": True,
+                "yt_dlp_chrome_cookies_attempted": True,
+                "yt_dlp_chrome_cookies_succeeded": True,
+                "primary_material_available": True,
+            },
+        ),
+        (
+            "yt-dlp Chrome cookies audio success",
+            [
+                "--source-type",
+                "platform_url",
+                "--probe",
+                "yt-dlp,yt-dlp-chrome-cookies",
+                "--signal",
+                "audio_acquired_via_chrome_cookies",
+            ],
+            {
+                "source_status": "source_confirmed",
+                "can_enter_full_decomposition": True,
+                "yt_dlp_chrome_cookies_attempted": True,
+                "yt_dlp_chrome_cookies_succeeded": True,
+                "primary_material_available": True,
+            },
+        ),
+        (
+            "yt-dlp Chrome cookies also fails → next step is Chrome deep probe",
+            [
+                "--source-type",
+                "platform_url",
+                "--probe",
+                "yt-dlp,yt-dlp-chrome-cookies",
+                "--signal",
+                "http_429,request_blocked",
+            ],
+            {
+                "source_status": "source_blocked",
+                "next_step": "perform_chrome_deep_probe",
+                "yt_dlp_chrome_cookies_attempted": True,
+                "yt_dlp_chrome_cookies_succeeded": False,
+            },
+        ),
+        (
+            "browser derived media acquired via pageAssets",
+            [
+                "--source-type",
+                "platform_url",
+                "--probe",
+                "yt-dlp,yt-dlp-chrome-cookies,Chrome",
+                "--signal",
+                "browser_derived_media_acquired",
+            ],
+            {
+                "source_status": "source_confirmed",
+                "can_enter_full_decomposition": True,
+                "primary_material_available": True,
+            },
+        ),
+        (
+            "Chrome deep probe exhausted",
+            [
+                "--source-type",
+                "platform_url",
+                "--probe",
+                "yt-dlp,yt-dlp-chrome-cookies,Chrome",
+                "--signal",
+                "http_429,request_blocked,chrome_deep_probe_exhausted",
+            ],
+            {
+                "source_status": "source_blocked",
+                "next_step": "request_user_provided_local_file_or_accept_degraded_report",
+                "chrome_deep_probe_exhausted": True,
+            },
         ),
         (
             "Firecrawl Podwise secondary only",
-            ["--probe", "Firecrawl,Podwise", "--signal", "metadata_available,secondary_summary_available"],
+            [
+                "--probe",
+                "Firecrawl,Podwise",
+                "--signal",
+                "metadata_available,secondary_summary_available",
+            ],
             {"source_status": "secondary_only", "can_enter_full_decomposition": False},
         ),
         (
@@ -449,9 +685,20 @@ def run_self_test() -> int:
             {"source_status": "source_failed"},
         ),
         (
-            "Hearsay platform URL timeout requires Chrome",
-            ["--source-type", "platform_url", "--probe", "Hearsay", "--signal", "timeout"],
-            {"source_status": "source_failed", "chrome_required": True, "next_step": "perform_chrome_page_state_inspection"},
+            "Hearsay platform URL timeout requires Chrome or yt-dlp Chrome cookies",
+            [
+                "--source-type",
+                "platform_url",
+                "--probe",
+                "Hearsay",
+                "--signal",
+                "timeout",
+            ],
+            {
+                "source_status": "source_failed",
+                "chrome_required": True,
+                "next_step": "perform_chrome_page_state_inspection",
+            },
         ),
     ]
 

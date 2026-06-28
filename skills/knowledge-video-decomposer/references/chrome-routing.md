@@ -1,128 +1,223 @@
-﻿# Chrome Routing Gate
+# Chrome Routing Gate
 
-本文件定义 `knowledge-video-decomposer` 在视频网页、平台页和阻断场景下何时必须使用 Chrome 检查页面状态。它是后续 agent 的执行规则，不是建议清单。
+This file defines when and how `knowledge-video-decomposer` must use Chrome to inspect video pages, probe for media assets, and — when the page is blocked to bare external extraction — retry yt-dlp with the user's own Chrome browser identity. It is an execution rule set for downstream agents, not a suggestion list.
 
-## 适用场景
+## When Chrome Is Required
 
-在以下任一条件成立时，Chrome 是允许且优先的页面状态检查路径：
+Chrome is the required next step when any of the following is true:
 
-- 来源是 YouTube、Bilibili、Coursera、会员站、课程页、播客页、嵌入式视频页或其他平台页，而网页状态会影响 transcript、字幕、描述、章节、登录态或可见内容。
-- 页面需要用户当前浏览器的登录态、地区状态、语言状态、订阅状态、播放器状态或已经展开的 transcript 面板。
-- 页面上可能存在可见 transcript、字幕面板、描述、章节、show notes、课程讲义、资源链接或其他一手材料。
-- 常规提取失败后，需要做首选的人工可见状态检查，而不是继续重复外部 extractor。
-- 用户明确要求使用 Chrome、浏览器、当前登录状态或可见页面来确认来源。
+- The source is YouTube, Bilibili, Coursera, a membership site, a course page, a podcast page, an embedded video page, or another platform page, and page state affects transcript, subtitle, description, chapter, login state, or visible content.
+- `yt-dlp` (bare, without `--cookies-from-browser`) returns HTTP 429, bot confirmation, robot check, CAPTCHA, Sign in to confirm, login required, RequestBlocked, or a similar platform block.
+- `youtube_transcript_api` returns blocked, RequestBlocked, TooManyRequests, TranscriptsDisabled, login required, or a bot/consent/region-related block.
+- Hearsay URL ingestion times out on a platform URL metadata fetch, and the source is a platform URL, not a local audio/video file.
+- The page may have a visible transcript, caption panel, description, chapters, show notes, course handouts, resource links, or other first-hand material that needs human-visible state confirmation.
+- The user explicitly asks to use Chrome, the browser, the current login state, or the visible page to confirm the source.
 
-Chrome 检查的目标是确认“页面实际上能看到什么”，包括标题、作者/频道、页面是否打开、是否有 transcript、是否需要登录/验证码/付费权限、是否有可下载或可复制的一手文本。
+The goal of Chrome inspection is to confirm "what the page actually shows": title, author/channel, whether the page opens, whether a transcript exists, whether login/CAPTCHA/paywall is required, and whether there is downloadable or copyable first-hand text or exposed media.
 
-## Chrome 不等于绕过
+## Required Sequence: Chrome Deep Probe
 
-Chrome route 不是反爬、绕过或批量抓取方案。后续 agent 必须遵守：
+When Chrome opens a platform video page and no visible transcript or caption UI is immediately present, the agent MUST NOT stop at "no visible transcript." It must execute this layered probe sequence and record the result of each layer:
 
-- 禁止要求用户或 agent 把 Chrome cookie 传给 `yt-dlp`。
-- 禁止把 Chrome 已登录播放器、受限播放器流、临时播放 URL、私有 token 或浏览器会话状态交给 `yt-dlp`、ASR 下载器或其他外部 extractor。
-- 禁止尝试绕过 CAPTCHA、bot check、付费墙、课程权限、地区限制或账号权限。
-- 禁止把 Chrome 当成批量抓受限内容的工具。
-- 禁止在需要验证码、付费、账号授权或访问控制时继续自动化点击来获取受限 transcript/audio。
-- 允许记录页面状态、可见元数据、公开可见 transcript 状态和用户已经有权访问的页面事实。
+### Layer 1 — Visible Transcript / Caption UI
 
-如果任务目标需要绕过限制才能继续，必须停止该分支，并把来源状态交给 `source-status.md` 中的阻断状态处理。
+- Look for a visible transcript panel, "Show transcript" button, caption toggle, subtitle menu, or language selector.
+- If a visible transcript is found, capture it. Record `visible_transcript_status: "available"`.
+- If a transcript button exists but is not expanded, click it and re-inspect.
 
-## Chrome 可播放但没有文字稿
+### Layer 2 — pageAssets Inventory
 
-Chrome 能播放视频只说明浏览器可以渲染播放器，不等于 agent 已经获得可转写的本地音频文件。遇到“页面可播放，但没有可见 transcript/字幕”的情况，必须按以下顺序处理：
+- Call `pageAssets.list()` and inspect the returned asset inventory.
+- Look for assets of kind `"video"`, assets with `.vtt`/`.srt`/`.sbv`/`.xml` (subtitle MIME or extension), and assets whose URL or name suggests subtitle/caption content.
+- Record what kinds were found, even if none are media assets.
 
-1. 记录页面可播放、无可见 transcript、无可采集字幕的事实。
-2. 检查是否已有用户提供的本地视频/音频文件、字幕文件或 transcript。
-3. 如果有本地视频/音频文件，转入 `transcription-fallback.md` 的本地 ASR 路径。
-4. 如果 `yt-dlp` 能在不使用 Chrome cookie、登录态或绕过限制的情况下公开取得音频/字幕，可以转入本地 ASR 或字幕处理。
-5. 如果只有 Chrome 播放器可看、但没有可导出的公开 transcript/audio，本分支必须停止，并请求用户提供一手媒体或 transcript。
+### Layer 3 — pageAssets Bundle (only when assets discovered)
 
-禁止把“Chrome 能播放”写成 `primary_audio_asr`。只有在实际取得本地音频/视频文件并完成 ASR 后，才能把来源升级为 `primary_audio_asr`。
+- If Layer 2 found video, font, or stylesheet assets that may include subtitle or media data, call `pageAssets.bundle()` with the relevant `kinds` and `assetIds`.
+- Record whether any media or subtitle files were exported to the local artifact directory.
+- If a subtitle file (`.vtt`, `.srt`, etc.) was exported, it qualifies as `browser_derived_media`.
 
-## Bootstrap 规则
+### Layer 4 — Playwright evaluate for Player Data
 
-当可用 skill 列表中存在 `chrome:control-chrome` 时，不能因为没有直接的 `chrome.*` 工具命名空间就判定 Chrome 不可用。
+- Use `tab.playwright.evaluate()` to inspect the page DOM for:
+  - `player.response` or similar player-state objects containing `captions` / `captionTracks` / `timedtext`.
+  - `<track>` elements on `<video>` or `<audio>` tags with public `src` attributes.
+  - Publicly-exposed media URLs in `<source>` tags, `data-setup`, or player configuration objects.
+  - Any `ytInitialPlayerResponse` or equivalent platform player bootstrap data containing caption/transcript URLs.
+- Record what was found. A public subtitle track URL is a valid `browser_derived_media` when it can be fetched and saved.
 
-执行顺序：
+### Layer 5 — Network / Media Asset Inspection (when supported)
 
-1. 先读取 `chrome:control-chrome` skill 的 `SKILL.md`。
-2. 按该 skill 的说明读取它要求的 browser documentation 或 browser-client 文档。
-3. 按该 skill 的 Node/browser-client 引导方式连接和控制 Chrome。
-4. 只有在 skill 缺失、文档读取失败、Chrome 连接失败、浏览器无法打开目标页或用户拒绝使用 Chrome 时，才可以判定 Chrome route 不可执行。
+- If the current Chrome plugin documentation exposes a network-asset or media-asset inspection capability, use it to observe visible media or subtitle asset states.
+- If the plugin documentation does NOT expose such a capability, record that it was not available and move on. Do not pretend to have executed CDP `Network.*` commands when no stable interface is documented.
 
-禁止行为：
+### After All Layers
 
-- 禁止仅因工具列表没有 `chrome.open`、`chrome.navigate`、`chrome.*` 之类命名空间就记录 `Chrome unavailable`。
-- 禁止跳过 `chrome:control-chrome` 的 bootstrap 文档直接猜测调用方式。
-- 禁止在 Chrome 被触发后继续多次重复同一个已经 429/bot blocked 的 extractor。
+After all layers have been tried and their results recorded:
 
-## 触发条件
+- If ANY layer produced an actual local subtitle file, an exported media file, or a confirmed public downloadable media/subtitle URL → proceed to ASR or subtitle parsing. The material qualifies as `browser_derived_media` (see `source-status.md`).
+- If ALL layers failed → record `chrome_deep_probe_exhausted: true`. The agent may now conclude that no primary media is available from the page. Proceed to request user-provided local files or enter the appropriate degraded/blocked source status.
 
-出现以下任一信号时，必须进入 Chrome route 决策，并停止同类外部提取重试：
+## yt-dlp with Chrome Cookies
 
-- `yt-dlp` 返回 HTTP 429、bot confirmation、robot check、CAPTCHA、Sign in to confirm、login required、RequestBlocked 或类似平台阻断。
-- `youtube_transcript_api` 返回 blocked、RequestBlocked、TooManyRequests、TranscriptsDisabled、login required 或 bot/consent/region 相关阻断。
-- Hearsay URL ingestion 在平台 metadata fetch 或 URL 阶段超时，且来源是平台 URL，而不是本地音视频文件。
-- 平台页 transcript 是否存在需要人工可见状态确认。
-- 用户明确要求“用 Chrome 看一下”“用浏览器”“用登录态”“看页面上有没有 transcript/字幕”。
+When yt-dlp bare requests are blocked by YouTube or another platform, the agent MUST retry with the user's own Chrome browser identity:
 
-触发后应执行：
+```
+yt-dlp --cookies-from-browser chrome <URL>
+```
 
-1. 记录触发原因。
-2. 使用 Chrome 打开或定位目标页面。
-3. 观察页面是否可打开、标题是否匹配、登录/验证码/付费状态、可见 transcript 或字幕入口。
-4. 只在可见 transcript 或用户授权的一手材料可访问时，继续采集一手文本。
-5. 若没有可见一手材料，转入 `source-status.md` 的阻断或降级状态。
+This is the user's own browser identity on their own machine. It is not a bypass, not a credential handoff to a third party, and not a bulk-scraping technique. The user is already watching the page in Chrome — yt-dlp merely uses the same identity to fetch subtitles or audio that the user is already authorized to access.
 
-## 停止条件
+After yt-dlp with Chrome cookies:
 
-Chrome route 遇到以下任一条件必须停止，不得用更多自动化绕过：
+- If subtitles (`.vtt`, `.srt`, etc.) are obtained → they qualify as `primary_transcript`. Source status may be `source_confirmed`.
+- If audio is obtained (`.m4a`, `.opus`, `.mp3`, etc.) → it qualifies as `primary_audio_asr` after local ASR succeeds. Source status may be `source_confirmed`.
+- If yt-dlp with Chrome cookies also fails → record the failure and continue the Chrome deep-probe sequence for any remaining observable page state.
 
-- Chrome 页面无法打开、崩溃、连接失败或目标 URL 无法加载。
-- 页面能打开但没有可见 transcript、字幕面板、可复制字幕、可下载 transcript 或其他一手文本。
-- 页面要求 CAPTCHA、bot verification、付费墙、课程权限、会员权限、账号权限、地区解锁或用户未授权的登录。
-- 页面状态显示视频不可用、被删除、私有、地区不可用或年龄/权限限制。
-- 继续任务会要求批量抓取受限内容、传递 cookie 给外部 extractor、绕过访问控制或规避平台限制。
+### What IS allowed with yt-dlp
 
-停止后必须记录原因，并按 `source-status.md` 选择 `source_blocked`、`source_failed`、`secondary_only` 或 `degraded_report_only`，不得伪装成完整视频分析。停止说明必须区分“页面可播放但没有可转写媒体文件”和“页面完全不可访问”。
+- `--cookies-from-browser chrome` — use the user's own Chrome profile.
+- `--write-subs` / `--write-auto-subs` — download subtitles.
+- `-f bestaudio` / audio-only format selection for local ASR.
+- `--skip-download` + `--write-subs` — subtitles only, no media download.
 
-## 输出要求
+### What IS NOT allowed with yt-dlp
 
-任何执行或明确跳过 Chrome route 的 workflow，都必须在 acquisition notes、metadata 或 run state 中记录以下字段：
+- Using cookies extracted from a different user's profile or a remote session.
+- Passing cookies, tokens, or session state to a third-party service.
+- Circumventing CAPTCHA, paywall, region lock, course permissions, account authorization, or platform anti-bot controls through automation, forged headers, or credential theft.
+- Bulk-scraping content from restricted platforms.
+
+## Chrome Is Not an Unauthorized Bypass
+
+Chrome route is a legitimate page-state inspection and media-probe tool. It is not an anti-bot bypass, a bulk-scraping vector, or a credential-theft bridge. Downstream agents must respect these boundaries:
+
+- Allowed: record page state, visible metadata, publicly visible transcript status, page facts the user is already authorized to see, and page assets exposed through supported plugin capabilities.
+- Allowed: use yt-dlp with `--cookies-from-browser chrome` to fetch subtitles or audio that the user's own browser identity is authorized to access.
+- Not allowed: require or attempt CAPTCHA solving, bot-check circumvention, paywall bypass, course-permission bypass, region-lock bypass, age-restriction bypass, or account-permission escalation.
+- Not allowed: use Chrome as a bridge to pass restricted player streams, signed playback URLs, or private tokens to yt-dlp or another extractor when the material is behind a paywall, login wall, or access-control barrier that the user has not already cleared.
+- Not allowed: batch-scrape restricted content through repeated automated navigation.
+
+If the task objective requires bypassing access controls to continue, stop that branch and hand the source state to the blocked-state handler in `source-status.md`.
+
+## Chrome Can Play But No Transcript Is Visible
+
+When Chrome renders the video player successfully but no visible transcript, caption UI, or downloadable transcript is immediately present, do NOT record this as a dead end. Execute the Chrome deep-probe sequence defined above. The fact that the player renders means the page is accessible — it does not yet mean media extraction is impossible.
+
+Record separately:
+- "Page is playable" — the player rendered, the video is available.
+- "No visible transcript" — no transcript panel or caption UI was found in Layer 1.
+- Deep-probe results from Layers 2–5.
+- Final conclusion after all layers.
+
+Do not promote "page is playable" to `primary_audio_asr` or `browser_derived_media`. Only an actual exported local media file, a fetched public subtitle URL, or a confirmed local subtitle export qualifies.
+
+## Bootstrap Rules
+
+When the available skill list includes `chrome:control-chrome`, do not conclude Chrome is unavailable just because no direct `chrome.*` tool namespace is visible.
+
+Execution order:
+
+1. First read the `chrome:control-chrome` skill's `SKILL.md`.
+2. Follow that skill's instructions to read the required browser documentation or browser-client docs.
+3. Connect to and control Chrome using that skill's Node/browser-client bootstrap method.
+4. Only when the skill is missing, documentation read fails, Chrome connection fails, the browser cannot open the target page, or the user declines to use Chrome may the agent record Chrome route as not executable.
+
+Prohibited behaviors:
+
+- Do not record `Chrome unavailable` merely because the tool list does not show `chrome.open`, `chrome.navigate`, or a `chrome.*` namespace.
+- Do not skip the `chrome:control-chrome` bootstrap documentation and guess how to call it.
+- Do not repeatedly retry the same 429/bot-blocked extractor after Chrome has been triggered.
+
+## Trigger Conditions
+
+When any of the following signals appear, the agent MUST enter the Chrome route decision and stop same-class external extraction retries:
+
+- `yt-dlp` (bare) returns HTTP 429, bot confirmation, robot check, CAPTCHA, Sign in to confirm, login required, RequestBlocked, or a similar platform block.
+- `youtube_transcript_api` returns blocked, RequestBlocked, TooManyRequests, TranscriptsDisabled, login required, or a bot/consent/region-related block.
+- Hearsay URL ingestion times out on a platform metadata fetch or URL stage, and the source is a platform URL, not a local audio/video file.
+- Platform-page transcript existence needs human-visible state confirmation.
+- The user explicitly asks to "use Chrome", "use the browser", "use the login state", or "check whether the page has a transcript/subtitle".
+
+After triggering:
+
+1. Record the trigger reason.
+2. Retry yt-dlp with `--cookies-from-browser chrome`. If it succeeds, record the acquired material and proceed.
+3. If yt-dlp with Chrome cookies also fails, use Chrome to open or locate the target page.
+4. Observe whether the page opens, whether the title matches, login/CAPTCHA/paywall state, visible transcript or caption entry points.
+5. Execute the Chrome deep-probe sequence (Layers 1–5) to search for media or subtitle assets.
+6. Only collect first-hand text when a visible transcript or user-authorized first-hand material is accessible.
+7. If no first-hand material is found after all layers, enter the blocked or degraded state from `source-status.md`.
+
+## Stop Conditions
+
+Chrome route must stop when any of the following is true, without further automation to bypass:
+
+- Chrome page cannot open, crashes, connection fails, or the target URL cannot load.
+- All five layers of the Chrome deep-probe sequence have been exhausted without finding a primary media asset.
+- The page requires CAPTCHA, bot verification, paywall, course permission, membership permission, account permission, region unlock, or login the user has not authorized.
+- The page shows the video is unavailable, deleted, private, regionally unavailable, or age/permission-restricted.
+- Continuing would require batch-scraping restricted content, passing cookies to a third party, bypassing access controls, or circumventing platform restrictions.
+
+After stopping, record the reason and select `source_blocked`, `source_failed`, `secondary_only`, or `degraded_report_only` per `source-status.md`. Do not disguise the result as a complete video analysis. The stop explanation must distinguish "page is playable but all deep-probe layers failed — no extractable media found" from "page is completely inaccessible."
+
+## Output Requirements
+
+Any workflow that executes or explicitly skips the Chrome route must record the following fields in acquisition notes, metadata, or run state:
 
 ```json
 {
   "chrome_route_used": true,
   "visible_transcript_status": "available|partial|not_visible|not_checked|blocked|unknown",
   "page_state_observed": "opened|failed_to_open|login_required|captcha_required|paywalled|permission_required|video_unavailable|metadata_only|unknown",
+  "chrome_deep_probe_exhausted": false,
+  "deep_probe_layers_executed": ["visible_transcript", "pageAssets_list", "pageAssets_bundle", "playwright_evaluate"],
+  "deep_probe_media_found": false,
+  "browser_derived_media_exported": false,
+  "yt_dlp_chrome_cookies_attempted": false,
+  "yt_dlp_chrome_cookies_succeeded": false,
   "why_chrome_was_or_was_not_used": ""
 }
 ```
 
-字段规则：
+Field rules:
 
-- `chrome_route_used`: 实际使用 Chrome 时为 `true`；未使用时为 `false`，并必须解释原因。
-- `visible_transcript_status`: 只记录 Chrome 页面可见事实，不把 Firecrawl、搜索摘要、Podwise 或猜测写成可见 transcript。
-- `page_state_observed`: 记录页面状态的最具体值；不确定时写 `unknown` 并说明不确定原因。
-- `why_chrome_was_or_was_not_used`: 必须包含触发条件、bootstrap 结果、停止条件或跳过理由。
+- `chrome_route_used`: `true` when Chrome was actually used; `false` when it was not, with an explanation of why.
+- `visible_transcript_status`: only record Chrome-visible page facts. Do not write Firecrawl, search snippets, Podwise, or guesses as a visible transcript.
+- `page_state_observed`: record the most specific page-state value; use `unknown` when uncertain, with an explanation.
+- `chrome_deep_probe_exhausted`: `true` when all five layers were attempted and none produced primary media.
+- `deep_probe_layers_executed`: list which layers were actually run.
+- `deep_probe_media_found`: `true` when any layer found a usable media or subtitle asset.
+- `browser_derived_media_exported`: `true` when a local file was actually exported and saved.
+- `yt_dlp_chrome_cookies_attempted`: `true` when yt-dlp was retried with `--cookies-from-browser chrome`.
+- `yt_dlp_chrome_cookies_succeeded`: `true` when that retry produced subtitles or audio.
+- `why_chrome_was_or_was_not_used`: must include the trigger condition, bootstrap result, stop condition, or skip reason.
 
-最小记录示例：
+Minimum record example:
 
 ```json
 {
   "chrome_route_used": true,
   "visible_transcript_status": "not_visible",
   "page_state_observed": "opened",
-  "why_chrome_was_or_was_not_used": "yt-dlp returned HTTP 429, so Chrome page-state inspection was required. The page opened, but no visible transcript panel or downloadable transcript was found."
+  "chrome_deep_probe_exhausted": false,
+  "deep_probe_layers_executed": ["visible_transcript", "pageAssets_list", "pageAssets_bundle", "playwright_evaluate"],
+  "deep_probe_media_found": true,
+  "browser_derived_media_exported": true,
+  "yt_dlp_chrome_cookies_attempted": true,
+  "yt_dlp_chrome_cookies_succeeded": true,
+  "why_chrome_was_or_was_not_used": "yt-dlp bare returned HTTP 429, so yt-dlp with Chrome cookies was attempted and succeeded in downloading subtitles. Chrome deep-probe was also run and confirmed no additional visible transcript beyond what yt-dlp already captured."
 }
 ```
 
-## 与来源状态门禁的关系
+## Relationship with Source-Status Gate
 
-Chrome 能确认页面状态，但不能单独解锁完整分解。只有以下 Chrome 结果可以进入完整 `video_analysis_pack`：
+Chrome can confirm page state and — through the deep-probe sequence or yt-dlp with Chrome cookies — can surface primary media or transcript material. Only the following Chrome results may enter a full `video_analysis_pack`:
 
-- 页面上可见且可引用的 transcript 被采集，并能形成 timestamp 或 source span。
-- Chrome 确认并取得平台公开字幕、官方 transcript、用户已授权页面中的一手 transcript。
-- Chrome 帮助定位到本地下载或用户提供的一手 transcript/audio，且后续 transcript/audio 获取成功。
+- A visible, citable transcript on the page was captured and can form timestamps or source spans.
+- Chrome confirmed and captured platform public subtitles, an official transcript, or a first-hand transcript from a page the user is authorized to access.
+- Chrome deep-probe exported a subtitle file or media file via pageAssets, or confirmed a public downloadable media/subtitle URL that was then fetched and saved.
+- yt-dlp with `--cookies-from-browser chrome` successfully obtained subtitles or audio.
+- Chrome helped locate a locally downloaded or user-provided first-hand transcript/audio, and subsequent transcript/audio acquisition succeeded.
 
-如果 Chrome 只取得标题、描述、章节、公开摘要、评论、页面截图或二手链接，最多进入 `secondary_only` 或 `degraded_report_only`，不能进入完整视频分解。
+If Chrome only yields title, description, chapters, public summary, comments, page screenshots, or second-hand links, the result is at most `secondary_only` or `degraded_report_only` — it cannot enter full video decomposition.

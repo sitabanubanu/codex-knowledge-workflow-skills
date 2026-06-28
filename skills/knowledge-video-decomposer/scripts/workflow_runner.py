@@ -130,10 +130,22 @@ def render_partial_status(status: dict[str, Any]) -> str:
 def render_acquisition_failure_report(status: dict[str, Any]) -> str:
     chrome_line = ""
     if status.get("chrome_required"):
-        chrome_line = (
-            "\nChrome page-state inspection is required next. This runner did not launch Chrome "
-            "or retry the blocked extractor."
-        )
+        next_step = str(status.get("next_step", ""))
+        if next_step == "retry_yt_dlp_with_chrome_cookies":
+            chrome_line = (
+                "\nyt-dlp with Chrome cookies is required next. This runner did not launch Chrome "
+                "or retry the blocked extractor."
+            )
+        elif next_step == "perform_chrome_deep_probe":
+            chrome_line = (
+                "\nChrome deep-probe is required next. This runner did not launch Chrome "
+                "or inspect page assets."
+            )
+        else:
+            chrome_line = (
+                "\nChrome page-state inspection is required next. This runner did not launch Chrome "
+                "or retry the blocked extractor."
+            )
 
     failed_probes = json.dumps(status.get("failed_probes", []), ensure_ascii=False, indent=2)
     return "\n".join(
@@ -233,7 +245,8 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
             for warning in item.get("warnings", [])
         ],
         "validation": validation,
-        "next_step": validation.get("next_step") or status.get("next_step"),
+        "next_step": status.get("next_step") or validation.get("next_step"),
+        "validation_next_step": validation.get("next_step"),
     }
 
 
@@ -340,8 +353,18 @@ def run_self_test() -> int:
         assert_true("yt-dlp 429 blocked", blocked.get("source_status") == "source_blocked", failures)
         assert_true("yt-dlp 429 requires Chrome", blocked.get("chrome_required") is True, failures)
         assert_true(
-            "yt-dlp 429 report names Chrome next step",
-            "Chrome page-state inspection is required next" in blocked_report,
+            "yt-dlp 429 top-level next step preserves acquisition route",
+            blocked.get("next_step") == "retry_yt_dlp_with_chrome_cookies",
+            failures,
+        )
+        assert_true(
+            "yt-dlp 429 keeps validator next step separate",
+            blocked.get("validation_next_step") == "continue_only_with_degraded_or_acquisition_failure_report",
+            failures,
+        )
+        assert_true(
+            "yt-dlp 429 report names Chrome-cookies next step",
+            "yt-dlp with Chrome cookies is required next" in blocked_report,
             failures,
         )
         assert_true("yt-dlp 429 validates", blocked["validation"].get("valid") is True, failures)
