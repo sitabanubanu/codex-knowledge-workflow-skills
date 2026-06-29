@@ -441,13 +441,16 @@ def write_clean_transcript(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def test_rows() -> list[dict[str, Any]]:
+    question = "\u4eca\u5929\u6211\u4eec\u5148\u63d0\u51fa\u4e00\u4e2a\u95ee\u9898\uff1a\u4e3a\u4ec0\u4e48\u77e5\u8bc6\u89c6\u9891\u4e0d\u80fd\u76f4\u63a5\u603b\u7ed3\uff1f"
+    example = "\u6bd4\u5982\uff0c\u5982\u679c\u6ca1\u6709 transcript\uff0c\u5c31\u65e0\u6cd5\u6838\u9a8c speaker \u7684\u771f\u5b9e\u8868\u8fbe\u3002"
+    transition = "\u6240\u4ee5\u6211\u4eec\u5fc5\u987b\u5148\u83b7\u5f97\u4e00\u624b\u6750\u6599\uff0c\u7136\u540e\u518d\u505a\u7ed3\u6784\u5316\u5206\u6790\u3002"
     return [
         {
             "id": "t0001",
             "start": 0.0,
             "end": 4.0,
-            "text": "今天我们先提出一个问题：为什么知识视频不能直接总结？",
-            "normalized_text": "今天我们先提出一个问题：为什么知识视频不能直接总结？",
+            "text": question,
+            "normalized_text": question,
             "source_ids": ["raw_0001"],
             "language": "zh",
             "speaker": "",
@@ -457,8 +460,8 @@ def test_rows() -> list[dict[str, Any]]:
             "id": "t0002",
             "start": 5.0,
             "end": 10.0,
-            "text": "比如，如果没有 transcript，就无法核验 speaker 的真实表达。",
-            "normalized_text": "比如，如果没有 transcript，就无法核验 speaker 的真实表达。",
+            "text": example,
+            "normalized_text": example,
             "source_ids": ["raw_0002"],
             "language": "zh",
             "speaker": "",
@@ -468,8 +471,8 @@ def test_rows() -> list[dict[str, Any]]:
             "id": "t0003",
             "start": 20.0,
             "end": 24.0,
-            "text": "所以我们必须先获得一手材料，然后再做结构化分析。",
-            "normalized_text": "所以我们必须先获得一手材料，然后再做结构化分析。",
+            "text": transition,
+            "normalized_text": transition,
             "source_ids": ["raw_0003"],
             "language": "zh",
             "speaker": "",

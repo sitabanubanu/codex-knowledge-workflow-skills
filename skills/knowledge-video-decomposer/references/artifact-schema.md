@@ -264,6 +264,16 @@ Use the closest role when a segment has multiple functions, and note secondary r
 
 Purpose: key concepts and source-local definitions.
 
+Use `scripts/inventory_extractor.py` after `02_segments/argument_segments.json`
+exists and source status is `source_confirmed` or explicitly partial. This stage
+is allowed to write `03_inventory/concepts.json`, `03_inventory/examples.json`,
+`03_inventory/claims.json`, `03_inventory/analogies.json`, and an inventory gap
+note. It must not write `04_logic` or `video_analysis_pack.md`.
+
+Inventory extractor output is a candidate inventory. Later source-logic and
+gap-audit stages must verify the candidate roles, claim types, and missing
+definitions against transcript evidence.
+
 Suggested fields:
 
 ```json

@@ -25,7 +25,7 @@ Core workflow:
 15. Use scripts/transcript_normalizer.py to normalize local transcript/subtitle material (`.txt`, `.md`, `.srt`, `.vtt`, `.jsonl`, `.json`) into `01_transcript/raw_transcript.jsonl`, `01_transcript/clean_transcript.jsonl`, and `01_transcript/clean_transcript.md`. The normalizer may open the decomposition gate for source-confirmed transcript material, but it must not write segments, inventory, logic, or video_analysis_pack.
 16. Normalize transcript material into timestamped artifacts where timestamps exist, and record transcript provenance, language, confidence, and known limitations.
 17. Use scripts/transcript_segmenter.py to segment confirmed/partial transcript material into `02_segments/syntax_segments.json` and `02_segments/argument_segments.json`. The segmenter may write `05_gap_check/segmentation_gap_check.md`, but it must not write inventory, source logic, or video_analysis_pack.
-18. Extract concepts, claims, examples, analogies, and argument segments.
+18. Use scripts/inventory_extractor.py to extract candidate concepts, examples, claims, and analogies into `03_inventory/`. Inventory entries must preserve evidence spans and remain candidates until source logic review verifies them. The extractor must not write source logic or video_analysis_pack.
 19. Reconstruct the source-faithful logic of the speaker only when the source-status gate permits it.
 20. Preserve evidence links to timestamps or source spans.
 21. For Chinese, non-ASCII, Markdown, or JSON artifacts, use scripts/write_artifact.py, apply_patch, or another verified UTF-8 path. Do not write long Chinese artifacts through shell here-strings, inline command strings, PowerShell `>` redirection, or other paths that can silently change encoding or turn characters into question marks.
@@ -38,6 +38,7 @@ Runner guidance:
 - Use scripts/acquisition_runner.py as the first platform-URL acquisition runner. It may run bounded yt-dlp metadata/subtitle/format probes, optionally run doctor, and write `00_source` artifacts. Listed subtitles or media formats are only available routes; they are not `source_confirmed` until a local subtitle/transcript/audio-derived transcript artifact exists.
 - Use scripts/transcript_normalizer.py after a transcript/subtitle file exists. It writes transcript artifacts and source-status metadata only; it does not perform semantic decomposition.
 - Use scripts/transcript_segmenter.py after `01_transcript/clean_transcript.jsonl` exists and source status is `source_confirmed` or explicitly partial. It writes `02_segments` artifacts only and leaves inventory, source logic, and pack creation to later stages.
+- Use scripts/inventory_extractor.py after `02_segments/argument_segments.json` exists. It writes `03_inventory` artifacts and inventory gap notes only; source logic and final pack creation remain later stages.
 - Use scripts/workflow_runner.py as a low-cost hard-gate runner for acquisition signals and minimal blocked/degraded status outputs.
 - Do not treat workflow_runner.py as a full analyzer: it does not fetch media, launch Chrome, create transcripts, segment content, or produce a complete video_analysis_pack.
 
