@@ -22,6 +22,30 @@ declaring a route failed:
 - A safe cookies handoff path: required when bare yt-dlp hits YouTube
   bot/sign-in checks and browser-cookie decryption fails.
 
+Run `scripts/doctor.py` before long platform acquisition runs, when the
+environment is unknown, or after any tool-path/authentication setup failure.
+Doctor is a read-only environment check. It does not fetch media, launch Chrome,
+copy cookie values, or contact video platforms.
+
+Recommended output location:
+
+```powershell
+python scripts/doctor.py `
+  --output-json logs/doctor_report.json `
+  --output-md logs/doctor_report.md `
+  --pretty
+```
+
+Use the doctor capability matrix to decide which routes are viable:
+
+- `youtube_public_metadata`
+- `youtube_cookies_js_subtitle_audio_path`
+- `local_audio_video_asr`
+- `x_video_metadata_download`
+- `xiaohongshu_metadata_download`
+- `chrome_page_probe_prerequisites`
+- `safe_utf8_artifact_writes`
+
 ## Recommended yt-dlp Baseline
 
 Use the newest available yt-dlp in the active runtime before diagnosing platform
@@ -175,15 +199,18 @@ Never record cookie values.
 
 ## Doctor Checks To Add
 
-A future `doctor.py` should check:
+`scripts/doctor.py` should check:
 
 - yt-dlp import and version.
 - ffmpeg availability.
 - faster-whisper availability.
 - Node.js or Deno availability.
-- `--cookies-from-browser chrome` health on a harmless probe.
+- Chrome plugin file availability.
 - DPAPI/App-Bound failure detection.
 - Presence of a local ignored cookies file path.
-- Whether yt-dlp with cookies can list subtitles.
-- Whether yt-dlp with cookies plus JavaScript runtime can list audio formats.
 - Whether output writing preserves UTF-8.
+
+It must not record cookie values, run platform downloads, or bypass access
+controls. Network health probes such as listing YouTube subtitles can be added
+later behind an explicit opt-in flag, but the default doctor must remain
+read-only and local.
