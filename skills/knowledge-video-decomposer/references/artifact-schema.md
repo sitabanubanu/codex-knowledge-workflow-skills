@@ -459,6 +459,12 @@ Allowed edge types:
 
 Purpose: identify weaknesses, missing evidence, or downstream risks before document composition.
 
+Use `scripts/evidence_auditor.py` after `04_logic/source_logic.md` and
+`04_logic/logic_graph.json` exist. This stage writes
+`05_gap_check/evidence_audit.json` and `05_gap_check/gap_check.md`. It must not
+write `video_analysis_pack.md`; the next pack-building stage must read the audit
+gate first.
+
 Check for:
 
 - Abstract terms that are not explained.
@@ -489,6 +495,63 @@ Suggested structure:
 
 ## Downstream Notes
 ```
+
+## 05_gap_check/evidence_audit.json
+
+Purpose: machine-readable pre-pack evidence audit.
+
+Suggested fields:
+
+```json
+{
+  "runner": "knowledge-video-evidence-auditor",
+  "generated_at": "",
+  "output_root": "",
+  "source_status": "source_confirmed|source_partial",
+  "counts": {
+    "transcript_rows": 0,
+    "argument_segments": 0,
+    "concepts": 0,
+    "examples": 0,
+    "claims": 0,
+    "analogies": 0,
+    "logic_nodes": 0,
+    "logic_edges": 0
+  },
+  "severity_counts": {
+    "error": 0,
+    "warning": 0,
+    "info": 0
+  },
+  "findings": [
+    {
+      "severity": "error|warning|info",
+      "code": "",
+      "message": "",
+      "file": "",
+      "item_id": "",
+      "details": {}
+    }
+  ],
+  "pack_gate": {
+    "can_build_video_analysis_pack": true,
+    "can_build_partial_pack": false,
+    "next_step": "enter_video_analysis_pack_builder|enter_partial_video_analysis_pack_builder|fix_evidence_audit_findings"
+  }
+}
+```
+
+Minimum audit expectations:
+
+- `source_status` must be `source_confirmed` or `source_partial`, and
+  `primary_material_available` must be true.
+- Transcript, segment, inventory, and logic graph evidence references must point
+  to existing transcript IDs.
+- Inventory links between examples and claims must point to existing IDs.
+- Logic graph edges must point to existing graph nodes.
+- Warnings may pass to the pack builder; errors must block pack creation.
+- `source_confirmed` with no errors may enter full pack building.
+- `source_partial` with no errors may enter explicitly partial pack building.
 
 ## video_analysis_pack.md
 
