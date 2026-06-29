@@ -377,6 +377,11 @@ Record the analogy's purpose, such as explanation, persuasion, contrast, simplif
 
 Purpose: source-faithful reconstruction of the speaker's language logic.
 
+Use `scripts/source_logic_builder.py` after `03_inventory` exists and source
+status is `source_confirmed` or explicitly partial. This stage is allowed to
+write `04_logic/source_logic.md`, `04_logic/logic_graph.json`, and a source
+logic gap note. It must not write `video_analysis_pack.md`.
+
 Rules:
 
 - Write only what belongs to the source's own argument, language, sequence, and framing.

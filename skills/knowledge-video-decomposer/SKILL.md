@@ -26,7 +26,7 @@ Core workflow:
 16. Normalize transcript material into timestamped artifacts where timestamps exist, and record transcript provenance, language, confidence, and known limitations.
 17. Use scripts/transcript_segmenter.py to segment confirmed/partial transcript material into `02_segments/syntax_segments.json` and `02_segments/argument_segments.json`. The segmenter may write `05_gap_check/segmentation_gap_check.md`, but it must not write inventory, source logic, or video_analysis_pack.
 18. Use scripts/inventory_extractor.py to extract candidate concepts, examples, claims, and analogies into `03_inventory/`. Inventory entries must preserve evidence spans and remain candidates until source logic review verifies them. The extractor must not write source logic or video_analysis_pack.
-19. Reconstruct the source-faithful logic of the speaker only when the source-status gate permits it.
+19. Use scripts/source_logic_builder.py to reconstruct source-faithful speaker logic into `04_logic/source_logic.md` and `04_logic/logic_graph.json`. This stage may write source-logic gap notes, but it must not add external critique, downstream interpretation, or video_analysis_pack.
 20. Preserve evidence links to timestamps or source spans.
 21. For Chinese, non-ASCII, Markdown, or JSON artifacts, use scripts/write_artifact.py, apply_patch, or another verified UTF-8 path. Do not write long Chinese artifacts through shell here-strings, inline command strings, PowerShell `>` redirection, or other paths that can silently change encoding or turn characters into question marks.
 22. In `source_blocked`, `source_failed`, `secondary_only`, or `degraded_report_only`, do not pre-create the full analysis directory shape (`01_transcript`, `02_segments`, `03_inventory`, `04_logic`, `05_gap_check`) and do not create `video_analysis_pack.md`. Write only `00_source` notes plus a clearly labeled degraded/acquisition report.
@@ -39,6 +39,7 @@ Runner guidance:
 - Use scripts/transcript_normalizer.py after a transcript/subtitle file exists. It writes transcript artifacts and source-status metadata only; it does not perform semantic decomposition.
 - Use scripts/transcript_segmenter.py after `01_transcript/clean_transcript.jsonl` exists and source status is `source_confirmed` or explicitly partial. It writes `02_segments` artifacts only and leaves inventory, source logic, and pack creation to later stages.
 - Use scripts/inventory_extractor.py after `02_segments/argument_segments.json` exists. It writes `03_inventory` artifacts and inventory gap notes only; source logic and final pack creation remain later stages.
+- Use scripts/source_logic_builder.py after `03_inventory` exists. It writes `04_logic` artifacts and source-logic gap notes only; final pack creation remains a later gated stage.
 - Use scripts/workflow_runner.py as a low-cost hard-gate runner for acquisition signals and minimal blocked/degraded status outputs.
 - Do not treat workflow_runner.py as a full analyzer: it does not fetch media, launch Chrome, create transcripts, segment content, or produce a complete video_analysis_pack.
 
