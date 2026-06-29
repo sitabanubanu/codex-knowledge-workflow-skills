@@ -17,6 +17,23 @@ Use this order when a workflow needs transcript material:
 
 Prefer existing reliable subtitles or transcripts from the source page, yt-dlp, user-provided files, or platform caption APIs. Record the source and confidence.
 
+After a local transcript or subtitle file exists, normalize it with:
+
+```powershell
+python scripts/transcript_normalizer.py `
+  --input <transcript-or-subtitle-file> `
+  --output-root outputs/knowledge-workflow/<run-id> `
+  --language <zh|en|unknown> `
+  --pretty
+```
+
+The normalizer accepts `.txt`, `.md`, `.srt`, `.vtt`, `.jsonl`, and `.json`.
+It writes `00_source/source_status.json`, `00_source/metadata.json`,
+`01_transcript/raw_transcript.jsonl`, `01_transcript/clean_transcript.jsonl`,
+`01_transcript/clean_transcript.md`, and `05_gap_check/gap_check.md`.
+It does not write semantic segments, inventory, source logic, or
+`video_analysis_pack.md`.
+
 ## Path 2: yt-dlp with Chrome Cookies (primary fast path after block)
 
 When a yt-dlp bare request returns HTTP 429, bot check, sign-in required, RequestBlocked, or a similar platform block on a platform like YouTube, the agent MUST retry with:
@@ -179,6 +196,11 @@ Example command:
 ```
 
 Record the chosen source and any failed branches in `00_source/acquisition_notes.md`.
+
+If faster-whisper produces a JSONL transcript directly, run
+`scripts/transcript_normalizer.py` on that JSONL before segmentation so the
+artifact names, source status, and gap notes are consistent with subtitle and
+manual transcript inputs.
 
 `--timeout-seconds` is a soft timeout. It is checked when control returns to the script, so it may not interrupt a model download, model load, or blocking internal faster-whisper transcription call until that call returns.
 

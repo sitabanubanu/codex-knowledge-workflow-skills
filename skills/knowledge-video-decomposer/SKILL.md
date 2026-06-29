@@ -22,19 +22,21 @@ Core workflow:
 12. If Chrome deep-probe succeeds (an actual local media file or subtitle file was exported, or a public downloadable media/subtitle URL was confirmed and fetched), and subsequent ASR or subtitle parsing succeeds, the material qualifies as browser_derived_media - a primary source class that can support source_confirmed. Refer to references/source-status.md for the exact definition and recording requirements.
 13. If no primary transcript, no browser-derived media, and no user-provided or legitimately acquired local file exists, stop full decomposition and request primary material. Record that the missing requirement is primary media/transcript, not merely a better prompt.
 14. Prefer reliable existing subtitles or transcripts from the platform, yt-dlp (with or without Chrome cookies / user-exported cookies as needed), user-provided files, or local parsers - subject to the source-status gate.
-15. Normalize transcript material into timestamped artifacts and record transcript provenance, model choice, language, runtime, and confidence.
-16. Segment the transcript syntactically and semantically.
-17. Extract concepts, claims, examples, analogies, and argument segments.
-18. Reconstruct the source-faithful logic of the speaker only when the source-status gate permits it.
-19. Preserve evidence links to timestamps or source spans.
-20. For Chinese, non-ASCII, Markdown, or JSON artifacts, use scripts/write_artifact.py, apply_patch, or another verified UTF-8 path. Do not write long Chinese artifacts through shell here-strings, inline command strings, PowerShell `>` redirection, or other paths that can silently change encoding or turn characters into question marks.
-21. In `source_blocked`, `source_failed`, `secondary_only`, or `degraded_report_only`, do not pre-create the full analysis directory shape (`01_transcript`, `02_segments`, `03_inventory`, `04_logic`, `05_gap_check`) and do not create `video_analysis_pack.md`. Write only `00_source` notes plus a clearly labeled degraded/acquisition report.
-22. Validate outputs with scripts/artifact_validator.py before handing them downstream.
-23. Output a video_analysis_pack for knowledge-document-composer only after validation passes for an allowed full or explicitly partial source status.
+15. Use scripts/transcript_normalizer.py to normalize local transcript/subtitle material (`.txt`, `.md`, `.srt`, `.vtt`, `.jsonl`, `.json`) into `01_transcript/raw_transcript.jsonl`, `01_transcript/clean_transcript.jsonl`, and `01_transcript/clean_transcript.md`. The normalizer may open the decomposition gate for source-confirmed transcript material, but it must not write segments, inventory, logic, or video_analysis_pack.
+16. Normalize transcript material into timestamped artifacts where timestamps exist, and record transcript provenance, language, confidence, and known limitations.
+17. Segment the transcript syntactically and semantically.
+18. Extract concepts, claims, examples, analogies, and argument segments.
+19. Reconstruct the source-faithful logic of the speaker only when the source-status gate permits it.
+20. Preserve evidence links to timestamps or source spans.
+21. For Chinese, non-ASCII, Markdown, or JSON artifacts, use scripts/write_artifact.py, apply_patch, or another verified UTF-8 path. Do not write long Chinese artifacts through shell here-strings, inline command strings, PowerShell `>` redirection, or other paths that can silently change encoding or turn characters into question marks.
+22. In `source_blocked`, `source_failed`, `secondary_only`, or `degraded_report_only`, do not pre-create the full analysis directory shape (`01_transcript`, `02_segments`, `03_inventory`, `04_logic`, `05_gap_check`) and do not create `video_analysis_pack.md`. Write only `00_source` notes plus a clearly labeled degraded/acquisition report.
+23. Validate outputs with scripts/artifact_validator.py before handing them downstream.
+24. Output a video_analysis_pack for knowledge-document-composer only after validation passes for an allowed full or explicitly partial source status.
 
 Runner guidance:
 - Use scripts/doctor.py before acquisition when the environment is unknown, after a tool-path failure, or before long platform runs. Treat doctor failures as environment/setup issues, not source-content failures.
 - Use scripts/acquisition_runner.py as the first platform-URL acquisition runner. It may run bounded yt-dlp metadata/subtitle/format probes, optionally run doctor, and write `00_source` artifacts. Listed subtitles or media formats are only available routes; they are not `source_confirmed` until a local subtitle/transcript/audio-derived transcript artifact exists.
+- Use scripts/transcript_normalizer.py after a transcript/subtitle file exists. It writes transcript artifacts and source-status metadata only; it does not perform semantic decomposition.
 - Use scripts/workflow_runner.py as a low-cost hard-gate runner for acquisition signals and minimal blocked/degraded status outputs.
 - Do not treat workflow_runner.py as a full analyzer: it does not fetch media, launch Chrome, create transcripts, segment content, or produce a complete video_analysis_pack.
 
