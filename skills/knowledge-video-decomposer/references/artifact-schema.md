@@ -193,6 +193,12 @@ Keep the transcript readable while preserving enough timestamp detail for source
 
 Purpose: mechanical or syntax-oriented grouping of transcript material.
 
+Use `scripts/transcript_segmenter.py` after `01_transcript/clean_transcript.jsonl`
+exists and source status is `source_confirmed` or explicitly partial. This stage
+is allowed to write `02_segments/syntax_segments.json`,
+`02_segments/argument_segments.json`, and a segmentation gap note. It must not
+write `03_inventory`, `04_logic`, or `video_analysis_pack.md`.
+
 Suggested fields:
 
 ```json
@@ -215,6 +221,11 @@ Use this when downstream processing needs readable chunks but not argument roles
 ## 02_segments/argument_segments.json
 
 Purpose: semantic and rhetorical segmentation of the source argument.
+
+Argument segment roles produced by the segmenter are heuristic labels for the
+next extraction stage. They are not final claims, concepts, or source-logic
+reconstruction. Later inventory and logic stages must verify roles and evidence
+against transcript IDs.
 
 Suggested fields:
 
