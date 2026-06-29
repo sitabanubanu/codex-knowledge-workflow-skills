@@ -31,8 +31,8 @@ Recommended output location:
 
 ```powershell
 python scripts/doctor.py `
-  --output-json logs/doctor_report.json `
-  --output-md logs/doctor_report.md `
+  --output-json 00_source/logs/doctor_report.json `
+  --output-md 00_source/logs/doctor_report.md `
   --pretty
 ```
 
@@ -47,6 +47,49 @@ only say the local toolchain is ready to try that route.
 - `xiaohongshu_metadata_download_prerequisites`
 - `chrome_page_probe_prerequisites`
 - `safe_utf8_artifact_writes`
+
+## Acquisition Runner
+
+Use `scripts/acquisition_runner.py` as the first programmatic platform probe
+when a task starts from a video URL. It combines local doctor output, bounded
+yt-dlp metadata/subtitle/format checks, source-status gating, and stable UTF-8
+artifact writing.
+
+Recommended probe-only command:
+
+```powershell
+python scripts/acquisition_runner.py `
+  --input <video-url> `
+  --output-root outputs/knowledge-workflow/<run-id> `
+  --youtube-cookies work/youtube-cookies/youtube.cookies.txt `
+  --list-subtitles `
+  --list-formats `
+  --use-js-runtime `
+  --pretty
+```
+
+Add `--use-remote-components` only when the user accepts yt-dlp fetching the
+recommended remote solver component for current YouTube player challenges.
+
+Default behavior is conservative:
+
+- Listing subtitles or media formats records an available route, not acquired
+  primary material.
+- `source_confirmed` requires an actual local subtitle/transcript file, a
+  browser-visible transcript, browser-derived media processed into transcript,
+  or ASR output from an acquired/local audio/video file.
+- Raw stdout/stderr probe logs go under `00_source/raw/`.
+- Cookie values must never be copied into reports, logs, chat, or Git.
+
+If the user explicitly allows subtitle acquisition, add:
+
+```powershell
+--download-subtitles
+```
+
+This downloads subtitles only. It still does not download audio/video media.
+If subtitle download succeeds and local subtitle files are written, the source
+can be marked as `source_confirmed` for transcript-based decomposition.
 
 ## Recommended yt-dlp Baseline
 
