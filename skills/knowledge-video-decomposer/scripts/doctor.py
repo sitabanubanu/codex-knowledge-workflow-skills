@@ -215,8 +215,12 @@ def check_youtube_cookies(path: Path | None) -> Check:
     sample = path.read_text(encoding="utf-8", errors="replace")[:2048]
     has_netscape_header = "Netscape HTTP Cookie File" in sample
     has_youtube_domain = any(domain in sample for domain in [".youtube.com", "youtube.com", ".google.com"])
-    status = "ok" if stat.st_size > 0 and has_youtube_domain else "warn"
-    summary = "User-exported cookies file is present." if status == "ok" else "Cookies file exists but may not contain YouTube cookies."
+    status = "ok" if stat.st_size > 0 and has_netscape_header and has_youtube_domain else "warn"
+    summary = (
+        "User-exported Netscape cookies file is present."
+        if status == "ok"
+        else "Cookies file exists but is not a confirmed Netscape-format YouTube cookies file."
+    )
     return Check(
         name="youtube_cookies_file",
         status=status,
@@ -228,7 +232,8 @@ def check_youtube_cookies(path: Path | None) -> Check:
             "last_modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
             "netscape_header_detected": has_netscape_header,
             "youtube_or_google_domain_detected": has_youtube_domain,
-            "cookie_values_read_or_reported": False,
+            "cookie_file_sample_read_for_validation": True,
+            "cookie_values_reported": False,
         },
         next_step="" if status == "ok" else "Re-export cookies for youtube.com using a Netscape-format local exporter.",
     )
@@ -298,7 +303,8 @@ def check_chromium_app_bound_state() -> Check:
                 "readable": True,
                 "app_bound_encrypted_key_present": has_app_bound,
                 "encrypted_key_present": isinstance(os_crypt, dict) and bool(os_crypt.get("encrypted_key")),
-                "cookie_values_read_or_reported": False,
+                "cookie_values_reported": False,
+                "local_state_read_for_app_bound_marker": True,
             }
         )
 
@@ -371,11 +377,11 @@ def capability_matrix(checks: list[Check]) -> dict[str, Any]:
     chrome = is_ok("chrome_plugin")
 
     return {
-        "youtube_public_metadata": yt,
-        "youtube_cookies_js_subtitle_audio_path": yt and node and cookies,
-        "local_audio_video_asr": ffmpeg and asr_ok,
-        "x_video_metadata_download": yt,
-        "xiaohongshu_metadata_download": yt,
+        "youtube_public_metadata_prerequisites": yt,
+        "youtube_cookies_js_subtitle_audio_prerequisites": yt and node and cookies,
+        "local_audio_video_asr_prerequisites": ffmpeg and asr_ok,
+        "x_video_metadata_download_prerequisites": yt,
+        "xiaohongshu_metadata_download_prerequisites": yt,
         "chrome_page_probe_prerequisites": chrome,
         "safe_utf8_artifact_writes": is_ok("utf8_write"),
     }
@@ -389,6 +395,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"Overall status: `{report['overall_status']}`",
         "",
         "## Capability Matrix",
+        "",
+        "These values are local prerequisites only. They do not prove that a platform request will succeed.",
         "",
     ]
     for key, value in report["capabilities"].items():
@@ -457,6 +465,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         check_chrome_plugin(Path(args.chrome_plugin_root) if args.chrome_plugin_root else None),
         check_utf8_write(),
     ]
+    cookie_sample_read = any(
+        check.name == "youtube_cookies_file"
+        and bool(check.details.get("cookie_file_sample_read_for_validation"))
+        for check in checks
+    )
 
     report = {
         "doctor": DOCTOR_NAME,
@@ -465,7 +478,8 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "checks": [check.as_dict() for check in checks],
         "capabilities": capability_matrix(checks),
         "privacy": {
-            "cookie_values_read_or_reported": False,
+            "cookie_file_sample_read_for_validation": cookie_sample_read,
+            "cookie_values_reported": False,
             "network_probe_performed": False,
             "media_download_performed": False,
             "browser_launched": False,
@@ -527,6 +541,10 @@ def run_self_test() -> int:
         empty.write_text("", encoding="utf-8")
         empty_check = check_youtube_cookies(empty)
         assert_true("empty cookies warn", empty_check.status == "warn", failures)
+        no_header = tmp_path / "no_header.cookies.txt"
+        no_header.write_text(".youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tREDACTED\n", encoding="utf-8")
+        no_header_check = check_youtube_cookies(no_header)
+        assert_true("cookies without Netscape header warn", no_header_check.status == "warn", failures)
 
     utf8 = check_utf8_write()
     assert_true("utf8 write", utf8.status == "ok", failures, json.dumps(utf8.as_dict(), ensure_ascii=False))
@@ -539,6 +557,27 @@ def run_self_test() -> int:
         }
     )
     assert_true("markdown render", "Overall status" in md and "ok_check" in md, failures)
+    with tempfile.TemporaryDirectory(prefix="kw-doctor-output-") as tmp:
+        out = Path(tmp) / "doctor.json"
+        args_no_overwrite = argparse.Namespace(output_json=str(out), output_md=None, overwrite=False)
+        args_overwrite = argparse.Namespace(output_json=str(out), output_md=None, overwrite=True)
+        report = {
+            "doctor": DOCTOR_NAME,
+            "generated_at": "2026-06-29T00:00:00+00:00",
+            "overall_status": "ok",
+            "checks": [],
+            "capabilities": {},
+            "privacy": {},
+        }
+        write_outputs(report, args_no_overwrite)
+        no_overwrite_failed = False
+        try:
+            write_outputs(report, args_no_overwrite)
+        except ArtifactWriteError:
+            no_overwrite_failed = True
+        assert_true("no-overwrite refuses existing output", no_overwrite_failed, failures)
+        write_outputs(report, args_overwrite)
+        assert_true("overwrite replaces existing output", out.is_file(), failures)
 
     if failures:
         for failure in failures:

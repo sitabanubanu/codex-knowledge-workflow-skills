@@ -36,13 +36,15 @@ python scripts/doctor.py `
   --pretty
 ```
 
-Use the doctor capability matrix to decide which routes are viable:
+Use the doctor capability matrix to decide which local prerequisite sets are
+present. These values do not prove that a platform request will succeed; they
+only say the local toolchain is ready to try that route.
 
-- `youtube_public_metadata`
-- `youtube_cookies_js_subtitle_audio_path`
-- `local_audio_video_asr`
-- `x_video_metadata_download`
-- `xiaohongshu_metadata_download`
+- `youtube_public_metadata_prerequisites`
+- `youtube_cookies_js_subtitle_audio_prerequisites`
+- `local_audio_video_asr_prerequisites`
+- `x_video_metadata_download_prerequisites`
+- `xiaohongshu_metadata_download_prerequisites`
 - `chrome_page_probe_prerequisites`
 - `safe_utf8_artifact_writes`
 
@@ -204,7 +206,8 @@ Never record cookie values.
 - yt-dlp import and version.
 - ffmpeg availability.
 - faster-whisper availability.
-- Node.js or Deno availability.
+- Node.js availability for yt-dlp JavaScript challenge solving. Deno can be
+  added later as a second JavaScript runtime check.
 - Chrome plugin file availability.
 - DPAPI/App-Bound failure detection.
 - Presence of a local ignored cookies file path.
