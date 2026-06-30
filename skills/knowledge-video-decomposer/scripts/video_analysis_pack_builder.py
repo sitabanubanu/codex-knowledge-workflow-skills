@@ -215,6 +215,28 @@ def render_acquisition(status: dict[str, Any], metadata: dict[str, Any], audit: 
     return lines
 
 
+def render_asr_quality(status: dict[str, Any]) -> list[str]:
+    asr = status.get("asr_pipeline") if isinstance(status.get("asr_pipeline"), dict) else {}
+    quality = status.get("asr_quality") if isinstance(status.get("asr_quality"), dict) else asr.get("quality")
+    if not isinstance(quality, dict):
+        return []
+    return [
+        "## ASR Quality",
+        "",
+        "- Quality report: `00_source/asr_pipeline_report.json`",
+        f"- Alignment report: `{asr.get('alignment_report', '00_source/asr_alignment_report.json')}`",
+        f"- Diarization report: `{asr.get('diarization_report', '00_source/asr_diarization.json')}`",
+        f"- Exact wording confidence: `{quality.get('exact_wording_confidence', 'unknown')}`",
+        f"- Structural summary confidence: `{quality.get('structural_summary_confidence', 'unknown')}`",
+        f"- Word timestamp coverage: `{quality.get('word_timestamp_coverage', 0.0)}`",
+        f"- Speaker coverage: `{quality.get('speaker_coverage', 0.0)}`",
+        f"- Alignment status: `{quality.get('alignment_status', 'unknown')}`",
+        f"- Diarization status: `{quality.get('diarization_status', 'unknown')}`",
+        f"- Verified verbatim: `{str(bool(quality.get('verified_verbatim'))).lower()}`",
+        "- Boundary: ASR-derived transcript must remain labeled as ASR and must not be presented as a verified verbatim transcript unless reviewed.",
+    ]
+
+
 def render_transcript(output_root: Path, transcript_rows: list[dict[str, Any]]) -> list[str]:
     first_row = transcript_rows[0]
     last_row = transcript_rows[-1]
@@ -402,6 +424,7 @@ def render_pack(
     sections = [
         render_source_summary(metadata, source_status, partial),
         render_acquisition(source_status, metadata, evidence_audit),
+        render_asr_quality(source_status),
         render_transcript(output_root, transcript_rows),
         render_thesis(claims),
         render_argument_flow(segments),
@@ -518,6 +541,25 @@ def write_metadata(root: Path) -> None:
 def build_audited_fixture(root: Path, *, source_status: str = "source_confirmed", bad_edge: bool = False) -> None:
     evidence_auditor.build_fixture(root, source_status=source_status, bad_edge=bad_edge)
     write_metadata(root)
+    status_path = root / "00_source" / "source_status.json"
+    status = read_json(status_path)
+    status["source_classes"] = ["primary_audio_asr"]
+    status["asr_quality"] = {
+        "exact_wording_confidence": "medium-low",
+        "structural_summary_confidence": "medium",
+        "word_timestamp_coverage": 0.0,
+        "speaker_coverage": 0.0,
+        "alignment_status": "segment_only",
+        "diarization_status": "not_available",
+        "verified_verbatim": False,
+    }
+    status["asr_pipeline"] = {
+        "quality_report": "00_source/asr_pipeline_report.json",
+        "alignment_report": "00_source/asr_alignment_report.json",
+        "diarization_report": "00_source/asr_diarization.json",
+        "quality": status["asr_quality"],
+    }
+    evidence_auditor.write_json(status_path, status)
     evidence_auditor.run_evidence_audit(argparse.Namespace(output_root=root, source_status=None))
 
 
@@ -533,6 +575,7 @@ def run_self_test() -> int:
         assert_true("full pack exists", (full / "video_analysis_pack.md").is_file(), failures)
         assert_true("full pack title", "# Video Analysis Pack" in pack_text, failures)
         assert_true("full pack has sections", "## Claims" in pack_text and "## Gaps" in pack_text, failures)
+        assert_true("full pack has asr quality", "## ASR Quality" in pack_text and "Verified verbatim: `false`" in pack_text, failures)
         assert_true("full validation ok", full_result["validation"]["valid"], failures)
 
         partial = base / "partial"

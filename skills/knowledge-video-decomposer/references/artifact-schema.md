@@ -123,13 +123,79 @@ Suggested fields:
     "segments": 0,
     "timed_segments": 0,
     "timestamp_coverage": 0.0,
+    "segments_with_word_timestamps": 0,
+    "word_timestamp_coverage": 0.0,
+    "segments_with_speaker": 0,
+    "speaker_coverage": 0.0,
+    "alignment_status": "segment_only|word_aligned",
+    "diarization_status": "not_available|speaker_labels_present",
+    "verified_verbatim": false,
     "exact_wording_confidence": "low|medium-low|medium|medium-high|high",
     "structural_summary_confidence": "low|medium-low|medium|medium-high|high",
+    "warnings": [],
     "known_limitations": []
+  },
+  "alignment_report": {},
+  "diarization_report": {},
+  "word_timestamp_policy": {
+    "available": false,
+    "required": false,
+    "fallback": "segment_timestamps_and_transcript_ids"
+  },
+  "asr_verbatim_policy": {
+    "verified_verbatim": false,
+    "boundary": "ASR-derived transcript supports source-grounded analysis but must not be called verbatim unless independently reviewed."
   },
   "next_step": "enter_segmentation_inventory_logic_gap_check"
 }
 ```
+
+## 00_source/asr_alignment_report.json
+
+Purpose: machine-readable alignment status compatible with future WhisperX
+alignment without requiring WhisperX today.
+
+Suggested fields:
+
+```json
+{
+  "schema_version": 1,
+  "engine": "faster-whisper|whisperx|other",
+  "whisperx_compatible": true,
+  "status": "segment_only|word_aligned",
+  "segments": 0,
+  "segments_with_word_timestamps": 0,
+  "word_timestamp_coverage": 0.0,
+  "segments_with_alignment_metadata": 0,
+  "notes": []
+}
+```
+
+`segment_only` is allowed and must not fail the ASR pipeline. Downstream stages
+must then cite segment timestamps and transcript IDs rather than word spans.
+
+## 00_source/asr_diarization.json
+
+Purpose: machine-readable speaker-label/diarization status compatible with
+future WhisperX diarization or another diarization tool.
+
+Suggested fields:
+
+```json
+{
+  "schema_version": 1,
+  "status": "not_available|speaker_labels_present",
+  "segments": 0,
+  "segments_with_speaker": 0,
+  "speaker_coverage": 0.0,
+  "speakers": [],
+  "segments_with_diarization_metadata": 0,
+  "notes": []
+}
+```
+
+`not_available` is allowed. Downstream stages must not infer speakers from text
+alone when this status is present.
 
 ## 00_source/asr_pipeline_report.md
 
@@ -321,11 +387,21 @@ Suggested fields per line:
   "source_ids": ["raw_0001"],
   "language": "",
   "speaker": "",
-  "confidence": "high|medium|low"
+  "confidence": "high|medium|low",
+  "word_timestamps_available": false,
+  "words": [
+    {"word": "", "start": 0.0, "end": 0.4, "confidence": 0.0}
+  ],
+  "asr_confidence": 0.0,
+  "alignment": {},
+  "diarization": {}
 }
 ```
 
 Use stable IDs because inventory, logic, and document composer artifacts should point back to them.
+The `words`, `asr_confidence`, `alignment`, and `diarization` fields are
+optional. Missing word timestamps or speaker labels must degrade gracefully and
+must not be treated as proof that the transcript is verified verbatim.
 
 ## 01_transcript/clean_transcript.md
 

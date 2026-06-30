@@ -39,6 +39,8 @@ STAGE_OUTPUTS = {
         "10_video/00_source/source_status.json",
         "10_video/01_transcript/clean_transcript.jsonl",
         "10_video/00_source/asr_pipeline_report.json",
+        "10_video/00_source/asr_alignment_report.json",
+        "10_video/00_source/asr_diarization.json",
     ],
     "transcript_normalizer": [
         "10_video/00_source/source_status.json",
@@ -1324,7 +1326,9 @@ status = {
     "next_step": "enter_segmentation_inventory_logic_gap_check",
 }
 write_json(root / "00_source" / "source_status.json", status)
-write_json(root / "00_source" / "asr_pipeline_report.json", {"runner":"fake-asr-pipeline","input_media":str(args.input_media)})
+write_json(root / "00_source" / "asr_pipeline_report.json", {"runner":"fake-asr-pipeline","input_media":str(args.input_media),"quality":{"verified_verbatim":False,"word_timestamp_coverage":0.0,"speaker_coverage":0.0}})
+write_json(root / "00_source" / "asr_alignment_report.json", {"schema_version":1,"status":"segment_only","word_timestamp_coverage":0.0})
+write_json(root / "00_source" / "asr_diarization.json", {"schema_version":1,"status":"not_available","speaker_coverage":0.0})
 write_text(root / "01_transcript" / "clean_transcript.jsonl", json.dumps({"id":"t001","text":"Fake ASR text.","normalized_text":"Fake ASR text.","source_ids":["asr_001"],"language":args.language or "unknown"}, ensure_ascii=False) + "\n")
 write_text(root / "01_transcript" / "clean_transcript.md", "# Clean Transcript\n\nFake ASR text.\n")
 emit({"runner": "fake-asr-pipeline", "source_status": "source_confirmed", "source_class": "primary_audio_asr", "next_step": "enter_segmentation_inventory_logic_gap_check"})

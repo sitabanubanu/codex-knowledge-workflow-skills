@@ -153,6 +153,8 @@ to `primary_audio_asr`, and writes:
 ```text
 00_source/asr_pipeline_report.json
 00_source/asr_pipeline_report.md
+00_source/asr_alignment_report.json
+00_source/asr_diarization.json
 01_transcript/asr_transcript.jsonl
 01_transcript/asr_transcript.md
 01_transcript/clean_transcript.jsonl
@@ -167,6 +169,19 @@ notes.
 ## Path 8: Hearsay MCP / WhisperX / Other ASR
 
 Use Hearsay MCP, WhisperX, or another ASR route only as a backup when the direct script is unavailable or fails.
+
+Boundary:
+
+- `faster-whisper` is the default direct ASR engine. It may provide reliable
+  segment timestamps, but word-level timestamps and speaker labels are optional.
+- `WhisperX` is treated as a future or backup alignment/diarization layer. The
+  workflow reserves `asr_alignment_report.json`, `asr_diarization.json`, and
+  optional transcript `words` fields so WhisperX can be integrated later without
+  changing downstream contracts.
+- Missing word timestamps or diarization must not fail the ASR pipeline. It must
+  be recorded as `segment_only` alignment or `not_available` diarization.
+- Do not present ASR as a verified verbatim transcript unless a separate review
+  or trusted subtitle source supports that claim.
 
 ## Allowed ASR Inputs
 
@@ -244,4 +259,7 @@ Every transcript artifact must record:
 - Whether VAD was used.
 - Runtime or elapsed time when available.
 - Confidence split: exact wording confidence and structural-summary confidence.
+- Word timestamp coverage and whether fallback references must use segment
+  timestamps.
+- Diarization/speaker coverage and whether speaker labels are absent.
 - Known limitations: missing captions, noisy audio, uncertain language, clipped source, unavailable timestamps, or partial transcript.

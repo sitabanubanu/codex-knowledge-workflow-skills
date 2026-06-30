@@ -155,6 +155,76 @@ def parse_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def row_words(row: dict[str, Any]) -> list[dict[str, Any]]:
+    words = row.get("words")
+    return [word for word in words if isinstance(word, dict)] if isinstance(words, list) else []
+
+
+def has_word_timestamps(row: dict[str, Any]) -> bool:
+    words = row_words(row)
+    return bool(words) and all(isinstance(word.get("start"), (int, float)) and isinstance(word.get("end"), (int, float)) for word in words)
+
+
+def has_speaker(row: dict[str, Any]) -> bool:
+    return bool(str(row.get("speaker") or "").strip())
+
+
+def collect_asr_warnings(rows: list[dict[str, Any]]) -> list[str]:
+    warnings: list[str] = []
+    if not any(has_word_timestamps(row) for row in rows):
+        warnings.append("No word-level timestamps are available; evidence should use segment timestamps and transcript IDs.")
+    if not any(has_speaker(row) for row in rows):
+        warnings.append("No speaker labels are available; diarization is absent or not trusted.")
+    return warnings
+
+
+def infer_row_engine(rows: list[dict[str, Any]], fallback: str) -> str:
+    engines = sorted({str(row.get("engine")).strip() for row in rows if str(row.get("engine") or "").strip()})
+    if len(engines) == 1:
+        return engines[0]
+    if len(engines) > 1:
+        return "mixed_external_asr"
+    return fallback
+
+
+def alignment_report(rows: list[dict[str, Any]], engine: str) -> dict[str, Any]:
+    aligned_rows = [row for row in rows if isinstance(row.get("alignment"), dict)]
+    word_rows = [row for row in rows if has_word_timestamps(row)]
+    return {
+        "schema_version": 1,
+        "engine": engine,
+        "whisperx_compatible": True,
+        "status": "word_aligned" if word_rows else "segment_only",
+        "segments": len(rows),
+        "segments_with_word_timestamps": len(word_rows),
+        "word_timestamp_coverage": len(word_rows) / len(rows) if rows else 0.0,
+        "segments_with_alignment_metadata": len(aligned_rows),
+        "notes": [
+            "Alignment status is derived from supplied word timestamps and alignment metadata.",
+            "WhisperX alignment can populate words and alignment metadata later without changing the clean transcript schema.",
+        ],
+    }
+
+
+def diarization_report(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    speaker_rows = [row for row in rows if has_speaker(row)]
+    speakers = sorted({str(row.get("speaker")) for row in speaker_rows if row.get("speaker")})
+    diarized_rows = [row for row in rows if isinstance(row.get("diarization"), dict)]
+    return {
+        "schema_version": 1,
+        "status": "speaker_labels_present" if speaker_rows else "not_available",
+        "segments": len(rows),
+        "segments_with_speaker": len(speaker_rows),
+        "speaker_coverage": len(speaker_rows) / len(rows) if rows else 0.0,
+        "speakers": speakers,
+        "segments_with_diarization_metadata": len(diarized_rows),
+        "notes": [
+            "Missing speaker labels are allowed; downstream stages must not infer speakers from ASR text alone.",
+            "WhisperX or another diarization tool can populate this artifact later.",
+        ],
+    }
+
+
 def quality_from_model(model: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     model_key = str(model or "").lower()
     if "tiny" in model_key:
@@ -170,6 +240,8 @@ def quality_from_model(model: str, rows: list[dict[str, Any]]) -> dict[str, Any]
         exact = "medium"
         structural = "medium"
     timed = sum(1 for row in rows if isinstance(row.get("start"), (int, float)) and isinstance(row.get("end"), (int, float)))
+    word_timed = sum(1 for row in rows if has_word_timestamps(row))
+    speaker_labeled = sum(1 for row in rows if has_speaker(row))
     durations = [
         max(0.0, float(row["end"]) - float(row["start"]))
         for row in rows
@@ -179,9 +251,17 @@ def quality_from_model(model: str, rows: list[dict[str, Any]]) -> dict[str, Any]
         "segments": len(rows),
         "timed_segments": timed,
         "timestamp_coverage": timed / len(rows) if rows else 0.0,
+        "segments_with_word_timestamps": word_timed,
+        "word_timestamp_coverage": word_timed / len(rows) if rows else 0.0,
+        "segments_with_speaker": speaker_labeled,
+        "speaker_coverage": speaker_labeled / len(rows) if rows else 0.0,
         "total_segment_duration": round(sum(durations), 3),
         "exact_wording_confidence": exact,
         "structural_summary_confidence": structural,
+        "alignment_status": "word_aligned" if word_timed else "segment_only",
+        "diarization_status": "speaker_labels_present" if speaker_labeled else "not_available",
+        "verified_verbatim": False,
+        "warnings": collect_asr_warnings(rows),
         "known_limitations": [
             "ASR may contain wording errors and should not be treated as verbatim unless reviewed.",
             "Speaker labels are not guaranteed.",
@@ -200,6 +280,7 @@ def render_report(report: dict[str, Any]) -> str:
         f"- Source media: `{report['input_media']}`",
         f"- ASR JSONL: `{report['asr_jsonl']}`",
         f"- ASR Markdown: `{report['asr_markdown']}`",
+        f"- Engine: `{report['engine']}`",
         f"- Model: `{report['model']}`",
         f"- Language: `{report['language'] or 'auto'}`",
         f"- VAD: `{str(report['vad_filter']).lower()}`",
@@ -212,12 +293,41 @@ def render_report(report: dict[str, Any]) -> str:
         f"- Segments: `{quality['segments']}`",
         f"- Timed segments: `{quality['timed_segments']}`",
         f"- Timestamp coverage: `{quality['timestamp_coverage']}`",
+        f"- Segments with word timestamps: `{quality['segments_with_word_timestamps']}`",
+        f"- Word timestamp coverage: `{quality['word_timestamp_coverage']}`",
+        f"- Segments with speaker labels: `{quality['segments_with_speaker']}`",
+        f"- Speaker coverage: `{quality['speaker_coverage']}`",
+        f"- Alignment status: `{quality['alignment_status']}`",
+        f"- Diarization status: `{quality['diarization_status']}`",
+        f"- Verified verbatim: `{str(quality['verified_verbatim']).lower()}`",
         f"- Exact wording confidence: `{quality['exact_wording_confidence']}`",
         f"- Structural summary confidence: `{quality['structural_summary_confidence']}`",
         "",
-        "## Limitations",
+        "## Warnings",
         "",
     ]
+    if quality.get("warnings"):
+        lines.extend(f"- {item}" for item in quality["warnings"])
+    else:
+        lines.append("- No ASR quality warnings were generated.")
+    lines.extend(
+        [
+            "",
+            "## Compatibility Artifacts",
+            "",
+            "- Alignment report: `00_source/asr_alignment_report.json`",
+            "- Diarization report: `00_source/asr_diarization.json`",
+            "",
+            "These artifacts are compatible placeholders for future WhisperX alignment or diarization. Empty or `not_available` status does not fail the ASR pipeline.",
+            "",
+        ]
+    )
+    lines.extend(
+        [
+        "## Limitations",
+        "",
+        ]
+    )
     lines.extend(f"- {item}" for item in quality["known_limitations"])
     lines.extend(["", "## Next Step", "", f"- `{report['next_step']}`", ""])
     return "\n".join(lines)
@@ -232,7 +342,7 @@ def append_acquisition_notes(output_root: Path, report: dict[str, Any]) -> None:
             "## ASR Provenance",
             "",
             f"- Input media: `{report['input_media']}`",
-            f"- Engine: `faster-whisper`",
+            f"- Engine: `{report['engine']}`",
             f"- Model: `{report['model']}`",
             f"- Language: `{report['language'] or 'auto'}`",
             f"- VAD: `{str(report['vad_filter']).lower()}`",
@@ -256,12 +366,16 @@ def patch_source_status(output_root: Path, report: dict[str, Any]) -> dict[str, 
             "asr_pipeline": {
                 "runner": RUNNER_NAME,
                 "input_media": report["input_media"],
-                "engine": "faster-whisper",
+                "engine": report["engine"],
                 "model": report["model"],
                 "language": report["language"],
                 "vad_filter": report["vad_filter"],
                 "quality": report["quality"],
+                "quality_report": "00_source/asr_pipeline_report.json",
+                "alignment_report": "00_source/asr_alignment_report.json",
+                "diarization_report": "00_source/asr_diarization.json",
             },
+            "asr_quality": report["quality"],
             "status_reason": "Primary material is available as ASR transcript derived from local audio/video.",
             "next_step": "enter_segmentation_inventory_logic_gap_check",
         }
@@ -356,7 +470,10 @@ def run_asr_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         rows = parse_jsonl(asr_jsonl)
 
     normalizer_summary = run_normalizer(output_root, asr_jsonl, args.language)
+    engine = infer_row_engine(rows, "external_asr_jsonl" if args.asr_jsonl else "faster-whisper")
     quality = quality_from_model(args.model, rows)
+    alignment = alignment_report(rows, engine)
+    diarization = diarization_report(rows)
     report = {
         "runner": RUNNER_NAME,
         "generated_at": now_iso(),
@@ -364,11 +481,27 @@ def run_asr_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         "output_root": str(output_root),
         "asr_jsonl": str(asr_jsonl),
         "asr_markdown": str(asr_markdown),
+        "engine": engine,
         "model": args.model,
         "language": args.language,
         "vad_filter": args.vad_filter,
         "runtime": runtime,
         "quality": quality,
+        "alignment_report": alignment,
+        "diarization_report": diarization,
+        "word_timestamp_policy": {
+            "available": quality["segments_with_word_timestamps"] > 0,
+            "required": False,
+            "fallback": "segment_timestamps_and_transcript_ids",
+        },
+        "asr_verbatim_policy": {
+            "verified_verbatim": False,
+            "boundary": "ASR-derived transcript supports source-grounded analysis but must not be called verbatim unless independently reviewed.",
+        },
+        "engine_boundary": {
+            "faster_whisper": "segment-level ASR transcript generation; may include word timestamps when supplied by upstream JSONL or engine output.",
+            "whisperx": "future optional alignment and diarization layer; not required for this pipeline to succeed.",
+        },
         "transcription_result": transcription_result,
         "normalizer_summary": normalizer_summary,
         "next_step": "enter_segmentation_inventory_logic_gap_check",
@@ -377,6 +510,8 @@ def run_asr_pipeline(args: argparse.Namespace) -> dict[str, Any]:
     append_acquisition_notes(output_root, report)
     written = [
         write_json(output_root / "00_source" / "asr_pipeline_report.json", report),
+        write_json(output_root / "00_source" / "asr_alignment_report.json", alignment),
+        write_json(output_root / "00_source" / "asr_diarization.json", diarization),
         write_text(output_root / "00_source" / "asr_pipeline_report.md", render_report(report)),
     ]
     validation = artifact_validator.validate_artifact_root(
@@ -390,8 +525,13 @@ def run_asr_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         "input_media": str(input_media),
         "source_status": "source_confirmed",
         "source_class": "primary_audio_asr",
+        "engine": engine,
         "segments": quality["segments"],
         "timestamp_coverage": quality["timestamp_coverage"],
+        "word_timestamp_coverage": quality["word_timestamp_coverage"],
+        "speaker_coverage": quality["speaker_coverage"],
+        "alignment_status": quality["alignment_status"],
+        "diarization_status": quality["diarization_status"],
         "exact_wording_confidence": quality["exact_wording_confidence"],
         "structural_summary_confidence": quality["structural_summary_confidence"],
         "files_written": [item["path"] for item in written] + [str(asr_jsonl), str(asr_markdown)],
@@ -483,7 +623,70 @@ def run_self_test() -> int:
         status = read_json(output_root / "00_source" / "source_status.json")
         assert_true("status source class patched", status.get("source_classes") == ["primary_audio_asr"], failures)
         assert_true("status primary true", status.get("primary_material_available") is True, failures)
+        report = read_json(output_root / "00_source" / "asr_pipeline_report.json")
+        alignment = read_json(output_root / "00_source" / "asr_alignment_report.json")
+        diarization = read_json(output_root / "00_source" / "asr_diarization.json")
+        assert_true("jsonl engine preserved", report.get("engine") == "faster-whisper", failures, json.dumps(report, ensure_ascii=False))
+        assert_true("alignment engine preserved", alignment.get("engine") == "faster-whisper", failures, json.dumps(alignment, ensure_ascii=False))
+        assert_true("no words segment only", report["quality"]["alignment_status"] == "segment_only", failures)
+        assert_true("no speaker diarization absent", report["quality"]["diarization_status"] == "not_available", failures)
+        assert_true("alignment artifact", alignment.get("status") == "segment_only", failures, json.dumps(alignment, ensure_ascii=False))
+        assert_true("diarization artifact", diarization.get("status") == "not_available", failures, json.dumps(diarization, ensure_ascii=False))
+        assert_true("not verified verbatim", report["quality"]["verified_verbatim"] is False, failures)
         assert_true("validation ok", result["validation"]["valid"] is True, failures, json.dumps(result["validation"], ensure_ascii=False))
+
+        word_jsonl = base / "fixture_words_asr.jsonl"
+        word_rows = [
+            {
+                "id": "t0001",
+                "start": 0.0,
+                "end": 1.0,
+                "text": "Hello world.",
+                "source": "ASR",
+                "engine": "fixture-asr",
+                "model": "base",
+                "language": "en",
+                "confidence": "medium",
+                "speaker": "SPEAKER_00",
+                "words": [
+                    {"word": "Hello", "start": 0.0, "end": 0.4, "confidence": 0.9},
+                    {"word": "world", "start": 0.5, "end": 0.9, "confidence": 0.88},
+                ],
+                "alignment": {"engine": "fixture"},
+                "diarization": {"engine": "fixture"},
+                "raw_index": 0,
+            }
+        ]
+        write_text(word_jsonl, "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in word_rows))
+        word_output = base / "10_video_words"
+        word_result = run_asr_pipeline(
+            argparse.Namespace(
+                input_media=media,
+                output_root=word_output,
+                asr_jsonl=word_jsonl,
+                asr_python=None,
+                model="base",
+                language="en",
+                device="cpu",
+                compute_type="int8",
+                timeout_seconds=0.0,
+                local_files_only=False,
+                vad_filter=True,
+            )
+        )
+        word_report = read_json(word_output / "00_source" / "asr_pipeline_report.json")
+        word_alignment = read_json(word_output / "00_source" / "asr_alignment_report.json")
+        word_diarization = read_json(word_output / "00_source" / "asr_diarization.json")
+        clean_line = json.loads((word_output / "01_transcript" / "clean_transcript.jsonl").read_text(encoding="utf-8-sig").splitlines()[0])
+        assert_true("word timestamp coverage", word_result["word_timestamp_coverage"] == 1.0, failures, json.dumps(word_result, ensure_ascii=False))
+        assert_true("speaker coverage", word_result["speaker_coverage"] == 1.0, failures, json.dumps(word_result, ensure_ascii=False))
+        assert_true("word report aligned", word_report["quality"]["alignment_status"] == "word_aligned", failures)
+        assert_true("word alignment artifact", word_alignment["status"] == "word_aligned", failures)
+        assert_true("external jsonl engine preserved", word_report.get("engine") == "fixture-asr", failures, json.dumps(word_report, ensure_ascii=False))
+        assert_true("external alignment engine preserved", word_alignment.get("engine") == "fixture-asr", failures, json.dumps(word_alignment, ensure_ascii=False))
+        assert_true("word diarization artifact", word_diarization["status"] == "speaker_labels_present", failures)
+        assert_true("normalizer preserves words", clean_line.get("word_timestamps_available") is True and len(clean_line.get("words") or []) == 2, failures, json.dumps(clean_line, ensure_ascii=False))
+        assert_true("normalizer preserves speaker", clean_line.get("speaker") == "SPEAKER_00", failures, json.dumps(clean_line, ensure_ascii=False))
 
         bad_media = base / "bad.txt"
         bad_media.write_text("not media", encoding="utf-8")

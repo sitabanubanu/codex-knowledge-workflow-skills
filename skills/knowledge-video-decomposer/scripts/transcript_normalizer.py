@@ -32,6 +32,11 @@ class Segment:
     language: str
     confidence: str
     raw_index: int
+    speaker: str = ""
+    words: list[dict[str, Any]] | None = None
+    asr_confidence: float | None = None
+    alignment: dict[str, Any] | None = None
+    diarization: dict[str, Any] | None = None
 
 
 class TranscriptNormalizerError(Exception):
@@ -198,6 +203,12 @@ def parse_jsonl(text: str, *, language: str) -> list[Segment]:
         end_value = payload.get("end")
         start = float(start_value) if isinstance(start_value, (int, float)) else None
         end = float(end_value) if isinstance(end_value, (int, float)) else None
+        words = payload.get("words")
+        normalized_words = [word for word in words if isinstance(word, dict)] if isinstance(words, list) else None
+        asr_confidence_value = payload.get("asr_confidence", payload.get("avg_logprob"))
+        asr_confidence = float(asr_confidence_value) if isinstance(asr_confidence_value, (int, float)) else None
+        alignment = payload.get("alignment") if isinstance(payload.get("alignment"), dict) else None
+        diarization = payload.get("diarization") if isinstance(payload.get("diarization"), dict) else None
         segments.append(
             Segment(
                 raw_id=f"raw_{len(segments) + 1:04d}",
@@ -208,6 +219,11 @@ def parse_jsonl(text: str, *, language: str) -> list[Segment]:
                 language=str(payload.get("language") or language),
                 confidence=str(payload.get("confidence") or "medium"),
                 raw_index=raw_index,
+                speaker=str(payload.get("speaker") or ""),
+                words=normalized_words,
+                asr_confidence=asr_confidence,
+                alignment=alignment,
+                diarization=diarization,
             )
         )
     return segments
@@ -246,8 +262,9 @@ def parse_input(path: Path, *, language: str) -> list[Segment]:
 
 
 def raw_rows(segments: list[Segment]) -> list[dict[str, Any]]:
-    return [
-        {
+    rows: list[dict[str, Any]] = []
+    for segment in segments:
+        row = {
             "id": segment.raw_id,
             "start": segment.start,
             "end": segment.end,
@@ -257,26 +274,46 @@ def raw_rows(segments: list[Segment]) -> list[dict[str, Any]]:
             "confidence": segment.confidence,
             "raw_index": segment.raw_index,
         }
-        for segment in segments
-    ]
+        if segment.speaker:
+            row["speaker"] = segment.speaker
+        if segment.words:
+            row["words"] = segment.words
+        if segment.asr_confidence is not None:
+            row["asr_confidence"] = segment.asr_confidence
+        if segment.alignment:
+            row["alignment"] = segment.alignment
+        if segment.diarization:
+            row["diarization"] = segment.diarization
+        rows.append(row)
+    return rows
 
 
 def clean_rows(segments: list[Segment]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for idx, segment in enumerate(segments, start=1):
-        rows.append(
-            {
-                "id": f"t{idx:04d}",
-                "start": segment.start,
-                "end": segment.end,
-                "text": segment.text,
-                "normalized_text": normalize_text(segment.text),
-                "source_ids": [segment.raw_id],
-                "language": segment.language,
-                "speaker": "",
-                "confidence": segment.confidence,
-            }
-        )
+        row: dict[str, Any] = {
+            "id": f"t{idx:04d}",
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text,
+            "normalized_text": normalize_text(segment.text),
+            "source_ids": [segment.raw_id],
+            "language": segment.language,
+            "speaker": segment.speaker,
+            "confidence": segment.confidence,
+        }
+        if segment.words:
+            row["words"] = segment.words
+            row["word_timestamps_available"] = True
+        else:
+            row["word_timestamps_available"] = False
+        if segment.asr_confidence is not None:
+            row["asr_confidence"] = segment.asr_confidence
+        if segment.alignment:
+            row["alignment"] = segment.alignment
+        if segment.diarization:
+            row["diarization"] = segment.diarization
+        rows.append(row)
     return rows
 
 
@@ -488,6 +525,34 @@ def run_self_test() -> int:
         )
         assert_true("jsonl confirmed", jsonl_result["source_status"] == "source_confirmed", failures)
         assert_true("jsonl timed", jsonl_result["timestamp_coverage"] == 1.0, failures)
+
+        words_jsonl = base / "words.jsonl"
+        words_jsonl.write_text(
+            json.dumps(
+                {
+                    "start": 0,
+                    "end": 1.5,
+                    "text": "Word timed segment.",
+                    "language": "en",
+                    "speaker": "SPEAKER_00",
+                    "words": [{"word": "Word", "start": 0.0, "end": 0.4, "confidence": 0.9}],
+                    "alignment": {"engine": "fixture"},
+                    "diarization": {"engine": "fixture"},
+                    "asr_confidence": 0.88,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        words_result = run_normalization(
+            argparse.Namespace(input=str(words_jsonl), output_root=base / "words_out", language="unknown", pretty=False, self_test=False)
+        )
+        words_clean = json.loads((base / "words_out" / "01_transcript" / "clean_transcript.jsonl").read_text(encoding="utf-8-sig").splitlines()[0])
+        assert_true("words jsonl confirmed", words_result["source_status"] == "source_confirmed", failures)
+        assert_true("words preserved", words_clean.get("word_timestamps_available") is True and len(words_clean.get("words") or []) == 1, failures, json.dumps(words_clean, ensure_ascii=False))
+        assert_true("speaker preserved", words_clean.get("speaker") == "SPEAKER_00", failures, json.dumps(words_clean, ensure_ascii=False))
+        assert_true("alignment preserved", isinstance(words_clean.get("alignment"), dict), failures, json.dumps(words_clean, ensure_ascii=False))
 
         missing_failed = False
         try:
