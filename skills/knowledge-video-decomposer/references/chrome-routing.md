@@ -44,7 +44,7 @@ When Chrome opens a platform video page and no visible transcript or caption UI 
   - `<track>` elements on `<video>` or `<audio>` tags with public `src` attributes.
   - Publicly-exposed media URLs in `<source>` tags, `data-setup`, or player configuration objects.
   - Any `ytInitialPlayerResponse` or equivalent platform player bootstrap data containing caption/transcript URLs.
-- Record what was found. A public subtitle track URL is a valid `browser_derived_media` when it can be fetched and saved.
+- Record what was found. A public subtitle track URL is only a candidate until it has been fetched, saved locally, and parsed successfully.
 
 ### Layer 5 — Network / Media Asset Inspection (when supported)
 
@@ -55,7 +55,7 @@ When Chrome opens a platform video page and no visible transcript or caption UI 
 
 After all layers have been tried and their results recorded:
 
-- If ANY layer produced an actual local subtitle file, an exported media file, or a confirmed public downloadable media/subtitle URL → proceed to ASR or subtitle parsing. The material qualifies as `browser_derived_media` (see `source-status.md`).
+- If ANY layer produced an actual local subtitle file or exported media file, proceed to subtitle parsing or ASR. If a confirmed public downloadable media/subtitle URL was found, fetch and save it first; it qualifies as `browser_derived_media` only after the saved file is parsed or transcribed successfully (see `source-status.md`).
 - If ALL layers failed → record `chrome_deep_probe_exhausted: true`. The agent may now conclude that no primary media is available from the page. Proceed to request user-provided local files or enter the appropriate degraded/blocked source status.
 
 ## yt-dlp with Chrome Cookies
