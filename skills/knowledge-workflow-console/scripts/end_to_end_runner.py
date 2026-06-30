@@ -15,6 +15,39 @@ from typing import Any
 
 
 RUNNER_NAME = "knowledge-workflow-end-to-end-runner"
+STAGE_OUTPUTS = {
+    "transcript_normalizer": [
+        "10_video/00_source/source_status.json",
+        "10_video/01_transcript/clean_transcript.jsonl",
+    ],
+    "transcript_segmenter": [
+        "10_video/02_segments/argument_segments.json",
+        "10_video/02_segments/syntax_segments.json",
+    ],
+    "inventory_extractor": [
+        "10_video/03_inventory/claims.json",
+        "10_video/03_inventory/examples.json",
+        "10_video/03_inventory/concepts.json",
+        "10_video/03_inventory/analogies.json",
+    ],
+    "source_logic_builder": [
+        "10_video/04_logic/source_logic.md",
+        "10_video/04_logic/logic_graph.json",
+    ],
+    "evidence_auditor": [
+        "10_video/05_gap_check/evidence_audit.json",
+        "10_video/05_gap_check/gap_check.md",
+    ],
+    "video_analysis_pack_builder": [
+        "10_video/video_analysis_pack.md",
+    ],
+    "document_composer_runner": [
+        "20_document/composer_intake.json",
+        "20_document/commitments.md",
+        "20_document/claim_map.json",
+        "20_document/quality_check.md",
+    ],
+}
 
 
 class EndToEndRunnerError(Exception):
@@ -103,8 +136,6 @@ def run_command(stage: str, command: list[str], cwd: Path) -> dict[str, Any]:
         "stderr": stderr,
         "summary": payload,
     }
-    if completed.returncode != 0:
-        raise EndToEndRunnerError(f"stage {stage} failed with exit code {completed.returncode}: {stderr or stdout}")
     return result
 
 
@@ -147,6 +178,89 @@ def resolve_roots(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     return project_root, project_root / "10_video", project_root / "20_document"
 
 
+def expected_outputs_exist(project_root: Path, stage: str) -> bool:
+    expected = STAGE_OUTPUTS.get(stage, [])
+    return bool(expected) and all((project_root / item).is_file() for item in expected)
+
+
+def load_run_state(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        return read_json(path)
+    except EndToEndRunnerError:
+        return {}
+
+
+def initialize_run_state(args: argparse.Namespace, project_root: Path, video_root: Path, document_root: Path) -> dict[str, Any]:
+    return {
+        "runner": RUNNER_NAME,
+        "schema_version": 1,
+        "mode": "local_transcript",
+        "status": "running",
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "project_root": str(project_root),
+        "video_root": str(video_root),
+        "document_root": str(document_root),
+        "input_transcript": str(args.input_transcript.expanduser().resolve()) if args.input_transcript else "",
+        "resume_enabled": bool(getattr(args, "resume", False)),
+        "current_stage": "",
+        "next_stage": "transcript_normalizer",
+        "stages": [],
+    }
+
+
+def state_stage_index(state: dict[str, Any], stage: str) -> int | None:
+    stages = state.get("stages")
+    if not isinstance(stages, list):
+        return None
+    for index, row in enumerate(stages):
+        if isinstance(row, dict) and row.get("stage") == stage:
+            return index
+    return None
+
+
+def upsert_stage(state: dict[str, Any], stage_record: dict[str, Any]) -> None:
+    stages = state.setdefault("stages", [])
+    if not isinstance(stages, list):
+        state["stages"] = stages = []
+    index = state_stage_index(state, str(stage_record.get("stage")))
+    if index is None:
+        stages.append(stage_record)
+    else:
+        stages[index] = stage_record
+    state["updated_at"] = now_iso()
+
+
+def write_run_state(path: Path, state: dict[str, Any]) -> None:
+    write_json(path, state)
+
+
+def completed_in_state(state: dict[str, Any], stage: str) -> bool:
+    stages = state.get("stages")
+    if not isinstance(stages, list):
+        return False
+    return any(
+        isinstance(row, dict) and row.get("stage") == stage and row.get("status") in {"completed", "skipped"}
+        for row in stages
+    )
+
+
+def stage_record_from_result(result: dict[str, Any], status: str) -> dict[str, Any]:
+    record = stage_summary(result)
+    record.update(
+        {
+            "status": status,
+            "command": result.get("command", []),
+            "completed_at": now_iso() if status == "completed" else "",
+            "failed_at": now_iso() if status == "failed" else "",
+            "stderr": result.get("stderr", ""),
+        }
+    )
+    return record
+
+
 def ensure_no_final_report(document_root: Path) -> None:
     if (document_root / "final_report.md").exists():
         raise EndToEndRunnerError("document runner unexpectedly left final_report.md in place")
@@ -162,11 +276,73 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
     logs_root = project_root / "logs"
     logs_root.mkdir(parents=True, exist_ok=True)
     steps: list[dict[str, Any]] = []
+    run_state_path = logs_root / "run_state.json"
+    previous_state = load_run_state(run_state_path) if args.resume else {}
+    state = initialize_run_state(args, project_root, video_root, document_root)
+    if args.resume and previous_state:
+        state["created_at"] = previous_state.get("created_at") or state["created_at"]
+        state["stages"] = previous_state.get("stages") if isinstance(previous_state.get("stages"), list) else []
+    write_run_state(run_state_path, state)
 
     def run_stage(stage: str, command: list[str], cwd: Path) -> None:
+        if args.resume and completed_in_state(state, stage) and expected_outputs_exist(project_root, stage):
+            skipped = {
+                "stage": stage,
+                "returncode": 0,
+                "summary": {
+                    "runner": RUNNER_NAME,
+                    "next_step": "resume_skipped_completed_stage",
+                },
+                "command": command,
+                "stdout": "",
+                "stderr": "",
+            }
+            steps.append(skipped)
+            upsert_stage(
+                state,
+                {
+                    "stage": stage,
+                    "status": "skipped",
+                    "returncode": 0,
+                    "command": command,
+                    "skipped_at": now_iso(),
+                    "reason": "resume_completed_outputs_present",
+                },
+            )
+            state["current_stage"] = stage
+            state["next_stage"] = "next"
+            write_run_state(run_state_path, state)
+            write_json(logs_root / "end_to_end_steps.json", [stage_summary(step) for step in steps])
+            return
+        upsert_stage(
+            state,
+            {
+                "stage": stage,
+                "status": "running",
+                "returncode": None,
+                "command": command,
+                "started_at": now_iso(),
+            },
+        )
+        state["current_stage"] = stage
+        state["next_stage"] = stage
+        write_run_state(run_state_path, state)
         result = run_command(stage, command, cwd)
         steps.append(result)
         write_json(logs_root / "end_to_end_steps.json", [stage_summary(step) for step in steps])
+        if result["returncode"] != 0:
+            upsert_stage(state, stage_record_from_result(result, "failed"))
+            state["status"] = "failed"
+            state["failed_stage"] = stage
+            state["error"] = result.get("stderr") or result.get("stdout")
+            state["next_stage"] = stage
+            write_run_state(run_state_path, state)
+            raise EndToEndRunnerError(
+                f"stage {stage} failed with exit code {result['returncode']}: {result.get('stderr') or result.get('stdout')}"
+            )
+        upsert_stage(state, stage_record_from_result(result, "completed"))
+        state["next_stage"] = "next"
+        write_run_state(run_state_path, state)
 
     video_scripts = video_skill_root / "scripts"
     document_scripts = document_skill_root / "scripts"
@@ -230,6 +406,11 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
         document_scripts,
     )
     ensure_no_final_report(document_root)
+    state["status"] = "completed"
+    state["current_stage"] = "document_composer_runner"
+    state["next_stage"] = "draft_report_with_quality_gates"
+    state["completed_at"] = now_iso()
+    write_run_state(run_state_path, state)
 
     summary = {
         "runner": RUNNER_NAME,
@@ -242,6 +423,8 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
         "video_analysis_pack": str(video_root / "video_analysis_pack.md"),
         "composer_intake": str(document_root / "composer_intake.json"),
         "final_report_written": False,
+        "run_state": str(run_state_path),
+        "resume_enabled": bool(args.resume),
         "next_step": "draft_report_with_quality_gates",
     }
     write_json(logs_root / "end_to_end_summary.json", summary)
@@ -259,6 +442,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--audience", default="reader who needs an auditable source-faithful explanation", help="Intended audience.")
     parser.add_argument("--video-skill-root", type=Path, default=default_skill_root("knowledge-video-decomposer"), help="knowledge-video-decomposer skill root.")
     parser.add_argument("--document-skill-root", type=Path, default=default_skill_root("knowledge-document-composer"), help="knowledge-document-composer skill root.")
+    parser.add_argument("--resume", action="store_true", help="Resume a previous local transcript run by skipping completed stages whose expected outputs still exist.")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print summary JSON.")
     parser.add_argument("--self-test", action="store_true", help="Run built-in tests.")
     return parser
@@ -301,6 +485,7 @@ def run_self_test() -> int:
             audience="workflow reviewer",
             video_skill_root=default_skill_root("knowledge-video-decomposer"),
             document_skill_root=default_skill_root("knowledge-document-composer"),
+            resume=False,
         )
         result = run_local_transcript_workflow(args)
         assert_true("project root", Path(result["project_root"]).is_dir(), failures)
@@ -312,6 +497,27 @@ def run_self_test() -> int:
         assert_true("composer full decision", intake.get("composer_decision") == "full", failures)
         audit = read_json(project_root / "10_video" / "05_gap_check" / "evidence_audit.json")
         assert_true("audit no errors", audit.get("severity_counts", {}).get("error") == 0, failures)
+        run_state = read_json(project_root / "logs" / "run_state.json")
+        assert_true("run state completed", run_state.get("status") == "completed", failures)
+
+        resume_result = run_local_transcript_workflow(
+            argparse.Namespace(
+                input_transcript=transcript,
+                project_root=project_root,
+                output_base=base / "outputs",
+                language="en",
+                document_goal="Write an auditable source-faithful report",
+                final_language="zh-CN",
+                audience="workflow reviewer",
+                video_skill_root=default_skill_root("knowledge-video-decomposer"),
+                document_skill_root=default_skill_root("knowledge-document-composer"),
+                resume=True,
+            )
+        )
+        assert_true("resume enabled", resume_result["resume_enabled"] is True, failures)
+        resume_state = read_json(project_root / "logs" / "run_state.json")
+        skipped = [row for row in resume_state.get("stages", []) if row.get("status") == "skipped"]
+        assert_true("resume skipped stages", len(skipped) >= 7, failures, json.dumps(resume_state, ensure_ascii=False))
 
     if failures:
         for failure in failures:

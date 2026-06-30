@@ -21,7 +21,8 @@ Core workflow:
 
 Runner guidance:
 - `scripts/end_to_end_runner.py` orchestrates the currently productized local transcript/subtitle route: transcript normalizer, segmenter, inventory extractor, source logic builder, evidence auditor, video analysis pack builder, and document composer runner.
-- Treat `end_to_end_runner.py` as an orchestrator, not an analyzer. It calls the stage scripts and records `logs/end_to_end_steps.json` plus `logs/end_to_end_summary.json`; it does not inspect Chrome, fetch media, run ASR, or draft `final_report.md`.
+- Treat `end_to_end_runner.py` as an orchestrator, not an analyzer. It calls the stage scripts and records `logs/run_state.json`, `logs/end_to_end_steps.json`, and `logs/end_to_end_summary.json`; it does not inspect Chrome, fetch media, run ASR, or draft `final_report.md`.
+- Use `end_to_end_runner.py --resume` to continue a previous local transcript run. Resume skips stages only when the prior run state marks them complete/skipped and the expected output files still exist.
 - For platform URLs, browser-derived media, or audio/video requiring ASR, route through the video decomposer acquisition, Chrome, and ASR stages first instead of forcing this local transcript runner.
 
 Read references/routing.md before deciding which skill or tool should run.
