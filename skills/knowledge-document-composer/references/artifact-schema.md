@@ -52,6 +52,7 @@ Rules:
 The required files may live directly under `20_document` unless the workflow console chooses a more detailed layout.
 
 ```text
+composer_intake.json
 commitments.md
 claim_map.json
 expansion_plan.md
@@ -71,6 +72,49 @@ final_report.docx
 final_report.pdf
 slides.pptx
 ```
+
+## composer_intake.json
+
+Purpose: machine-readable document-composer entry gate.
+
+Use `scripts/document_composer_runner.py` after the upstream
+`10_video/video_analysis_pack.md` has been built from a passing
+`05_gap_check/evidence_audit.json`. The runner writes `composer_intake.json` and
+the initial planning artifacts, but it must not write `draft_report.md` or
+`final_report.md`.
+
+Suggested fields:
+
+```json
+{
+  "runner": "knowledge-document-composer-runner",
+  "generated_at": "",
+  "video_root": "",
+  "document_root": "",
+  "source_status": "source_confirmed|source_partial",
+  "allowed_report_type": "",
+  "composer_decision": "full|partial",
+  "document_goal": "",
+  "final_language": "",
+  "audience": "",
+  "evidence_audit": {
+    "severity_counts": {},
+    "pack_gate": {}
+  },
+  "files_written": [],
+  "next_step": "draft_report_with_quality_gates"
+}
+```
+
+Minimum expectations:
+
+- Refuse normal document planning when source status is blocked, failed,
+  secondary-only, degraded, or missing primary material.
+- Refuse normal document planning when evidence audit has error findings.
+- For `source_partial`, every downstream planning artifact must visibly preserve
+  the partial-scope label.
+- Do not create `final_report.md` until draft, critique, revision, and quality
+  gates pass.
 
 ## commitments.md
 

@@ -10,6 +10,7 @@ The final report must be written in the user's requested language. If the user d
 Create these files in this order unless the user explicitly asks only for an intermediate artifact:
 
 ```text
+20_document/composer_intake.json
 20_document/commitments.md
 20_document/source_reconstruction.md
 20_document/claim_map.json
@@ -22,6 +23,14 @@ Create these files in this order unless the user explicitly asks only for an int
 
 Optional formatted outputs such as docx, pdf, slides, briefing notes, or scripts are later-stage outputs. Create them only when requested after `final_report.md` is stable.
 
+For audited video workflows, run `scripts/document_composer_runner.py` before
+drafting. It verifies `10_video/video_analysis_pack.md`,
+`10_video/00_source/source_status.json`, and
+`10_video/05_gap_check/evidence_audit.json`, then writes
+`composer_intake.json` and pre-draft planning artifacts. This runner is a gate
+and planning scaffold; it must not create `draft_report.md` or
+`final_report.md`.
+
 ## Artifact Writing Reliability
 
 For long reports, transcripts, JSON maps, or multi-section artifacts, write files through file-based generation, a reusable script, or small scoped patches. Do not put a whole report or transcript inside one giant shell command. On Windows, long inline commands can fail before the file is written and make the workflow look like a content failure.
@@ -33,6 +42,7 @@ After writing a large artifact, reopen it from disk and verify at least the titl
 Load the upstream package before writing:
 
 - `video_analysis_pack.md`
+- `evidence_audit.json`
 - `clean_transcript.md` or `clean_transcript.jsonl`
 - `source_logic.md`
 - `logic_graph.json`
@@ -50,6 +60,10 @@ Minimum required source material:
 - a transcript plus at least one logic or inventory artifact.
 
 Stop if there is no reliable source material to reconstruct. Do not invent a report from conversation memory.
+
+Stop the normal document workflow if `evidence_audit.json` contains error
+findings, if its output root does not match the current upstream video root, or
+if its pack gate does not allow a full or explicitly partial pack.
 
 Degrade explicitly when artifacts are partial:
 
