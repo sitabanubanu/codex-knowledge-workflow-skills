@@ -59,6 +59,14 @@ Route:
 1. knowledge-video-decomposer for normalization and segmentation
 2. knowledge-document-composer for reports and document generation
 
+Productized runner:
+
+- When the input is a local transcript/subtitle file and the user wants the full
+  gated workflow through video analysis pack plus document planning, use
+  `scripts/end_to_end_runner.py`.
+- The runner currently covers only the local transcript/subtitle route. It does
+  not fetch media, launch Chrome, run ASR, or process a platform URL directly.
+
 If the user explicitly only wants an article or report, route directly to knowledge-document-composer.
 
 ### 4. Existing Video Analysis Pack

@@ -64,6 +64,7 @@ Producer: knowledge-document-composer
 Consumers: knowledge-workflow-console, user, final export tools
 
 Key artifacts:
+- composer_intake.json
 - commitments.md
 - claim_map.json
 - expansion_plan.md
@@ -95,3 +96,36 @@ Key artifacts:
 - Preserve source spans or timestamps for analysis conclusions whenever possible.
 - Keep Source, Inference, and Extension separate.
 - When subagent-supervisor is used, check acceptance_report.md before continuing to the next stage or final response.
+
+## End-to-End Runner Contract
+
+Producer: knowledge-workflow-console
+
+Consumers: knowledge-workflow-console, user-facing closeout
+
+Use `scripts/end_to_end_runner.py` only for the local transcript/subtitle route.
+It orchestrates existing stage scripts and writes:
+
+```text
+logs/end_to_end_steps.json
+logs/end_to_end_summary.json
+10_video/video_analysis_pack.md
+20_document/composer_intake.json
+20_document/commitments.md
+20_document/source_reconstruction.md
+20_document/claim_map.json
+20_document/expansion_plan.md
+20_document/report_outline.md
+20_document/quality_check.md
+```
+
+It must not write:
+
+```text
+20_document/draft_report.md
+20_document/final_report.md
+30_final/*
+```
+
+If any stage fails, stop at that stage and read `logs/end_to_end_steps.json`
+before retrying.
