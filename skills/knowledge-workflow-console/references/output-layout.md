@@ -60,6 +60,20 @@ If URL mode acquires subtitles, the normal transcript layout under
 If URL mode or `--input-media` runs ASR, ASR provenance goes under
 `10_video\00_source\` and transcript artifacts under `10_video\01_transcript\`.
 
+## Evidence Audit Outputs
+
+When full or partial decomposition reaches the evidence stage, store pre-pack
+audit artifacts under `10_video\05_gap_check\`:
+
+- evidence_audit.json
+- evidence_map.json
+- claim_source_audit.json
+- gap_check.md
+
+`video_analysis_pack.md` and `20_document\` planning artifacts should be created
+only after the evidence audit gate passes and `claim_source_audit.json` has zero
+blocking claims.
+
 If URL mode has only metadata, blocked state, or failed acquisition, do not
 create the full analysis directory appearance beyond `00_source\`, and do not
 create `video_analysis_pack.md` or `20_document\` planning artifacts.

@@ -55,6 +55,8 @@ Key artifacts:
 - analogies.json
 - source_logic.md
 - logic_graph.json
+- evidence_map.json
+- claim_source_audit.json
 - gap_check.md
 - video_analysis_pack.md
 
@@ -122,6 +124,10 @@ It orchestrates existing stage scripts and writes:
 logs/run_state.json
 logs/end_to_end_steps.json
 logs/end_to_end_summary.json
+10_video/05_gap_check/evidence_audit.json
+10_video/05_gap_check/evidence_map.json
+10_video/05_gap_check/claim_source_audit.json
+10_video/05_gap_check/gap_check.md
 10_video/video_analysis_pack.md
 20_document/composer_intake.json
 20_document/commitments.md

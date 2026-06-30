@@ -63,6 +63,8 @@ STAGE_OUTPUTS = {
     ],
     "evidence_auditor": [
         "10_video/05_gap_check/evidence_audit.json",
+        "10_video/05_gap_check/evidence_map.json",
+        "10_video/05_gap_check/claim_source_audit.json",
         "10_video/05_gap_check/gap_check.md",
     ],
     "video_analysis_pack_builder": [
@@ -102,6 +104,7 @@ STAGE_INPUTS = {
         "10_video/03_inventory/analogies.json",
     ],
     "evidence_auditor": [
+        "10_video/00_source/source_status.json",
         "10_video/01_transcript/clean_transcript.jsonl",
         "10_video/02_segments/argument_segments.json",
         "10_video/02_segments/subtitle_segments.json",
@@ -122,6 +125,8 @@ STAGE_INPUTS = {
         "10_video/04_logic/source_logic.md",
         "10_video/04_logic/logic_graph.json",
         "10_video/05_gap_check/evidence_audit.json",
+        "10_video/05_gap_check/evidence_map.json",
+        "10_video/05_gap_check/claim_source_audit.json",
         "10_video/05_gap_check/gap_check.md",
     ],
     "document_composer_runner": [
@@ -131,6 +136,8 @@ STAGE_INPUTS = {
         "10_video/04_logic/source_logic.md",
         "10_video/04_logic/logic_graph.json",
         "10_video/05_gap_check/evidence_audit.json",
+        "10_video/05_gap_check/evidence_map.json",
+        "10_video/05_gap_check/claim_source_audit.json",
         "10_video/05_gap_check/gap_check.md",
     ],
 }
@@ -1375,7 +1382,10 @@ emit({"runner":"fake-source-logic-builder","next_step":"enter_evidence_auditor"}
         common
         + r'''
 p = argparse.ArgumentParser(); p.add_argument("--output-root", type=Path, required=True); args = p.parse_args(); root = args.output_root
-write_json(root / "05_gap_check" / "evidence_audit.json", {"runner":"fake-evidence-auditor","source_status":"source_confirmed","severity_counts":{"error":0,"warning":0,"info":0},"findings":[],"pack_gate":{"can_build_video_analysis_pack":True,"can_build_partial_pack":False,"next_step":"enter_video_analysis_pack_builder"}})
+span = [{"transcript_ids":["t001"],"quote":"Fake text.","source":"clean_transcript"}]
+write_json(root / "05_gap_check" / "evidence_map.json", {"runner":"fake-evidence-auditor","schema_version":1,"output_root":str(root.resolve()),"entries":[{"artifact":"03_inventory/claims.json","item_kind":"claim","item_id":"claim_001","transcript_ids":["t001"],"evidence_spans":span,"has_transcript_span":True,"evidence_status":"pass"}],"summary":{"entries":1,"entries_with_transcript_span":1,"entries_missing_transcript_span":0}})
+write_json(root / "05_gap_check" / "claim_source_audit.json", {"runner":"fake-evidence-auditor","schema_version":1,"output_root":str(root.resolve()),"claims":[{"claim_id":"claim_001","claim_type":"source_claim","text":"Fake claim.","evidence_status":"pass","transcript_ids":["t001"],"unknown_transcript_ids":[],"evidence_spans":span,"linked_examples":[],"logic_node_ids":["claim_001"],"logic_node_status":"present"}],"summary":{"claims":1,"claims_with_transcript_span":1,"blocking_claims":0,"source_claims_not_represented_in_logic":0}})
+write_json(root / "05_gap_check" / "evidence_audit.json", {"runner":"fake-evidence-auditor","source_status":"source_confirmed","output_root":str(root.resolve()),"evidence_map_path":"05_gap_check/evidence_map.json","claim_source_audit_path":"05_gap_check/claim_source_audit.json","evidence_map_summary":{"entries":1,"entries_with_transcript_span":1,"entries_missing_transcript_span":0},"claim_source_audit_summary":{"claims":1,"claims_with_transcript_span":1,"blocking_claims":0,"source_claims_not_represented_in_logic":0},"severity_counts":{"error":0,"warning":0,"info":0},"findings":[],"pack_gate":{"can_build_video_analysis_pack":True,"can_build_partial_pack":False,"next_step":"enter_video_analysis_pack_builder"}})
 write_text(root / "05_gap_check" / "gap_check.md", "# Gap Check\n")
 emit({"runner":"fake-evidence-auditor","validation_next_step":"enter_video_analysis_pack_builder"})
 ''',

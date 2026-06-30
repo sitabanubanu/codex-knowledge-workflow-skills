@@ -126,6 +126,34 @@ def load_evidence_audit(path: Path, source_status: str, output_root: Path) -> di
         raise VideoAnalysisPackBuilderError("evidence audit does not allow full video_analysis_pack")
     if source_status == "source_partial" and gate.get("can_build_partial_pack") is not True:
         raise VideoAnalysisPackBuilderError("evidence audit does not allow partial video_analysis_pack")
+    evidence_map = read_json(output_root / "05_gap_check" / "evidence_map.json")
+    if Path(str(evidence_map.get("output_root") or "")).expanduser().resolve() != output_root.expanduser().resolve():
+        raise VideoAnalysisPackBuilderError("evidence_map.json output_root does not match the requested output root")
+    entries = evidence_map.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise VideoAnalysisPackBuilderError("evidence_map.json is missing evidence entries")
+    evidence_summary = evidence_map.get("summary")
+    if not isinstance(evidence_summary, dict):
+        raise VideoAnalysisPackBuilderError("evidence_map.json is missing summary")
+    audit_evidence_summary = audit.get("evidence_map_summary")
+    if isinstance(audit_evidence_summary, dict) and audit_evidence_summary != evidence_summary:
+        raise VideoAnalysisPackBuilderError("evidence_audit.json evidence_map_summary does not match evidence_map.json summary")
+    claim_source_audit = read_json(output_root / "05_gap_check" / "claim_source_audit.json")
+    if Path(str(claim_source_audit.get("output_root") or "")).expanduser().resolve() != output_root.expanduser().resolve():
+        raise VideoAnalysisPackBuilderError("claim_source_audit.json output_root does not match the requested output root")
+    claims = claim_source_audit.get("claims")
+    if not isinstance(claims, list):
+        raise VideoAnalysisPackBuilderError("claim_source_audit.json is missing claims")
+    claim_summary = claim_source_audit.get("summary")
+    if not isinstance(claim_summary, dict):
+        raise VideoAnalysisPackBuilderError("claim_source_audit.json is missing summary")
+    audit_claim_summary = audit.get("claim_source_audit_summary")
+    if isinstance(audit_claim_summary, dict) and audit_claim_summary != claim_summary:
+        raise VideoAnalysisPackBuilderError("evidence_audit.json claim_source_audit_summary does not match claim_source_audit.json summary")
+    if int(claim_summary.get("blocking_claims") or 0) > 0:
+        raise VideoAnalysisPackBuilderError("claim_source_audit.json has blocking claims")
+    audit["_evidence_map_summary"] = evidence_summary
+    audit["_claim_source_audit_summary"] = claim_summary
     return audit
 
 
@@ -368,10 +396,18 @@ def render_gaps(audit: dict[str, Any], gap_check: str) -> list[str]:
         "## Gaps",
         "",
         "- Evidence audit: `05_gap_check/evidence_audit.json`",
+        "- Evidence map: `05_gap_check/evidence_map.json`",
+        "- Claim source audit: `05_gap_check/claim_source_audit.json`",
         "- Gap check: `05_gap_check/gap_check.md`",
         f"- Blocking errors at pack time: `{len(errors)}`",
         f"- Warnings carried downstream: `{len(warnings)}`",
     ]
+    evidence_summary = audit.get("_evidence_map_summary") if isinstance(audit.get("_evidence_map_summary"), dict) else {}
+    claim_summary = audit.get("_claim_source_audit_summary") if isinstance(audit.get("_claim_source_audit_summary"), dict) else {}
+    if evidence_summary:
+        lines.append(f"- Evidence entries with transcript span: `{evidence_summary.get('entries_with_transcript_span', 0)}`")
+    if claim_summary:
+        lines.append(f"- Claims with transcript span: `{claim_summary.get('claims_with_transcript_span', 0)}`")
     if warnings:
         for warning in warnings[:10]:
             bullet(lines, f"`{warning.get('code')}` {warning.get('message')}")
@@ -606,6 +642,31 @@ def run_self_test() -> int:
         else:
             failures.append("missing audit: expected VideoAnalysisPackBuilderError")
         assert_true("missing audit no pack", not (missing_audit / "video_analysis_pack.md").exists(), failures)
+
+        missing_sidecar = base / "missing-sidecar"
+        build_audited_fixture(missing_sidecar)
+        (missing_sidecar / "05_gap_check" / "claim_source_audit.json").unlink()
+        try:
+            run_pack_builder(argparse.Namespace(output_root=missing_sidecar))
+        except VideoAnalysisPackBuilderError:
+            pass
+        else:
+            failures.append("missing claim source audit: expected VideoAnalysisPackBuilderError")
+        assert_true("missing sidecar no pack", not (missing_sidecar / "video_analysis_pack.md").exists(), failures)
+
+        stale_sidecar = base / "stale-sidecar"
+        build_audited_fixture(stale_sidecar)
+        stale_map_path = stale_sidecar / "05_gap_check" / "evidence_map.json"
+        stale_map = read_json(stale_map_path)
+        stale_map["summary"]["entries"] = 999
+        evidence_auditor.write_json(stale_map_path, stale_map)
+        try:
+            run_pack_builder(argparse.Namespace(output_root=stale_sidecar))
+        except VideoAnalysisPackBuilderError:
+            pass
+        else:
+            failures.append("stale evidence map summary: expected VideoAnalysisPackBuilderError")
+        assert_true("stale sidecar no pack", not (stale_sidecar / "video_analysis_pack.md").exists(), failures)
 
         mismatched_audit = base / "mismatched-audit"
         build_audited_fixture(mismatched_audit)

@@ -748,9 +748,10 @@ Purpose: identify weaknesses, missing evidence, or downstream risks before docum
 
 Use `scripts/evidence_auditor.py` after `04_logic/source_logic.md` and
 `04_logic/logic_graph.json` exist. This stage writes
-`05_gap_check/evidence_audit.json` and `05_gap_check/gap_check.md`. It must not
-write `video_analysis_pack.md`; the next pack-building stage must read the audit
-gate first.
+`05_gap_check/evidence_audit.json`, `05_gap_check/evidence_map.json`,
+`05_gap_check/claim_source_audit.json`, and `05_gap_check/gap_check.md`. It must
+not write `video_analysis_pack.md`; the next pack-building stage must read the
+audit gate first.
 
 Check for:
 
@@ -762,6 +763,9 @@ Check for:
 - Missing or low-confidence transcript material.
 - Claims that need external verification before use in a final document.
 - Important source sections that could not be acquired, parsed, or trusted.
+- Claims without transcript-backed evidence spans.
+- Examples that lost their concrete context or what they demonstrate.
+- Source logic graph nodes that cannot be traced back to transcript evidence.
 
 Suggested structure:
 
@@ -810,6 +814,10 @@ Suggested fields:
     "warning": 0,
     "info": 0
   },
+  "evidence_map_path": "05_gap_check/evidence_map.json",
+  "claim_source_audit_path": "05_gap_check/claim_source_audit.json",
+  "evidence_map_summary": {},
+  "claim_source_audit_summary": {},
   "findings": [
     {
       "severity": "error|warning|info",
@@ -834,11 +842,93 @@ Minimum audit expectations:
   `primary_material_available` must be true.
 - Transcript, segment, inventory, and logic graph evidence references must point
   to existing transcript IDs.
+- Every claim must have at least one evidence span with transcript IDs present in
+  `01_transcript/clean_transcript.jsonl`.
+- Every example must preserve concrete context through `description`,
+  `what_it_demonstrates`, and transcript-backed evidence.
+- `04_logic/logic_graph.json` must contain source-logic evidence nodes, and every
+  logic node must have a transcript-backed evidence span.
 - Inventory links between examples and claims must point to existing IDs.
 - Logic graph edges must point to existing graph nodes.
 - Warnings may pass to the pack builder; errors must block pack creation.
 - `source_confirmed` with no errors may enter full pack building.
 - `source_partial` with no errors may enter explicitly partial pack building.
+- `evidence_audit.json` summaries for `evidence_map.json` and
+  `claim_source_audit.json` must match the actual sidecar summaries. Same-root
+  but stale sidecars must be treated as invalid.
+
+## 05_gap_check/evidence_map.json
+
+Purpose: machine-readable map from each audited analysis object back to transcript
+evidence.
+
+Suggested fields:
+
+```json
+{
+  "runner": "knowledge-video-evidence-auditor",
+  "schema_version": 1,
+  "generated_at": "",
+  "output_root": "",
+  "transcript_rows": 0,
+  "entries": [
+    {
+      "artifact": "03_inventory/claims.json",
+      "item_kind": "claim|example|concept|analogy|argument_segment|logic_node",
+      "item_id": "",
+      "summary": "",
+      "source_argument_segment_ids": [],
+      "transcript_ids": [],
+      "evidence_spans": [],
+      "has_transcript_span": true,
+      "evidence_status": "pass|missing_span|missing_transcript_id|unknown_transcript_id"
+    }
+  ],
+  "summary": {
+    "entries": 0,
+    "entries_with_transcript_span": 0,
+    "entries_missing_transcript_span": 0
+  }
+}
+```
+
+## 05_gap_check/claim_source_audit.json
+
+Purpose: claim-specific audit used by pack and document gates.
+
+Suggested fields:
+
+```json
+{
+  "runner": "knowledge-video-evidence-auditor",
+  "schema_version": 1,
+  "generated_at": "",
+  "output_root": "",
+  "claims": [
+    {
+      "claim_id": "",
+      "claim_type": "source_claim|inferred_claim|uncertain_claim",
+      "text": "",
+      "evidence_status": "pass|missing_span|missing_transcript_id|unknown_transcript_id",
+      "transcript_ids": [],
+      "unknown_transcript_ids": [],
+      "evidence_spans": [],
+      "linked_examples": [],
+      "logic_node_ids": [],
+      "logic_node_status": "present|not_represented"
+    }
+  ],
+  "summary": {
+    "claims": 0,
+    "claims_with_transcript_span": 0,
+    "blocking_claims": 0,
+    "source_claims_not_represented_in_logic": 0
+  }
+}
+```
+
+`blocking_claims` must be zero before `video_analysis_pack.md` or normal
+document-composer planning can proceed.
 
 ## video_analysis_pack.md
 

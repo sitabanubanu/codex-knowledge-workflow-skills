@@ -137,6 +137,34 @@ def load_evidence_audit(video_root: Path, source_status: str) -> dict[str, Any]:
         raise DocumentComposerRunnerError("evidence audit does not allow a full pack")
     if source_status == "source_partial" and gate.get("can_build_partial_pack") is not True:
         raise DocumentComposerRunnerError("evidence audit does not allow a partial pack")
+    evidence_map = read_json(video_root / "05_gap_check" / "evidence_map.json")
+    if Path(str(evidence_map.get("output_root") or "")).expanduser().resolve() != video_root.expanduser().resolve():
+        raise DocumentComposerRunnerError("evidence_map.json output_root does not match video root")
+    entries = evidence_map.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise DocumentComposerRunnerError("evidence_map.json is missing evidence entries")
+    evidence_summary = evidence_map.get("summary")
+    if not isinstance(evidence_summary, dict):
+        raise DocumentComposerRunnerError("evidence_map.json is missing summary")
+    audit_evidence_summary = audit.get("evidence_map_summary")
+    if isinstance(audit_evidence_summary, dict) and audit_evidence_summary != evidence_summary:
+        raise DocumentComposerRunnerError("evidence_audit.json evidence_map_summary does not match evidence_map.json summary")
+    claim_source_audit = read_json(video_root / "05_gap_check" / "claim_source_audit.json")
+    if Path(str(claim_source_audit.get("output_root") or "")).expanduser().resolve() != video_root.expanduser().resolve():
+        raise DocumentComposerRunnerError("claim_source_audit.json output_root does not match video root")
+    claim_rows = claim_source_audit.get("claims")
+    if not isinstance(claim_rows, list):
+        raise DocumentComposerRunnerError("claim_source_audit.json is missing claims")
+    claim_summary = claim_source_audit.get("summary")
+    if not isinstance(claim_summary, dict):
+        raise DocumentComposerRunnerError("claim_source_audit.json is missing summary")
+    audit_claim_summary = audit.get("claim_source_audit_summary")
+    if isinstance(audit_claim_summary, dict) and audit_claim_summary != claim_summary:
+        raise DocumentComposerRunnerError("evidence_audit.json claim_source_audit_summary does not match claim_source_audit.json summary")
+    if int(claim_summary.get("blocking_claims") or 0) > 0:
+        raise DocumentComposerRunnerError("claim source audit has blocking claims; do not compose a normal report")
+    audit["_evidence_map_summary"] = evidence_summary
+    audit["_claim_source_audit_summary"] = claim_summary
     return audit
 
 
@@ -203,6 +231,8 @@ def render_commitments(
     partial = status == "source_partial"
     source_classes = source_status.get("source_classes")
     source_class_text = ", ".join(str(item) for item in source_classes) if isinstance(source_classes, list) else ""
+    evidence_summary = audit.get("_evidence_map_summary") if isinstance(audit.get("_evidence_map_summary"), dict) else {}
+    claim_summary = audit.get("_claim_source_audit_summary") if isinstance(audit.get("_claim_source_audit_summary"), dict) else {}
     title = "# Commitments (Partial Scope)" if partial else "# Commitments"
     must_preserve = [
         f"Example `{item.get('id')}`: {first_text(item.get('name'), item.get('description'), default='unnamed example')}"
@@ -224,6 +254,9 @@ def render_commitments(
         f"- Primary material available: `{str(bool(source_status.get('primary_material_available'))).lower()}`",
         f"- Source classes: {source_class_text or 'not recorded'}",
         f"- Evidence audit warnings: `{audit.get('severity_counts', {}).get('warning', 0)}`",
+        f"- Evidence entries with transcript span: `{evidence_summary.get('entries_with_transcript_span', 0)}`",
+        f"- Claims with transcript span: `{claim_summary.get('claims_with_transcript_span', 0)}`",
+        f"- Blocking claims: `{claim_summary.get('blocking_claims', 0)}`",
         f"- Partial scope: `{str(partial).lower()}`",
         "",
         "## Source Question",
@@ -455,7 +488,7 @@ def render_quality_check(source_status: str) -> str:
             "",
             "| Gate | Status | Evidence | Required revision |",
             "| --- | --- | --- | --- |",
-            "| Evidence | pass | Upstream evidence audit has no error findings. | Recheck after draft. |",
+            "| Evidence | pass | Upstream evidence audit has no error findings. | Recheck after draft; every Source claim in draft/final must appear in `claim_map.json` and remain compatible with `claim_source_audit.json`. |",
             "| Example completeness | revise | Examples are listed in planning artifacts. | Draft must explain each important example concretely. |",
             "| Language logic | revise | Source logic is available upstream. | Draft must reconstruct wording and sequence before synthesis. |",
             "| Argument continuity | revise | Argument flow is available in planning artifacts. | Draft must make reasoning bridges explicit. |",
@@ -470,6 +503,7 @@ def render_quality_check(source_status: str) -> str:
             "- Blocking gates remaining: draft not yet produced.",
             "- Revisions completed: no draft revisions yet.",
             "- Approved to create final_report.md: no",
+            "- Source-claim rule: any new Source claim must first be added to `claim_map.json` with evidence; otherwise final approval is blocked.",
             f"- Source status: `{source_status}`",
             "",
         ]
@@ -501,6 +535,14 @@ def build_intake(
         "evidence_audit": {
             "severity_counts": audit.get("severity_counts"),
             "pack_gate": audit.get("pack_gate"),
+            "evidence_map": {
+                "path": "10_video/05_gap_check/evidence_map.json",
+                "summary": audit.get("_evidence_map_summary", {}),
+            },
+            "claim_source_audit": {
+                "path": "10_video/05_gap_check/claim_source_audit.json",
+                "summary": audit.get("_claim_source_audit_summary", {}),
+            },
         },
         "files_written": files_written,
         "next_step": "draft_report_with_quality_gates",
@@ -648,10 +690,91 @@ def write_video_fixture(root: Path, *, source_status: str = "source_confirmed", 
             "source_status": source_status,
             "severity_counts": {"error": 1 if audit_error else 0, "warning": 0, "info": 0},
             "findings": [{"severity": "error", "code": "bad", "message": "bad"}] if audit_error else [],
+            "evidence_map_path": "05_gap_check/evidence_map.json",
+            "claim_source_audit_path": "05_gap_check/claim_source_audit.json",
+            "evidence_map_summary": {
+                "entries": 1,
+                "entries_with_transcript_span": 1,
+                "entries_missing_transcript_span": 0,
+            },
+            "claim_source_audit_summary": {
+                "claims": 2,
+                "claims_with_transcript_span": 2,
+                "blocking_claims": 0,
+                "source_claims_not_represented_in_logic": 0,
+            },
             "pack_gate": {
                 "can_build_video_analysis_pack": source_status == "source_confirmed" and not audit_error,
                 "can_build_partial_pack": source_status == "source_partial" and not audit_error,
                 "next_step": "fix_evidence_audit_findings" if audit_error else "enter_video_analysis_pack_builder",
+            },
+        },
+    )
+    write_json(
+        root / "05_gap_check" / "evidence_map.json",
+        {
+            "runner": "self-test",
+            "schema_version": 1,
+            "generated_at": now_iso(),
+            "output_root": str(root.expanduser().resolve()),
+            "transcript_rows": 1,
+            "entries": [
+                {
+                    "artifact": "03_inventory/claims.json",
+                    "item_kind": "claim",
+                    "item_id": "claim_001",
+                    "summary": "Reports should preserve transcript evidence.",
+                    "transcript_ids": ["t0001"],
+                    "evidence_spans": [span(["t0001"], "preserve transcript evidence", 0.0, 4.0)],
+                    "has_transcript_span": True,
+                    "evidence_status": "pass",
+                }
+            ],
+            "summary": {
+                "entries": 1,
+                "entries_with_transcript_span": 1,
+                "entries_missing_transcript_span": 0,
+            },
+        },
+    )
+    write_json(
+        root / "05_gap_check" / "claim_source_audit.json",
+        {
+            "runner": "self-test",
+            "schema_version": 1,
+            "generated_at": now_iso(),
+            "output_root": str(root.expanduser().resolve()),
+            "claims": [
+                {
+                    "claim_id": "claim_001",
+                    "claim_type": "source_claim",
+                    "text": "Reports should preserve transcript evidence.",
+                    "evidence_status": "pass",
+                    "transcript_ids": ["t0001"],
+                    "unknown_transcript_ids": [],
+                    "evidence_spans": [span(["t0001"], "preserve transcript evidence", 0.0, 4.0)],
+                    "linked_examples": [{"id": "ex_001", "status": "pass"}],
+                    "logic_node_ids": ["claim_001"],
+                    "logic_node_status": "present",
+                },
+                {
+                    "claim_id": "claim_002",
+                    "claim_type": "inferred_claim",
+                    "text": "A downstream report can use this as a quality standard.",
+                    "evidence_status": "pass",
+                    "transcript_ids": ["t0001"],
+                    "unknown_transcript_ids": [],
+                    "evidence_spans": [span(["t0001"], "preserve transcript evidence", 0.0, 4.0)],
+                    "linked_examples": [],
+                    "logic_node_ids": [],
+                    "logic_node_status": "not_represented",
+                },
+            ],
+            "summary": {
+                "claims": 2,
+                "claims_with_transcript_span": 2,
+                "blocking_claims": 0,
+                "source_claims_not_represented_in_logic": 0,
             },
         },
     )
@@ -784,6 +907,49 @@ def run_self_test() -> int:
         else:
             failures.append("audit error: expected DocumentComposerRunnerError")
         assert_true("bad no commitments", not (bad_doc / "commitments.md").exists(), failures)
+
+        missing_sidecar_video = base / "missing-sidecar" / "10_video"
+        missing_sidecar_doc = base / "missing-sidecar" / "20_document"
+        write_video_fixture(missing_sidecar_video, source_status="source_confirmed")
+        (missing_sidecar_video / "05_gap_check" / "claim_source_audit.json").unlink()
+        try:
+            run_document_composer(
+                argparse.Namespace(
+                    video_root=missing_sidecar_video,
+                    document_root=missing_sidecar_doc,
+                    document_goal=None,
+                    final_language=None,
+                    audience=None,
+                )
+            )
+        except DocumentComposerRunnerError:
+            pass
+        else:
+            failures.append("missing claim source audit: expected DocumentComposerRunnerError")
+        assert_true("missing sidecar no commitments", not (missing_sidecar_doc / "commitments.md").exists(), failures)
+
+        stale_sidecar_video = base / "stale-sidecar" / "10_video"
+        stale_sidecar_doc = base / "stale-sidecar" / "20_document"
+        write_video_fixture(stale_sidecar_video, source_status="source_confirmed")
+        stale_map_path = stale_sidecar_video / "05_gap_check" / "evidence_map.json"
+        stale_map = read_json(stale_map_path)
+        stale_map["summary"]["entries"] = 999
+        write_json(stale_map_path, stale_map)
+        try:
+            run_document_composer(
+                argparse.Namespace(
+                    video_root=stale_sidecar_video,
+                    document_root=stale_sidecar_doc,
+                    document_goal=None,
+                    final_language=None,
+                    audience=None,
+                )
+            )
+        except DocumentComposerRunnerError:
+            pass
+        else:
+            failures.append("stale evidence map summary: expected DocumentComposerRunnerError")
+        assert_true("stale sidecar no commitments", not (stale_sidecar_doc / "commitments.md").exists(), failures)
 
         blocked_video = base / "blocked" / "10_video"
         blocked_doc = base / "blocked" / "20_document"

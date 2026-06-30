@@ -22,6 +22,11 @@ inventory, source logic, logic graph, and gap check files:
 10_video\05_gap_check\
 ```
 
+For audited video workflows, `10_video\05_gap_check\evidence_map.json` and
+`10_video\05_gap_check\claim_source_audit.json` are required sidecars. They
+confirm that claims, examples, and source-logic nodes remain traceable to
+transcript evidence.
+
 ## Output Root
 
 Write document artifacts under:
@@ -99,7 +104,15 @@ Suggested fields:
   "audience": "",
   "evidence_audit": {
     "severity_counts": {},
-    "pack_gate": {}
+    "pack_gate": {},
+    "evidence_map": {
+      "path": "10_video/05_gap_check/evidence_map.json",
+      "summary": {}
+    },
+    "claim_source_audit": {
+      "path": "10_video/05_gap_check/claim_source_audit.json",
+      "summary": {}
+    }
   },
   "files_written": [],
   "next_step": "draft_report_with_quality_gates"
@@ -111,6 +124,12 @@ Minimum expectations:
 - Refuse normal document planning when source status is blocked, failed,
   secondary-only, degraded, or missing primary material.
 - Refuse normal document planning when evidence audit has error findings.
+- Refuse normal document planning when `evidence_map.json` or
+  `claim_source_audit.json` is missing, mismatched, malformed, or when
+  `claim_source_audit.summary.blocking_claims` is greater than zero.
+- Refuse normal document planning when `evidence_audit.json` records sidecar
+  summaries that do not match the actual `evidence_map.json` or
+  `claim_source_audit.json` summaries.
 - For `source_partial`, every downstream planning artifact must visibly preserve
   the partial-scope label.
 - Do not create `final_report.md` until draft, critique, revision, and quality
@@ -333,6 +352,9 @@ Requirements:
 - Answer the user's document goal.
 - Preserve the source thesis and argument logic accurately.
 - Clearly distinguish Source, Inference, and Extension.
+- Do not introduce a new Source claim unless it is registered in
+  `claim_map.json` with evidence and, for audited video workflows, compatible
+  with `10_video/05_gap_check/claim_source_audit.json`.
 - Include enough examples and evidence for key claims.
 - Mark uncertainty instead of overstating weak evidence.
 - Reflect all required revisions from `quality_check.md`.

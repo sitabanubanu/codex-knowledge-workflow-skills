@@ -17,6 +17,8 @@ Pass criteria:
 
 - Key Source claims have timestamps, transcript ids, segment ids, quotes, or artifact references when available.
 - Claims derived from `source_logic.md`, `logic_graph.json`, `claims.json`, or `video_analysis_pack.md` name the artifact.
+- Every Source claim in `draft_report.md` or `final_report.md` is either present in `20_document/claim_map.json` or has been added there with Source / Inference / Extension category, evidence anchors, confidence, and status before final delivery.
+- For audited video workflows, Source claims in `claim_map.json` trace back to `10_video/05_gap_check/claim_source_audit.json` with non-blocking evidence status.
 - Inference claims have evidence anchors where possible and include a reasoning bridge.
 - Extension claims name their origin, such as user request, outside framework, critique, or application.
 
@@ -25,10 +27,13 @@ Fail patterns:
 - A Source claim appears with no evidence even though transcript or artifact evidence exists.
 - A claim from the composer is written as if it came from the source.
 - The report cites only the final pack when more precise evidence is available.
+- The final report introduces a new Source claim that is not registered in `claim_map.json`.
+- A claim with `needs_verification`, `uncertain`, or `excluded` status appears as a settled Source claim.
 
 Blocking rule:
 
 - Block final delivery when a central Source claim lacks available evidence.
+- Block final delivery when any unregistered or weak claim is written as Source.
 
 ## Gate 2: Example Completeness Gate
 

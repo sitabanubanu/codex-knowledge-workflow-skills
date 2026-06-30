@@ -135,6 +135,46 @@ def span_transcript_ids(span: Any) -> list[str]:
     return []
 
 
+def normalized_span(span: Any, transcript_ids: set[str]) -> dict[str, Any]:
+    if not isinstance(span, dict):
+        return {
+            "transcript_ids": [],
+            "unknown_transcript_ids": [],
+            "start": None,
+            "end": None,
+            "quote": "",
+            "source": "",
+        }
+    tids = span_transcript_ids(span)
+    return {
+        "transcript_ids": tids,
+        "unknown_transcript_ids": sorted(tid for tid in tids if tid not in transcript_ids),
+        "start": span.get("start"),
+        "end": span.get("end"),
+        "quote": str(span.get("quote") or "").strip(),
+        "source": str(span.get("source") or "").strip(),
+    }
+
+
+def item_evidence_spans(item: dict[str, Any], transcript_ids: set[str]) -> list[dict[str, Any]]:
+    spans = item.get("evidence_spans")
+    if not isinstance(spans, list):
+        return []
+    return [normalized_span(span, transcript_ids) for span in spans if isinstance(span, dict)]
+
+
+def item_has_transcript_span(item: dict[str, Any], transcript_ids: set[str]) -> bool:
+    return any(span["transcript_ids"] and not span["unknown_transcript_ids"] for span in item_evidence_spans(item, transcript_ids))
+
+
+def compact_text(*values: Any, limit: int = 220) -> str:
+    for value in values:
+        text = " ".join(str(value or "").split())
+        if text:
+            return text[: limit - 3].rstrip() + "..." if len(text) > limit else text
+    return ""
+
+
 def audit_evidence_spans(
     *,
     item: dict[str, Any],
@@ -144,6 +184,7 @@ def audit_evidence_spans(
     findings: list[dict[str, Any]],
     file: str,
     require_non_empty: bool = True,
+    missing_transcript_ids_severity: str = "warning",
 ) -> None:
     spans = item.get("evidence_spans")
     if not isinstance(spans, list):
@@ -171,7 +212,7 @@ def audit_evidence_spans(
         if not tids:
             add_finding(
                 findings,
-                "warning",
+                missing_transcript_ids_severity,
                 "evidence_span_without_transcript_ids",
                 f"{item_kind} evidence span {index} has no transcript_ids.",
                 file=file,
@@ -353,6 +394,7 @@ def audit_inventory(
         file = str(inventory_dir / f"{key}.json")
         for item in items:
             item_id = str(item.get("id"))
+            strict_evidence = key in {"claims", "examples"}
             audit_evidence_spans(
                 item=item,
                 item_id=item_id,
@@ -360,6 +402,7 @@ def audit_inventory(
                 transcript_ids=transcript_ids,
                 findings=findings,
                 file=file,
+                missing_transcript_ids_severity="error" if strict_evidence else "warning",
             )
             item_segment_ids = item.get("source_argument_segment_ids", [])
             if isinstance(item_segment_ids, list):
@@ -377,6 +420,24 @@ def audit_inventory(
     for claim in inventory["claims"]:
         claim_id = str(claim.get("id"))
         claim_type = claim.get("claim_type")
+        if not str(claim.get("text") or "").strip():
+            add_finding(
+                findings,
+                "error",
+                "claim_text_missing",
+                "Claim has no text.",
+                file=str(inventory_dir / "claims.json"),
+                item_id=claim_id,
+            )
+        if not item_has_transcript_span(claim, transcript_ids):
+            add_finding(
+                findings,
+                "error",
+                "claim_missing_transcript_span",
+                "Claim must have at least one evidence span with transcript_ids present in clean_transcript.jsonl.",
+                file=str(inventory_dir / "claims.json"),
+                item_id=claim_id,
+            )
         if claim_type not in CLAIM_TYPES:
             add_finding(
                 findings,
@@ -402,6 +463,30 @@ def audit_inventory(
                 )
     for example in inventory["examples"]:
         example_id = str(example.get("id"))
+        missing_context = [
+            field
+            for field in ("description", "what_it_demonstrates")
+            if not str(example.get(field) or "").strip()
+        ]
+        if missing_context:
+            add_finding(
+                findings,
+                "error",
+                "example_context_missing",
+                "Example must preserve context with description and what_it_demonstrates.",
+                file=str(inventory_dir / "examples.json"),
+                item_id=example_id,
+                details={"missing_fields": missing_context},
+            )
+        if not item_has_transcript_span(example, transcript_ids):
+            add_finding(
+                findings,
+                "error",
+                "example_missing_transcript_span",
+                "Example must have at least one evidence span with transcript_ids present in clean_transcript.jsonl.",
+                file=str(inventory_dir / "examples.json"),
+                item_id=example_id,
+            )
         linked_claims = example.get("linked_claim_ids", [])
         if isinstance(linked_claims, list):
             unknown_claims = sorted(str(claim_id) for claim_id in linked_claims if str(claim_id) not in claim_ids)
@@ -489,6 +574,14 @@ def audit_logic(
     if not isinstance(edges, list):
         add_finding(findings, "error", "logic_graph_edges_missing", "logic_graph.json must contain an edges list.", file=str(logic_graph_path))
         edges = []
+    if not nodes:
+        add_finding(
+            findings,
+            "error",
+            "logic_graph_nodes_empty",
+            "logic_graph.json must contain source-logic evidence nodes.",
+            file=str(logic_graph_path),
+        )
     node_ids: set[str] = set()
     for index, node in enumerate(nodes, start=1):
         if not isinstance(node, dict):
@@ -540,7 +633,17 @@ def audit_logic(
             transcript_ids=transcript_ids,
             findings=findings,
             file=str(logic_graph_path),
+            missing_transcript_ids_severity="error",
         )
+        if not item_has_transcript_span(node, transcript_ids):
+            add_finding(
+                findings,
+                "error",
+                "logic_node_missing_transcript_span",
+                "Logic node must have at least one evidence span with transcript_ids present in clean_transcript.jsonl.",
+                file=str(logic_graph_path),
+                item_id=node_id,
+            )
     for index, edge in enumerate(edges, start=1):
         if not isinstance(edge, dict):
             add_finding(findings, "error", "logic_edge_not_object", f"Logic edge {index} is not an object.", file=str(logic_graph_path))
@@ -572,6 +675,200 @@ def audit_logic(
     return graph
 
 
+def source_argument_segment_ids(item: dict[str, Any]) -> list[str]:
+    values = item.get("source_argument_segment_ids")
+    if isinstance(values, list):
+        return [str(value) for value in values if str(value).strip()]
+    return []
+
+
+def evidence_entry(
+    *,
+    artifact: str,
+    item_kind: str,
+    item: dict[str, Any],
+    transcript_ids: set[str],
+    text_fields: tuple[str, ...],
+) -> dict[str, Any]:
+    spans = item_evidence_spans(item, transcript_ids)
+    span_tids = sorted({tid for span in spans for tid in span["transcript_ids"]})
+    unknown_tids = sorted({tid for span in spans for tid in span["unknown_transcript_ids"]})
+    if spans and span_tids and not unknown_tids:
+        evidence_status = "pass"
+    elif not spans:
+        evidence_status = "missing_span"
+    elif unknown_tids:
+        evidence_status = "unknown_transcript_id"
+    else:
+        evidence_status = "missing_transcript_id"
+    return {
+        "artifact": artifact,
+        "item_kind": item_kind,
+        "item_id": str(item.get("id") or ""),
+        "summary": compact_text(*(item.get(field) for field in text_fields)),
+        "source_argument_segment_ids": source_argument_segment_ids(item),
+        "transcript_ids": span_tids,
+        "evidence_spans": spans,
+        "has_transcript_span": evidence_status == "pass",
+        "evidence_status": evidence_status,
+    }
+
+
+def build_evidence_map(
+    *,
+    output_root: Path,
+    transcript: list[dict[str, Any]],
+    argument_segments: list[dict[str, Any]],
+    inventory: dict[str, list[dict[str, Any]]],
+    graph: dict[str, Any],
+    transcript_ids: set[str],
+) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    for segment in argument_segments:
+        entries.append(
+            evidence_entry(
+                artifact="02_segments/argument_segments.json",
+                item_kind="argument_segment",
+                item=segment,
+                transcript_ids=transcript_ids,
+                text_fields=("title", "summary", "text"),
+            )
+        )
+    inventory_specs = {
+        "concepts": ("03_inventory/concepts.json", "concept", ("term", "definition_in_source", "notes")),
+        "examples": ("03_inventory/examples.json", "example", ("name", "description", "what_it_demonstrates")),
+        "claims": ("03_inventory/claims.json", "claim", ("text",)),
+        "analogies": ("03_inventory/analogies.json", "analogy", ("source_domain", "target_domain", "purpose")),
+    }
+    for key, (artifact, kind, text_fields) in inventory_specs.items():
+        for item in inventory.get(key, []):
+            entries.append(
+                evidence_entry(
+                    artifact=artifact,
+                    item_kind=kind,
+                    item=item,
+                    transcript_ids=transcript_ids,
+                    text_fields=text_fields,
+                )
+            )
+    nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+    for node in nodes:
+        if isinstance(node, dict):
+            entries.append(
+                evidence_entry(
+                    artifact="04_logic/logic_graph.json",
+                    item_kind="logic_node",
+                    item=node,
+                    transcript_ids=transcript_ids,
+                    text_fields=("label", "summary"),
+                )
+            )
+    return {
+        "runner": RUNNER_NAME,
+        "schema_version": 1,
+        "generated_at": now_iso(),
+        "output_root": str(output_root),
+        "transcript_rows": len(transcript),
+        "entries": entries,
+        "summary": {
+            "entries": len(entries),
+            "entries_with_transcript_span": sum(1 for entry in entries if entry["has_transcript_span"]),
+            "entries_missing_transcript_span": sum(1 for entry in entries if not entry["has_transcript_span"]),
+        },
+    }
+
+
+def build_claim_source_audit(
+    *,
+    output_root: Path,
+    claims: list[dict[str, Any]],
+    examples: list[dict[str, Any]],
+    graph: dict[str, Any],
+    transcript_ids: set[str],
+) -> dict[str, Any]:
+    examples_by_id = {str(example.get("id")): example for example in examples if example.get("id")}
+    nodes = [node for node in graph.get("nodes", []) if isinstance(node, dict)] if isinstance(graph.get("nodes"), list) else []
+    node_ids_by_claim: dict[str, list[str]] = {}
+    for node in nodes:
+        node_id = str(node.get("id") or "")
+        if node_id:
+            node_ids_by_claim.setdefault(node_id, []).append(node_id)
+        node_segments = set(source_argument_segment_ids(node))
+        for claim in claims:
+            claim_id = str(claim.get("id") or "")
+            claim_segments = set(source_argument_segment_ids(claim))
+            if claim_id and claim_segments and node_segments.intersection(claim_segments):
+                node_ids_by_claim.setdefault(claim_id, []).append(node_id)
+
+    rows: list[dict[str, Any]] = []
+    for claim in claims:
+        claim_id = str(claim.get("id") or "")
+        spans = item_evidence_spans(claim, transcript_ids)
+        span_tids = sorted({tid for span in spans for tid in span["transcript_ids"]})
+        unknown_tids = sorted({tid for span in spans for tid in span["unknown_transcript_ids"]})
+        linked_example_ids = [str(item) for item in claim.get("linked_example_ids", [])] if isinstance(claim.get("linked_example_ids"), list) else []
+        linked_examples: list[dict[str, Any]] = []
+        for example_id in linked_example_ids:
+            example = examples_by_id.get(example_id)
+            if not example:
+                linked_examples.append({"id": example_id, "status": "missing"})
+                continue
+            missing_context = [
+                field
+                for field in ("description", "what_it_demonstrates")
+                if not str(example.get(field) or "").strip()
+            ]
+            linked_examples.append(
+                {
+                    "id": example_id,
+                    "status": "pass" if not missing_context and item_has_transcript_span(example, transcript_ids) else "weak",
+                    "missing_context_fields": missing_context,
+                    "has_transcript_span": item_has_transcript_span(example, transcript_ids),
+                }
+            )
+        if spans and span_tids and not unknown_tids:
+            evidence_status = "pass"
+        elif not spans:
+            evidence_status = "missing_span"
+        elif unknown_tids:
+            evidence_status = "unknown_transcript_id"
+        else:
+            evidence_status = "missing_transcript_id"
+        logic_node_ids = sorted({node_id for node_id in node_ids_by_claim.get(claim_id, []) if node_id})
+        rows.append(
+            {
+                "claim_id": claim_id,
+                "claim_type": claim.get("claim_type"),
+                "text": compact_text(claim.get("text")),
+                "evidence_status": evidence_status,
+                "transcript_ids": span_tids,
+                "unknown_transcript_ids": unknown_tids,
+                "evidence_spans": spans,
+                "linked_examples": linked_examples,
+                "logic_node_ids": logic_node_ids,
+                "logic_node_status": "present" if logic_node_ids else "not_represented",
+            }
+        )
+    blocking = [row for row in rows if row["evidence_status"] != "pass"]
+    return {
+        "runner": RUNNER_NAME,
+        "schema_version": 1,
+        "generated_at": now_iso(),
+        "output_root": str(output_root),
+        "claims": rows,
+        "summary": {
+            "claims": len(rows),
+            "claims_with_transcript_span": sum(1 for row in rows if row["evidence_status"] == "pass"),
+            "blocking_claims": len(blocking),
+            "source_claims_not_represented_in_logic": sum(
+                1
+                for row in rows
+                if row["claim_type"] == "source_claim" and row["logic_node_status"] != "present"
+            ),
+        },
+    }
+
+
 def severity_counts(findings: list[dict[str, Any]]) -> dict[str, int]:
     counts = {"error": 0, "warning": 0, "info": 0}
     for finding in findings:
@@ -584,6 +881,8 @@ def render_gap_check(audit: dict[str, Any]) -> str:
     findings = audit["findings"]
     errors = [finding for finding in findings if finding.get("severity") == "error"]
     warnings = [finding for finding in findings if finding.get("severity") == "warning"]
+    evidence_summary = audit.get("evidence_map_summary") if isinstance(audit.get("evidence_map_summary"), dict) else {}
+    claim_summary = audit.get("claim_source_audit_summary") if isinstance(audit.get("claim_source_audit_summary"), dict) else {}
 
     def render_items(items: list[dict[str, Any]]) -> list[str]:
         if not items:
@@ -611,6 +910,21 @@ def render_gap_check(audit: dict[str, Any]) -> str:
         "## Missing or Weak Evidence",
         "",
         *render_items(errors),
+        "",
+        "## Evidence Map",
+        "",
+        f"- Evidence map: `{audit.get('evidence_map_path', '05_gap_check/evidence_map.json')}`",
+        f"- Entries: `{evidence_summary.get('entries', 0)}`",
+        f"- Entries with transcript span: `{evidence_summary.get('entries_with_transcript_span', 0)}`",
+        f"- Entries missing transcript span: `{evidence_summary.get('entries_missing_transcript_span', 0)}`",
+        "",
+        "## Claim Source Audit",
+        "",
+        f"- Claim source audit: `{audit.get('claim_source_audit_path', '05_gap_check/claim_source_audit.json')}`",
+        f"- Claims: `{claim_summary.get('claims', 0)}`",
+        f"- Claims with transcript span: `{claim_summary.get('claims_with_transcript_span', 0)}`",
+        f"- Blocking claims: `{claim_summary.get('blocking_claims', 0)}`",
+        f"- Source claims not represented in logic: `{claim_summary.get('source_claims_not_represented_in_logic', 0)}`",
         "",
         "## Unexplained Concepts",
         "",
@@ -682,6 +996,21 @@ def run_evidence_audit(args: argparse.Namespace) -> dict[str, Any]:
         if item.get("id")
     }
     graph = audit_logic(output_root, transcript_ids, inventory_ids, segment_ids, findings)
+    evidence_map = build_evidence_map(
+        output_root=output_root,
+        transcript=transcript,
+        argument_segments=argument_segments,
+        inventory=inventory,
+        graph=graph,
+        transcript_ids=transcript_ids,
+    )
+    claim_source_audit = build_claim_source_audit(
+        output_root=output_root,
+        claims=inventory["claims"],
+        examples=inventory["examples"],
+        graph=graph,
+        transcript_ids=transcript_ids,
+    )
 
     if (output_root / "video_analysis_pack.md").exists():
         add_finding(
@@ -710,12 +1039,18 @@ def run_evidence_audit(args: argparse.Namespace) -> dict[str, Any]:
             "logic_nodes": len(graph.get("nodes", [])) if isinstance(graph.get("nodes"), list) else 0,
             "logic_edges": len(graph.get("edges", [])) if isinstance(graph.get("edges"), list) else 0,
         },
+        "evidence_map_path": "05_gap_check/evidence_map.json",
+        "claim_source_audit_path": "05_gap_check/claim_source_audit.json",
+        "evidence_map_summary": evidence_map["summary"],
+        "claim_source_audit_summary": claim_source_audit["summary"],
         "severity_counts": counts,
         "findings": findings,
         "pack_gate": pack_gate,
     }
     written = [
         write_json(output_root / "05_gap_check" / "evidence_audit.json", audit),
+        write_json(output_root / "05_gap_check" / "evidence_map.json", evidence_map),
+        write_json(output_root / "05_gap_check" / "claim_source_audit.json", claim_source_audit),
         write_text(output_root / "05_gap_check" / "gap_check.md", render_gap_check(audit)),
     ]
     validation = artifact_validator.validate_artifact_root(
@@ -863,9 +1198,17 @@ def write_argument_segments(path: Path, *, bad_transcript_id: bool = False) -> N
     )
 
 
-def write_inventory(root: Path, *, bad_example_link: bool = False, empty_concept_definition: bool = False) -> None:
+def write_inventory(
+    root: Path,
+    *,
+    bad_example_link: bool = False,
+    bad_example_context: bool = False,
+    empty_concept_definition: bool = False,
+) -> None:
     linked_claim = "missing_claim" if bad_example_link else "claim_001"
     definition = "" if empty_concept_definition else "A gate that requires primary source material."
+    example_description = "" if bad_example_context else "Metadata alone cannot support speaker logic."
+    example_demonstration = "" if bad_example_context else "Why primary transcript is needed."
     write_json(
         root / "03_inventory" / "concepts.json",
         {
@@ -890,8 +1233,8 @@ def write_inventory(root: Path, *, bad_example_link: bool = False, empty_concept
                 {
                     "id": "ex_001",
                     "name": "Metadata example",
-                    "description": "Metadata alone cannot support speaker logic.",
-                    "what_it_demonstrates": "Why primary transcript is needed.",
+                    "description": example_description,
+                    "what_it_demonstrates": example_demonstration,
                     "evidence_spans": [span(["t0002"], "metadata alone", 4.0, 8.0)],
                     "linked_claim_ids": [linked_claim],
                     "source_argument_segment_ids": ["seg_argument_002"],
@@ -991,6 +1334,7 @@ def build_fixture(
     primary: bool = True,
     bad_edge: bool = False,
     bad_example_link: bool = False,
+    bad_example_context: bool = False,
     bad_transcript_id: bool = False,
     empty_concept_definition: bool = False,
 ) -> None:
@@ -998,7 +1342,12 @@ def build_fixture(
     write_clean_transcript(root / "01_transcript" / "clean_transcript.jsonl")
     write_text(root / "01_transcript" / "clean_transcript.md", "# Clean Transcript\n\nTranscript fixture.\n")
     write_argument_segments(root / "02_segments" / "argument_segments.json", bad_transcript_id=bad_transcript_id)
-    write_inventory(root, bad_example_link=bad_example_link, empty_concept_definition=empty_concept_definition)
+    write_inventory(
+        root,
+        bad_example_link=bad_example_link,
+        bad_example_context=bad_example_context,
+        empty_concept_definition=empty_concept_definition,
+    )
     write_logic(root, bad_edge=bad_edge)
 
 
@@ -1013,8 +1362,12 @@ def run_self_test() -> int:
         assert_true("full gate", full_result["pack_gate"]["can_build_video_analysis_pack"], failures)
         assert_true("full no errors", full_result["severity_counts"]["error"] == 0, failures)
         assert_true("audit written", (full / "05_gap_check" / "evidence_audit.json").is_file(), failures)
+        assert_true("evidence map written", (full / "05_gap_check" / "evidence_map.json").is_file(), failures)
+        assert_true("claim source audit written", (full / "05_gap_check" / "claim_source_audit.json").is_file(), failures)
         assert_true("gap written", (full / "05_gap_check" / "gap_check.md").is_file(), failures)
         assert_true("pack not written", not (full / "video_analysis_pack.md").exists(), failures)
+        claim_audit = read_json(full / "05_gap_check" / "claim_source_audit.json")
+        assert_true("claim audit clean", claim_audit["summary"]["blocking_claims"] == 0, failures)
 
         partial = base / "partial"
         build_fixture(partial, source_status="source_partial")
@@ -1042,6 +1395,11 @@ def run_self_test() -> int:
         build_fixture(bad_inventory, bad_example_link=True)
         bad_inventory_result = run_evidence_audit(argparse.Namespace(output_root=bad_inventory, source_status=None))
         assert_true("bad inventory has errors", bad_inventory_result["severity_counts"]["error"] > 0, failures)
+
+        bad_example_context = base / "bad-example-context"
+        build_fixture(bad_example_context, bad_example_context=True)
+        bad_example_context_result = run_evidence_audit(argparse.Namespace(output_root=bad_example_context, source_status=None))
+        assert_true("bad example context has errors", bad_example_context_result["severity_counts"]["error"] > 0, failures)
 
         bad_segment = base / "bad-segment"
         build_fixture(bad_segment, bad_transcript_id=True)

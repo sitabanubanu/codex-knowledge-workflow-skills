@@ -26,7 +26,9 @@ Optional formatted outputs such as docx, pdf, slides, briefing notes, or scripts
 For audited video workflows, run `scripts/document_composer_runner.py` before
 drafting. It verifies `10_video/video_analysis_pack.md`,
 `10_video/00_source/source_status.json`, and
-`10_video/05_gap_check/evidence_audit.json`, then writes
+`10_video/05_gap_check/evidence_audit.json`,
+`10_video/05_gap_check/evidence_map.json`, and
+`10_video/05_gap_check/claim_source_audit.json`, then writes
 `composer_intake.json` and pre-draft planning artifacts. This runner is a gate
 and planning scaffold; it must not create `draft_report.md` or
 `final_report.md`.
@@ -51,6 +53,8 @@ Load the upstream package before writing:
 - `concepts.json`
 - `analogies.json`
 - `gap_check.md`
+- `evidence_map.json`
+- `claim_source_audit.json`
 
 Also load `metadata.json`, `acquisition_notes.md`, `syntax_segments.json`, and `argument_segments.json` when they are available and relevant to evidence or structure.
 
@@ -64,6 +68,8 @@ Stop if there is no reliable source material to reconstruct. Do not invent a rep
 Stop the normal document workflow if `evidence_audit.json` contains error
 findings, if its output root does not match the current upstream video root, or
 if its pack gate does not allow a full or explicitly partial pack.
+Also stop if `evidence_map.json` or `claim_source_audit.json` is missing,
+mismatched, malformed, or if claim source audit reports blocking claims.
 
 Degrade explicitly when artifacts are partial:
 
