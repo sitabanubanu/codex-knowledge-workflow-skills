@@ -135,6 +135,35 @@ A Chrome-derived media asset qualifies as `browser_derived_media` (see `source-s
 
 If an allowed local video/audio file exists, run the direct local faster-whisper fallback script.
 
+Prefer the workflow wrapper for normal decomposition:
+
+```powershell
+python scripts/asr_pipeline.py `
+  --input-media <local-audio-or-video> `
+  --output-root outputs/knowledge-workflow/<run-id>/10_video `
+  --model base `
+  --language <zh|en|unknown> `
+  --pretty
+```
+
+The wrapper checks the ASR runtime, runs or resumes `transcribe_faster_whisper.py`,
+normalizes ASR JSONL through `transcript_normalizer.py`, patches source status
+to `primary_audio_asr`, and writes:
+
+```text
+00_source/asr_pipeline_report.json
+00_source/asr_pipeline_report.md
+01_transcript/asr_transcript.jsonl
+01_transcript/asr_transcript.md
+01_transcript/clean_transcript.jsonl
+01_transcript/clean_transcript.md
+```
+
+Use `transcribe_faster_whisper.py` directly only when you need a low-level ASR
+debug run. After a direct run, feed its JSONL to `asr_pipeline.py --asr-jsonl`
+or to `transcript_normalizer.py`, then preserve ASR provenance in acquisition
+notes.
+
 ## Path 8: Hearsay MCP / WhisperX / Other ASR
 
 Use Hearsay MCP, WhisperX, or another ASR route only as a backup when the direct script is unavailable or fails.
