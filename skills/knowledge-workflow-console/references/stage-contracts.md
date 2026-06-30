@@ -164,14 +164,14 @@ before retrying.
 
 ### logs/run_state.json
 
-Purpose: resumable machine state for long local transcript workflows.
+Purpose: resumable machine state for long transcript, media, and URL workflows.
 
 Suggested fields:
 
 ```json
 {
   "runner": "knowledge-workflow-end-to-end-runner",
-  "schema_version": 1,
+  "schema_version": 2,
   "mode": "local_transcript|local_media|platform_url",
   "status": "running|completed|failed",
   "workflow_outcome": "analysis_pack_and_document_planning|degraded_acquisition_only",
@@ -182,8 +182,15 @@ Suggested fields:
   "input_media": "",
   "input_url": "",
   "input_identity": "",
+  "input_hash": "",
   "route_decision": "",
   "resume_enabled": false,
+  "resume_from_stage": "",
+  "resume_after_stage": "",
+  "resume_policy": "stage_input_hash_output_hash_and_expected_outputs",
+  "degraded_reason": "",
+  "failure_reason": "",
+  "user_action_required": "",
   "current_stage": "",
   "next_stage": "",
   "stages": [
@@ -192,22 +199,59 @@ Suggested fields:
       "status": "running|completed|failed|skipped",
       "returncode": 0,
       "command": [],
+      "input_files": [],
+      "input_hash": "",
+      "output_files": [],
+      "output_hash": "",
+      "resume_output_files": [],
+      "resume_output_hash": "",
+      "resume_decision": "",
+      "skipped_reason": "",
+      "failure_reason": "",
+      "retry_policy": {
+        "automatic_retry_allowed": false,
+        "resume_from_stage": "transcript_normalizer",
+        "resume_hint": "--resume --resume-from-stage transcript_normalizer",
+        "user_action_required": ""
+      },
       "started_at": "",
       "completed_at": "",
       "failed_at": "",
       "stderr": ""
     }
-  ]
+  ],
+  "stage_history": []
 }
 ```
 
 Resume rule:
 
 - `--resume` may skip a stage only when run state marks that stage
-  `completed` or `skipped` and the stage's expected output files still exist.
-- If expected outputs are missing, rerun the stage.
+  `completed` or `skipped`, the stage's expected output files still exist, the
+  current stage input hash matches the recorded input hash, and the current
+  stable resume output hash matches the recorded resume output hash.
+- `stages` stores the latest record for each stage. `stage_history` appends
+  every running, skipped, completed, and failed record so failed attempts remain
+  auditable after a later rerun.
+- If expected outputs are missing, rerun the stage and record
+  `resume_decision: "expected_outputs_missing"`.
+- If the workflow input file content changes at the same path, reject resume
+  before running stages.
+- Use `--resume-from-stage <stage>` to rerun that stage and all later stages
+  while still allowing earlier matching stages to be skipped.
+- Use `--resume-after-stage <stage>` to rerun the stage immediately after the
+  named stage and all later stages. Do not pass both `--resume-from-stage` and
+  `--resume-after-stage` in the same run.
 - URL mode may skip `platform_media_runner` only when
   `10_video/00_source/platform_media_result.json`,
   `10_video/00_source/platform_media_notes.md`, and
   `10_video/00_source/source_status.json` still exist.
+- Because URL subtitle normalization or ASR can legitimately update
+  `00_source/source_status.json`, `platform_media_runner` uses only
+  `platform_media_result.json` and `platform_media_notes.md` for its stable
+  resume output hash while still requiring `source_status.json` to exist.
 - If a stage fails, preserve the failed record and do not continue downstream.
+- Failed and degraded runs must write `failure_reason`, `degraded_reason`, or
+  `user_action_required` so the next agent can see whether the user should
+  provide subtitles, a transcript, local audio/video, exported cookies, or a
+  corrected upstream artifact.

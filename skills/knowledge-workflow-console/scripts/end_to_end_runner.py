@@ -17,6 +17,18 @@ from urllib.parse import urlparse
 
 
 RUNNER_NAME = "knowledge-workflow-end-to-end-runner"
+RUN_STATE_SCHEMA_VERSION = 2
+STAGE_ORDER = [
+    "platform_media_runner",
+    "transcript_normalizer",
+    "asr_pipeline",
+    "transcript_segmenter",
+    "inventory_extractor",
+    "source_logic_builder",
+    "evidence_auditor",
+    "video_analysis_pack_builder",
+    "document_composer_runner",
+]
 STAGE_OUTPUTS = {
     "platform_media_runner": [
         "10_video/00_source/platform_media_result.json",
@@ -59,6 +71,75 @@ STAGE_OUTPUTS = {
         "20_document/claim_map.json",
         "20_document/quality_check.md",
     ],
+}
+
+STAGE_RESUME_OUTPUTS = {
+    "platform_media_runner": [
+        "10_video/00_source/platform_media_result.json",
+        "10_video/00_source/platform_media_notes.md",
+    ],
+}
+
+STAGE_INPUTS = {
+    "transcript_segmenter": [
+        "10_video/00_source/source_status.json",
+        "10_video/01_transcript/clean_transcript.jsonl",
+    ],
+    "inventory_extractor": [
+        "10_video/01_transcript/clean_transcript.jsonl",
+        "10_video/02_segments/argument_segments.json",
+        "10_video/02_segments/syntax_segments.json",
+    ],
+    "source_logic_builder": [
+        "10_video/02_segments/argument_segments.json",
+        "10_video/03_inventory/claims.json",
+        "10_video/03_inventory/examples.json",
+        "10_video/03_inventory/concepts.json",
+        "10_video/03_inventory/analogies.json",
+    ],
+    "evidence_auditor": [
+        "10_video/01_transcript/clean_transcript.jsonl",
+        "10_video/02_segments/argument_segments.json",
+        "10_video/02_segments/syntax_segments.json",
+        "10_video/03_inventory/claims.json",
+        "10_video/03_inventory/examples.json",
+        "10_video/03_inventory/concepts.json",
+        "10_video/03_inventory/analogies.json",
+        "10_video/04_logic/source_logic.md",
+        "10_video/04_logic/logic_graph.json",
+    ],
+    "video_analysis_pack_builder": [
+        "10_video/00_source/source_status.json",
+        "10_video/03_inventory/claims.json",
+        "10_video/03_inventory/examples.json",
+        "10_video/03_inventory/concepts.json",
+        "10_video/03_inventory/analogies.json",
+        "10_video/04_logic/source_logic.md",
+        "10_video/04_logic/logic_graph.json",
+        "10_video/05_gap_check/evidence_audit.json",
+        "10_video/05_gap_check/gap_check.md",
+    ],
+    "document_composer_runner": [
+        "10_video/00_source/source_status.json",
+        "10_video/video_analysis_pack.md",
+        "10_video/03_inventory/claims.json",
+        "10_video/04_logic/source_logic.md",
+        "10_video/04_logic/logic_graph.json",
+        "10_video/05_gap_check/evidence_audit.json",
+        "10_video/05_gap_check/gap_check.md",
+    ],
+}
+
+GUIDANCE_BY_STAGE = {
+    "platform_media_runner": "Provide primary material or working platform access: official subtitles, a downloadable audio/video file, a user-exported cookies.txt when platform access is blocked, or a browser-derived media/subtitle export.",
+    "transcript_normalizer": "Provide a readable transcript/subtitle file in UTF-8 text, SRT, VTT, JSONL, or supported JSON form.",
+    "asr_pipeline": "Provide a readable local audio/video file, a valid ASR JSONL, and the local ASR runtime requirements such as ffmpeg and faster-whisper when live ASR is needed.",
+    "transcript_segmenter": "Fix or regenerate clean_transcript.jsonl and source_status.json before segmenting.",
+    "inventory_extractor": "Fix or regenerate transcript segment artifacts before extracting concepts, examples, claims, and analogies.",
+    "source_logic_builder": "Fix or regenerate inventory artifacts and argument segments before reconstructing source logic.",
+    "evidence_auditor": "Fix missing transcript spans, inventory evidence, or source logic artifacts before auditing evidence.",
+    "video_analysis_pack_builder": "Resolve evidence audit errors or regenerate the audited upstream artifacts before building video_analysis_pack.md.",
+    "document_composer_runner": "Provide an allowed video_analysis_pack with passing evidence audit before document planning.",
 }
 
 
@@ -227,6 +308,60 @@ def input_identity(args: argparse.Namespace, mode: str) -> str:
     return str(args.input_url)
 
 
+def hash_payload(payload: Any) -> str:
+    data = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+def file_snapshot(path: Path) -> dict[str, Any]:
+    target = path.expanduser()
+    try:
+        resolved = target.resolve(strict=False)
+    except OSError:
+        resolved = target.absolute()
+    if not resolved.is_file():
+        return {"path": str(resolved), "exists": False, "bytes": 0, "sha256": ""}
+    data = resolved.read_bytes()
+    return {
+        "path": str(resolved),
+        "exists": True,
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def snapshots_hash(snapshots: list[dict[str, Any]], *, extra: dict[str, Any] | None = None) -> str:
+    return hash_payload(
+        {
+            "files": sorted(snapshots, key=lambda item: str(item.get("path") or "")),
+            "extra": extra or {},
+        }
+    )
+
+
+def command_option_path(command: list[str], option: str) -> Path | None:
+    try:
+        index = command.index(option)
+    except ValueError:
+        return None
+    value_index = index + 1
+    if value_index >= len(command):
+        return None
+    value = command[value_index]
+    if option == "--input" and urlparse(value).scheme in {"http", "https"}:
+        return None
+    return Path(value).expanduser()
+
+
+def command_input_paths(command: list[str]) -> list[Path]:
+    paths: list[Path] = []
+    for option in ("--input", "--input-media", "--asr-jsonl", "--youtube-cookies"):
+        path = command_option_path(command, option)
+        if path is not None:
+            paths.append(path)
+    return paths
+
+
 def resolve_roots(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     if args.project_root:
         project_root = args.project_root.expanduser().resolve()
@@ -242,9 +377,125 @@ def resolve_roots(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     return project_root, project_root / "10_video", project_root / "20_document"
 
 
+def stage_expected_paths(project_root: Path, stage: str) -> list[Path]:
+    return [project_root / item for item in STAGE_OUTPUTS.get(stage, [])]
+
+
+def stage_resume_output_paths(project_root: Path, stage: str) -> list[Path]:
+    return [project_root / item for item in STAGE_RESUME_OUTPUTS.get(stage, STAGE_OUTPUTS.get(stage, []))]
+
+
 def expected_outputs_exist(project_root: Path, stage: str) -> bool:
-    expected = STAGE_OUTPUTS.get(stage, [])
-    return bool(expected) and all((project_root / item).is_file() for item in expected)
+    expected = stage_expected_paths(project_root, stage)
+    return bool(expected) and all(path.is_file() for path in expected)
+
+
+def stage_output_snapshots(project_root: Path, stage: str) -> list[dict[str, Any]]:
+    return [file_snapshot(path) for path in stage_expected_paths(project_root, stage)]
+
+
+def stage_input_snapshots(project_root: Path, stage: str, command: list[str]) -> list[dict[str, Any]]:
+    paths = [project_root / item for item in STAGE_INPUTS.get(stage, [])]
+    paths.extend(command_input_paths(command))
+    unique: dict[str, Path] = {}
+    for path in paths:
+        try:
+            key = str(path.expanduser().resolve(strict=False))
+        except OSError:
+            key = str(path.expanduser().absolute())
+        unique[key] = path
+    return [file_snapshot(path) for key, path in sorted(unique.items())]
+
+
+def stage_input_hash(project_root: Path, stage: str, command: list[str]) -> tuple[list[dict[str, Any]], str]:
+    snapshots = stage_input_snapshots(project_root, stage, command)
+    return snapshots, snapshots_hash(snapshots, extra={"stage": stage, "command": command})
+
+
+def stage_output_hash(project_root: Path, stage: str) -> tuple[list[dict[str, Any]], str]:
+    snapshots = stage_output_snapshots(project_root, stage)
+    return snapshots, snapshots_hash(snapshots, extra={"stage": stage})
+
+
+def stage_resume_output_hash(project_root: Path, stage: str) -> tuple[list[dict[str, Any]], str]:
+    snapshots = [file_snapshot(path) for path in stage_resume_output_paths(project_root, stage)]
+    return snapshots, snapshots_hash(snapshots, extra={"stage": stage, "resume_outputs": True})
+
+
+def workflow_input_hash(args: argparse.Namespace, mode: str) -> str:
+    snapshots: list[dict[str, Any]] = []
+    if mode == "local_transcript" and args.input_transcript:
+        snapshots.append(file_snapshot(args.input_transcript))
+    elif mode == "local_media" and args.input_media:
+        snapshots.append(file_snapshot(args.input_media))
+    if getattr(args, "asr_jsonl", None):
+        snapshots.append(file_snapshot(args.asr_jsonl))
+    return snapshots_hash(
+        snapshots,
+        extra={
+            "mode": mode,
+            "input_identity": input_identity(args, mode),
+            "input_url": str(getattr(args, "input_url", "") or ""),
+        },
+    )
+
+
+def stage_order_index(stage: str) -> int:
+    try:
+        return STAGE_ORDER.index(stage)
+    except ValueError:
+        return len(STAGE_ORDER)
+
+
+def should_force_rerun_from(stage: str, resume_from_stage: str) -> bool:
+    if not resume_from_stage:
+        return False
+    if resume_from_stage not in STAGE_ORDER:
+        raise EndToEndRunnerError(f"unknown --resume-from-stage: {resume_from_stage}")
+    return stage_order_index(stage) >= stage_order_index(resume_from_stage)
+
+
+def normalize_resume_from_stage(args: argparse.Namespace) -> str:
+    resume_from_stage = str(getattr(args, "resume_from_stage", "") or "")
+    resume_after_stage = str(getattr(args, "resume_after_stage", "") or "")
+    if resume_from_stage and resume_after_stage:
+        raise EndToEndRunnerError("use only one of --resume-from-stage or --resume-after-stage")
+    if resume_after_stage:
+        if resume_after_stage not in STAGE_ORDER:
+            raise EndToEndRunnerError(f"unknown --resume-after-stage: {resume_after_stage}")
+        next_index = stage_order_index(resume_after_stage) + 1
+        if next_index >= len(STAGE_ORDER):
+            raise EndToEndRunnerError(f"--resume-after-stage {resume_after_stage} has no later stage")
+        return STAGE_ORDER[next_index]
+    return resume_from_stage
+
+
+def resume_requested(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "resume", False) or normalize_resume_from_stage(args))
+
+
+def retry_policy_for_stage(stage: str) -> dict[str, Any]:
+    return {
+        "automatic_retry_allowed": False,
+        "resume_from_stage": stage,
+        "resume_hint": f"--resume --resume-from-stage {stage}",
+        "user_action_required": GUIDANCE_BY_STAGE.get(stage, "Inspect the failed stage outputs and rerun from this stage after fixing the input artifacts."),
+    }
+
+
+def failure_reason_for_stage(stage: str, result: dict[str, Any]) -> str:
+    detail = str(result.get("stderr") or result.get("stdout") or "").strip()
+    return detail or f"{stage} returned exit code {result.get('returncode')}"
+
+
+def latest_stage_record(state: dict[str, Any], stage: str) -> dict[str, Any]:
+    stages = state.get("stages")
+    if not isinstance(stages, list):
+        return {}
+    for row in reversed(stages):
+        if isinstance(row, dict) and row.get("stage") == stage:
+            return row
+    return {}
 
 
 def load_run_state(path: Path) -> dict[str, Any]:
@@ -265,7 +516,7 @@ def initialize_run_state(
 ) -> dict[str, Any]:
     return {
         "runner": RUNNER_NAME,
-        "schema_version": 1,
+        "schema_version": RUN_STATE_SCHEMA_VERSION,
         "mode": mode,
         "status": "running",
         "created_at": now_iso(),
@@ -277,7 +528,11 @@ def initialize_run_state(
         "input_media": str(args.input_media.expanduser().resolve()) if getattr(args, "input_media", None) else "",
         "input_url": str(getattr(args, "input_url", "") or ""),
         "input_identity": input_identity(args, mode),
-        "resume_enabled": bool(getattr(args, "resume", False)),
+        "input_hash": workflow_input_hash(args, mode),
+        "resume_enabled": resume_requested(args),
+        "resume_from_stage": normalize_resume_from_stage(args),
+        "resume_after_stage": str(getattr(args, "resume_after_stage", "") or ""),
+        "resume_policy": "stage_input_hash_output_hash_and_expected_outputs",
         "current_stage": "",
         "next_stage": "platform_media_runner" if mode == "platform_url" else ("asr_pipeline" if mode == "local_media" else "transcript_normalizer"),
         "stages": [],
@@ -297,6 +552,10 @@ def validate_resume_state(state: dict[str, Any], args: argparse.Namespace, proje
     current_input = input_identity(args, mode)
     if previous_input and previous_input != current_input:
         raise EndToEndRunnerError("run_state input does not match the requested input")
+    previous_hash = str(state.get("input_hash") or "")
+    current_hash = workflow_input_hash(args, mode)
+    if previous_hash and previous_hash != current_hash:
+        raise EndToEndRunnerError("run_state input hash does not match the requested input")
 
 
 def state_stage_index(state: dict[str, Any], stage: str) -> int | None:
@@ -313,11 +572,15 @@ def upsert_stage(state: dict[str, Any], stage_record: dict[str, Any]) -> None:
     stages = state.setdefault("stages", [])
     if not isinstance(stages, list):
         state["stages"] = stages = []
+    history = state.setdefault("stage_history", [])
+    if not isinstance(history, list):
+        state["stage_history"] = history = []
     index = state_stage_index(state, str(stage_record.get("stage")))
     if index is None:
         stages.append(stage_record)
     else:
         stages[index] = stage_record
+    history.append(stage_record)
     state["updated_at"] = now_iso()
 
 
@@ -326,24 +589,40 @@ def write_run_state(path: Path, state: dict[str, Any]) -> None:
 
 
 def completed_in_state(state: dict[str, Any], stage: str) -> bool:
-    stages = state.get("stages")
-    if not isinstance(stages, list):
-        return False
-    return any(
-        isinstance(row, dict) and row.get("stage") == stage and row.get("status") in {"completed", "skipped"}
-        for row in stages
-    )
+    row = latest_stage_record(state, stage)
+    return row.get("status") in {"completed", "skipped"}
 
 
-def stage_record_from_result(result: dict[str, Any], status: str) -> dict[str, Any]:
+def stage_record_from_result(
+    result: dict[str, Any],
+    status: str,
+    *,
+    input_files: list[dict[str, Any]],
+    input_hash: str,
+    output_files: list[dict[str, Any]],
+    output_hash: str,
+    resume_output_files: list[dict[str, Any]],
+    resume_output_hash: str,
+    resume_decision: str,
+) -> dict[str, Any]:
     record = stage_summary(result)
     record.update(
         {
             "status": status,
             "command": result.get("command", []),
+            "input_files": input_files,
+            "input_hash": input_hash,
+            "output_files": output_files,
+            "output_hash": output_hash,
+            "resume_output_files": resume_output_files,
+            "resume_output_hash": resume_output_hash,
+            "resume_decision": resume_decision,
             "completed_at": now_iso() if status == "completed" else "",
             "failed_at": now_iso() if status == "failed" else "",
             "stderr": result.get("stderr", ""),
+            "failure_reason": failure_reason_for_stage(str(result.get("stage") or ""), result) if status == "failed" else "",
+            "skipped_reason": "",
+            "retry_policy": retry_policy_for_stage(str(result.get("stage") or "")),
         }
     )
     return record
@@ -405,17 +684,33 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
     logs_root.mkdir(parents=True, exist_ok=True)
     steps: list[dict[str, Any]] = []
     run_state_path = logs_root / "run_state.json"
-    previous_state = load_run_state(run_state_path) if args.resume else {}
-    if args.resume:
+    resume_active = resume_requested(args)
+    previous_state = load_run_state(run_state_path) if resume_active else {}
+    if resume_active:
         validate_resume_state(previous_state, args, project_root, mode)
     state = initialize_run_state(args, project_root, video_root, document_root, mode)
-    if args.resume and previous_state:
+    if resume_active and previous_state:
         state["created_at"] = previous_state.get("created_at") or state["created_at"]
         state["stages"] = previous_state.get("stages") if isinstance(previous_state.get("stages"), list) else []
+        state["stage_history"] = previous_state.get("stage_history") if isinstance(previous_state.get("stage_history"), list) else []
     write_run_state(run_state_path, state)
 
     def run_stage(stage: str, command: list[str], cwd: Path) -> None:
-        if args.resume and completed_in_state(state, stage) and expected_outputs_exist(project_root, stage):
+        input_files, input_hash = stage_input_hash(project_root, stage, command)
+        current_output_files, current_output_hash = stage_output_hash(project_root, stage)
+        current_resume_output_files, current_resume_output_hash = stage_resume_output_hash(project_root, stage)
+        previous_record = latest_stage_record(state, stage)
+        effective_resume_from_stage = normalize_resume_from_stage(args)
+        force_rerun = should_force_rerun_from(stage, effective_resume_from_stage)
+        can_skip = (
+            resume_active
+            and not force_rerun
+            and completed_in_state(state, stage)
+            and expected_outputs_exist(project_root, stage)
+            and previous_record.get("input_hash") == input_hash
+            and previous_record.get("resume_output_hash", previous_record.get("output_hash")) == current_resume_output_hash
+        )
+        if can_skip:
             skipped = {
                 "stage": stage,
                 "returncode": 0,
@@ -435,9 +730,19 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
                     "status": "skipped",
                     "returncode": 0,
                     "command": command,
+                    "input_files": input_files,
+                    "input_hash": input_hash,
+                    "output_files": current_output_files,
+                    "output_hash": current_output_hash,
+                    "resume_output_files": current_resume_output_files,
+                    "resume_output_hash": current_resume_output_hash,
                     "skipped_at": now_iso(),
-                    "reason": "resume_completed_outputs_present",
+                    "reason": "resume_completed_hashes_and_outputs_present",
+                    "skipped_reason": "resume_completed_hashes_and_outputs_present",
+                    "resume_decision": "skipped_completed_hashes_and_outputs_present",
+                    "failure_reason": "",
                     "stderr": "",
+                    "retry_policy": retry_policy_for_stage(stage),
                 },
             )
             state["current_stage"] = stage
@@ -445,6 +750,18 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
             write_run_state(run_state_path, state)
             write_json(logs_root / "end_to_end_steps.json", [stage_summary(step) for step in steps])
             return
+        rerun_reason = "fresh_run"
+        if resume_active:
+            if force_rerun:
+                rerun_reason = f"forced_from_stage:{effective_resume_from_stage}"
+            elif not completed_in_state(state, stage):
+                rerun_reason = "no_completed_stage_record"
+            elif not expected_outputs_exist(project_root, stage):
+                rerun_reason = "expected_outputs_missing"
+            elif previous_record.get("input_hash") != input_hash:
+                rerun_reason = "stage_input_hash_changed"
+            elif previous_record.get("resume_output_hash", previous_record.get("output_hash")) != current_resume_output_hash:
+                rerun_reason = "stage_output_hash_changed"
         upsert_stage(
             state,
             {
@@ -452,7 +769,15 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
                 "status": "running",
                 "returncode": None,
                 "command": command,
+                "input_files": input_files,
+                "input_hash": input_hash,
+                "output_files": current_output_files,
+                "output_hash": current_output_hash,
+                "resume_output_files": current_resume_output_files,
+                "resume_output_hash": current_resume_output_hash,
+                "resume_decision": rerun_reason,
                 "started_at": now_iso(),
+                "retry_policy": retry_policy_for_stage(stage),
             },
         )
         state["current_stage"] = stage
@@ -461,17 +786,47 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
         result = run_command(stage, command, cwd)
         steps.append(result)
         write_json(logs_root / "end_to_end_steps.json", [stage_summary(step) for step in steps])
+        output_files, output_hash = stage_output_hash(project_root, stage)
+        resume_output_files, resume_output_hash = stage_resume_output_hash(project_root, stage)
         if result["returncode"] != 0:
-            upsert_stage(state, stage_record_from_result(result, "failed"))
+            upsert_stage(
+                state,
+                stage_record_from_result(
+                    result,
+                    "failed",
+                    input_files=input_files,
+                    input_hash=input_hash,
+                    output_files=output_files,
+                    output_hash=output_hash,
+                    resume_output_files=resume_output_files,
+                    resume_output_hash=resume_output_hash,
+                    resume_decision=rerun_reason,
+                ),
+            )
             state["status"] = "failed"
             state["failed_stage"] = stage
             state["error"] = result.get("stderr") or result.get("stdout")
+            state["failure_reason"] = failure_reason_for_stage(stage, result)
+            state["user_action_required"] = retry_policy_for_stage(stage)["user_action_required"]
             state["next_stage"] = stage
             write_run_state(run_state_path, state)
             raise EndToEndRunnerError(
                 f"stage {stage} failed with exit code {result['returncode']}: {result.get('stderr') or result.get('stdout')}"
             )
-        upsert_stage(state, stage_record_from_result(result, "completed"))
+        upsert_stage(
+            state,
+            stage_record_from_result(
+                result,
+                "completed",
+                input_files=input_files,
+                input_hash=input_hash,
+                output_files=output_files,
+                output_hash=output_hash,
+                resume_output_files=resume_output_files,
+                resume_output_hash=resume_output_hash,
+                resume_decision=rerun_reason,
+            ),
+        )
         state["next_stage"] = "next"
         write_run_state(run_state_path, state)
 
@@ -568,6 +923,11 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
             state["status"] = "completed"
             state["workflow_outcome"] = "degraded_acquisition_only"
             state["route_decision"] = "stop_without_primary_material"
+            state["degraded_reason"] = source_status.get("status_reason") or "No primary transcript or ASR-ready media was acquired."
+            state["user_action_required"] = (
+                "Provide one of: an official subtitle/transcript file, a local audio/video file for ASR, "
+                "a browser-derived media/subtitle export, or platform access material such as a user-exported cookies.txt."
+            )
             state["current_stage"] = "platform_media_runner"
             state["next_stage"] = source_status.get("next_step") or "request_primary_material"
             state["completed_at"] = now_iso()
@@ -588,7 +948,7 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
                 "final_report_written": False,
                 "degraded_report": degraded["path"],
                 "run_state": str(run_state_path),
-                "resume_enabled": bool(args.resume),
+                "resume_enabled": resume_active,
                 "next_step": source_status.get("next_step") or "request_primary_material",
             }
             write_json(logs_root / "end_to_end_summary.json", summary)
@@ -696,7 +1056,7 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
         "composer_intake": str(document_root / "composer_intake.json"),
         "final_report_written": False,
         "run_state": str(run_state_path),
-        "resume_enabled": bool(args.resume),
+        "resume_enabled": resume_active,
         "next_step": "draft_report_with_quality_gates",
     }
     write_json(logs_root / "end_to_end_summary.json", summary)
@@ -740,6 +1100,18 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-vad", dest="asr_vad", action="store_false", help="Disable VAD filtering for ASR.")
     parser.set_defaults(asr_vad=True)
     parser.add_argument("--resume", action="store_true", help="Resume a previous transcript, media, or URL run by skipping completed stages whose expected outputs still exist.")
+    parser.add_argument(
+        "--resume-from-stage",
+        choices=STAGE_ORDER,
+        default="",
+        help="Resume a previous run but rerun this stage and every later stage. Earlier stages may still be skipped when their hashes and outputs match.",
+    )
+    parser.add_argument(
+        "--resume-after-stage",
+        choices=STAGE_ORDER,
+        default="",
+        help="Resume a previous run after this stage by rerunning the next stage and every later stage. Earlier stages may still be skipped when their hashes and outputs match.",
+    )
     parser.add_argument("--pretty", action="store_true", help="Pretty-print summary JSON.")
     parser.add_argument("--self-test", action="store_true", help="Run built-in tests.")
     return parser
@@ -748,6 +1120,25 @@ def make_parser() -> argparse.ArgumentParser:
 def assert_true(name: str, condition: bool, failures: list[str], details: str = "") -> None:
     if not condition:
         failures.append(f"{name}: assertion failed{': ' + details if details else ''}")
+
+
+def assert_stage_state_fields(state: dict[str, Any], failures: list[str]) -> None:
+    stages = state.get("stages")
+    assert_true("run state stages list", isinstance(stages, list) and bool(stages), failures)
+    if not isinstance(stages, list):
+        return
+    required = ("input_hash", "output_files", "output_hash", "status", "retry_policy")
+    for row in stages:
+        if not isinstance(row, dict):
+            failures.append("run state stage row: expected object")
+            continue
+        missing = [key for key in required if key not in row]
+        assert_true(
+            f"stage state fields {row.get('stage')}",
+            not missing,
+            failures,
+            ",".join(missing),
+        )
 
 
 def write_fixture_transcript(path: Path) -> None:
@@ -1046,6 +1437,10 @@ def run_self_test() -> int:
         assert_true("audit no errors", audit.get("severity_counts", {}).get("error") == 0, failures)
         run_state = read_json(project_root / "logs" / "run_state.json")
         assert_true("run state completed", run_state.get("status") == "completed", failures)
+        assert_true("run state schema v2", run_state.get("schema_version") == RUN_STATE_SCHEMA_VERSION, failures)
+        assert_true("workflow input hash", bool(run_state.get("input_hash")), failures)
+        assert_true("stage history records attempts", len(run_state.get("stage_history", [])) >= len(run_state.get("stages", [])), failures)
+        assert_stage_state_fields(run_state, failures)
 
         resume_result = run_local_transcript_workflow(
             argparse.Namespace(
@@ -1066,6 +1461,83 @@ def run_self_test() -> int:
         skipped = [row for row in resume_state.get("stages", []) if row.get("status") == "skipped"]
         assert_true("resume skipped stages", len(skipped) >= 7, failures, json.dumps(resume_state, ensure_ascii=False))
         assert_true("resume skipped stderr", all("stderr" in row for row in skipped), failures)
+        assert_true("resume skipped reason", all(row.get("skipped_reason") for row in skipped), failures)
+        assert_stage_state_fields(resume_state, failures)
+
+        deleted_segment = project_root / "10_video" / "02_segments" / "argument_segments.json"
+        deleted_segment.unlink()
+        rerun_missing = run_local_transcript_workflow(
+            argparse.Namespace(
+                input_transcript=transcript,
+                project_root=project_root,
+                output_base=base / "outputs",
+                language="en",
+                document_goal="Write an auditable source-faithful report",
+                final_language="zh-CN",
+                audience="workflow reviewer",
+                video_skill_root=default_skill_root("knowledge-video-decomposer"),
+                document_skill_root=default_skill_root("knowledge-document-composer"),
+                resume=True,
+            )
+        )
+        assert_true("deleted segment regenerated", deleted_segment.is_file(), failures)
+        missing_resume_state = read_json(project_root / "logs" / "run_state.json")
+        segmenter_row = latest_stage_record(missing_resume_state, "transcript_segmenter")
+        assert_true("missing artifact reruns stage", segmenter_row.get("status") == "completed", failures, json.dumps(segmenter_row, ensure_ascii=False))
+        assert_true("missing artifact rerun reason", segmenter_row.get("resume_decision") == "expected_outputs_missing", failures, json.dumps(segmenter_row, ensure_ascii=False))
+        assert_true("missing artifact resume result", rerun_missing["resume_enabled"] is True, failures)
+        assert_true(
+            "stage history preserves rerun attempts",
+            len(missing_resume_state.get("stage_history", [])) > len(missing_resume_state.get("stages", [])),
+            failures,
+            json.dumps(missing_resume_state, ensure_ascii=False),
+        )
+
+        forced_resume = run_local_transcript_workflow(
+            argparse.Namespace(
+                input_transcript=transcript,
+                project_root=project_root,
+                output_base=base / "outputs",
+                language="en",
+                document_goal="Write an auditable source-faithful report",
+                final_language="zh-CN",
+                audience="workflow reviewer",
+                video_skill_root=default_skill_root("knowledge-video-decomposer"),
+                document_skill_root=default_skill_root("knowledge-document-composer"),
+                resume=False,
+                resume_from_stage="inventory_extractor",
+                resume_after_stage="",
+            )
+        )
+        forced_state = read_json(project_root / "logs" / "run_state.json")
+        forced_inventory = latest_stage_record(forced_state, "inventory_extractor")
+        forced_segmenter = latest_stage_record(forced_state, "transcript_segmenter")
+        assert_true("forced resume enabled", forced_resume["resume_enabled"] is True, failures)
+        assert_true("forced stage reruns", forced_inventory.get("status") == "completed", failures, json.dumps(forced_inventory, ensure_ascii=False))
+        assert_true("earlier stage can skip", forced_segmenter.get("status") == "skipped", failures, json.dumps(forced_segmenter, ensure_ascii=False))
+
+        forced_after = run_local_transcript_workflow(
+            argparse.Namespace(
+                input_transcript=transcript,
+                project_root=project_root,
+                output_base=base / "outputs",
+                language="en",
+                document_goal="Write an auditable source-faithful report",
+                final_language="zh-CN",
+                audience="workflow reviewer",
+                video_skill_root=default_skill_root("knowledge-video-decomposer"),
+                document_skill_root=default_skill_root("knowledge-document-composer"),
+                resume=False,
+                resume_from_stage="",
+                resume_after_stage="inventory_extractor",
+            )
+        )
+        forced_after_state = read_json(project_root / "logs" / "run_state.json")
+        after_inventory = latest_stage_record(forced_after_state, "inventory_extractor")
+        after_logic = latest_stage_record(forced_after_state, "source_logic_builder")
+        assert_true("forced after resume enabled", forced_after["resume_enabled"] is True, failures)
+        assert_true("resume after earlier stage skipped", after_inventory.get("status") == "skipped", failures, json.dumps(after_inventory, ensure_ascii=False))
+        assert_true("resume after next stage reruns", after_logic.get("status") == "completed", failures, json.dumps(after_logic, ensure_ascii=False))
 
         other_transcript = base / "other_fixture.txt"
         write_fixture_transcript(other_transcript)
@@ -1121,6 +1593,8 @@ def run_self_test() -> int:
                 "asr_timeout_seconds": 0.0,
                 "asr_vad": True,
                 "resume": False,
+                "resume_from_stage": "",
+                "resume_after_stage": "",
             }
             payload.update(overrides)
             return argparse.Namespace(**payload)
@@ -1146,6 +1620,7 @@ def run_self_test() -> int:
             failures,
             json.dumps(resume_state, ensure_ascii=False),
         )
+        assert_stage_state_fields(resume_state, failures)
         assert_true("url resume enabled", url_subtitle_resume["resume_enabled"] is True, failures)
 
         url_audio_project = base / "url_audio_project"
@@ -1174,6 +1649,10 @@ def run_self_test() -> int:
         assert_true("blocked no pack", not (blocked_project / "10_video" / "video_analysis_pack.md").exists(), failures)
         assert_true("blocked no segments", not (blocked_project / "10_video" / "02_segments").exists(), failures)
         assert_true("blocked no document intake", not (blocked_project / "20_document" / "composer_intake.json").exists(), failures)
+        blocked_state = read_json(blocked_project / "logs" / "run_state.json")
+        assert_true("blocked reason recorded", bool(blocked_state.get("degraded_reason")), failures, json.dumps(blocked_state, ensure_ascii=False))
+        assert_true("blocked user action recorded", bool(blocked_state.get("user_action_required")), failures, json.dumps(blocked_state, ensure_ascii=False))
+        assert_stage_state_fields(blocked_state, failures)
 
     if failures:
         for failure in failures:
