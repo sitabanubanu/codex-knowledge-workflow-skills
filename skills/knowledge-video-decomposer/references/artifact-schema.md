@@ -177,6 +177,70 @@ Include:
 - Whether transcript, metadata, comments, description, or linked resources looked usable.
 - Any uncertainty caused by dynamic page state, login state, localization, or unavailable content.
 
+## 00_source/chrome_media_probe.json
+
+Purpose: machine-readable Chrome deep-probe result.
+
+Use `scripts/chrome_media_probe.py` after Chrome/pageAssets/Playwright or manual
+browser inspection has produced layer observations. The script normalizes the
+observations; it does not launch or control Chrome.
+
+Suggested fields:
+
+```json
+{
+  "runner": "knowledge-video-chrome-media-probe",
+  "source_url": "",
+  "title": "",
+  "trigger_reason": "",
+  "chrome_route_used": true,
+  "yt_dlp_chrome_cookies_attempted": false,
+  "yt_dlp_chrome_cookies_succeeded": false,
+  "layers": [
+    {
+      "layer": "visible_transcript|pageAssets_list|pageAssets_bundle|playwright_evaluate|network_media_inspection",
+      "executed": true,
+      "result": "success|not_found|blocked|not_run",
+      "media_found": false,
+      "local_files": [],
+      "public_urls": [],
+      "confirmed_public_downloadable": false,
+      "notes": ""
+    }
+  ],
+  "decision": {
+    "visible_transcript_status": "available|partial|not_visible|not_checked|blocked|unknown",
+    "page_state_observed": "opened|failed_to_open|login_required|captcha_required|paywalled|permission_required|video_unavailable|metadata_only|unknown",
+    "chrome_deep_probe_exhausted": false,
+    "deep_probe_layers_executed": [],
+    "deep_probe_media_found": false,
+    "browser_derived_media_exported": false,
+    "suggested_acquisition_signal": "chrome_visible_transcript|browser_derived_media_acquired|chrome_deep_probe_exhausted|captcha|login_required|request_blocked",
+    "suggested_source_status": "source_confirmed|source_partial|source_blocked|source_failed",
+    "next_step": ""
+  }
+}
+```
+
+Minimum expectations:
+
+- Page playability alone must not set `deep_probe_media_found=true`.
+- `browser_derived_media_exported=true` requires an actual local media/subtitle
+  file.
+- A confirmed public downloadable media/subtitle URL may set
+  `deep_probe_media_found=true`, but must still be fetched and processed before
+  the source enters full decomposition.
+- CAPTCHA, paywall, permission, login, and unavailable-video states must route to
+  blocked or failed source handling, not full analysis.
+
+## 00_source/chrome_media_probe.md
+
+Purpose: human-readable summary of the Chrome deep-probe layers and decision.
+
+Include the URL, trigger reason, page state, visible transcript status, each
+layer's executed/result/media findings, and the boundary that Chrome playability
+alone is not primary material.
+
 ## 01_transcript/raw_transcript.jsonl
 
 Purpose: preserve raw transcript segments before cleanup.

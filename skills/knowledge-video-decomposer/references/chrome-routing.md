@@ -165,6 +165,21 @@ After stopping, record the reason and select `source_blocked`, `source_failed`, 
 
 Any workflow that executes or explicitly skips the Chrome route must record the following fields in acquisition notes, metadata, or run state:
 
+Prefer writing the standard machine artifact with:
+
+```powershell
+python scripts/chrome_media_probe.py `
+  --input-json <chrome-layer-observations.json> `
+  --output-root outputs/knowledge-workflow/<run-id>/10_video `
+  --pretty
+```
+
+`chrome_media_probe.py` does not launch Chrome. It normalizes observations
+already collected by Chrome, pageAssets, Playwright evaluate, or manual page
+state inspection into `00_source/chrome_media_probe.json` and
+`00_source/chrome_media_probe.md`, then returns the acquisition signal that
+should feed the source-status gate.
+
 ```json
 {
   "chrome_route_used": true,
