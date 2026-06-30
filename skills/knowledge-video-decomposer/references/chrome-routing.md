@@ -180,6 +180,11 @@ state inspection into `00_source/chrome_media_probe.json` and
 `00_source/chrome_media_probe.md`, then returns the acquisition signal that
 should feed the source-status gate.
 
+Do not treat a discovered public media/subtitle URL as acquired media until it
+has been fetched, saved locally, and parsed or transcribed. URL discovery may
+produce `browser_derived_media_url_found`; only an existing local file may
+produce `browser_derived_media_acquired`.
+
 ```json
 {
   "chrome_route_used": true,

@@ -203,6 +203,8 @@ Suggested fields:
       "result": "success|not_found|blocked|not_run",
       "media_found": false,
       "local_files": [],
+      "existing_local_files": [],
+      "missing_local_files": [],
       "public_urls": [],
       "confirmed_public_downloadable": false,
       "notes": ""
@@ -215,7 +217,8 @@ Suggested fields:
     "deep_probe_layers_executed": [],
     "deep_probe_media_found": false,
     "browser_derived_media_exported": false,
-    "suggested_acquisition_signal": "chrome_visible_transcript|browser_derived_media_acquired|chrome_deep_probe_exhausted|captcha|login_required|request_blocked",
+    "downloadable_media_url_found": false,
+    "suggested_acquisition_signal": "chrome_visible_transcript|browser_derived_media_acquired|browser_derived_media_url_found|chrome_deep_probe_exhausted|captcha|login_required|request_blocked",
     "suggested_source_status": "source_confirmed|source_partial|source_blocked|source_failed",
     "next_step": ""
   }
@@ -228,8 +231,9 @@ Minimum expectations:
 - `browser_derived_media_exported=true` requires an actual local media/subtitle
   file.
 - A confirmed public downloadable media/subtitle URL may set
-  `deep_probe_media_found=true`, but must still be fetched and processed before
-  the source enters full decomposition.
+  `downloadable_media_url_found=true`, but must not emit
+  `browser_derived_media_acquired` until the URL has been fetched, saved, and
+  processed.
 - CAPTCHA, paywall, permission, login, and unavailable-video states must route to
   blocked or failed source handling, not full analysis.
 

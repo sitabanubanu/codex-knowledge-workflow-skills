@@ -102,8 +102,10 @@ def normalize_layer(raw: dict[str, Any], index: int) -> dict[str, Any]:
     public_urls = [str(item) for item in as_list(raw.get("public_urls")) if str(item).strip()]
     asset_kinds = [str(item) for item in as_list(raw.get("asset_kinds")) if str(item).strip()]
     executed = as_bool(raw.get("executed"), default=bool(raw.get("result") or local_files or public_urls or asset_kinds))
-    media_like_files = [item for item in local_files if suffix_for(item) in MEDIA_SUFFIXES]
-    subtitle_files = [item for item in local_files if suffix_for(item) in SUBTITLE_SUFFIXES]
+    existing_local_files = [item for item in local_files if Path(item).expanduser().is_file()]
+    missing_local_files = [item for item in local_files if item not in existing_local_files]
+    media_like_files = [item for item in existing_local_files if suffix_for(item) in MEDIA_SUFFIXES]
+    subtitle_files = [item for item in existing_local_files if suffix_for(item) in SUBTITLE_SUFFIXES]
     media_like_urls = [item for item in public_urls if suffix_for(item) in MEDIA_SUFFIXES]
     confirmed_public_downloadable = as_bool(raw.get("confirmed_public_downloadable"), default=False)
     return {
@@ -113,6 +115,8 @@ def normalize_layer(raw: dict[str, Any], index: int) -> dict[str, Any]:
         "asset_kinds": asset_kinds,
         "media_found": as_bool(raw.get("media_found"), default=bool(media_like_files or media_like_urls)),
         "local_files": local_files,
+        "existing_local_files": existing_local_files,
+        "missing_local_files": missing_local_files,
         "subtitle_files": subtitle_files,
         "media_files": media_like_files,
         "public_urls": public_urls,
@@ -136,6 +140,8 @@ def normalize_layers(input_payload: dict[str, Any]) -> list[dict[str, Any]]:
                     "asset_kinds": [],
                     "media_found": False,
                     "local_files": [],
+                    "existing_local_files": [],
+                    "missing_local_files": [],
                     "subtitle_files": [],
                     "media_files": [],
                     "public_urls": [],
@@ -166,7 +172,8 @@ def derive_decision(payload: dict[str, Any], layers: list[dict[str, Any]]) -> di
         for url in layer["media_urls"]
     ]
     browser_derived_media_exported = bool(local_media_files)
-    deep_probe_media_found = browser_derived_media_exported or bool(confirmed_public_urls)
+    downloadable_media_url_found = bool(confirmed_public_urls)
+    deep_probe_media_found = browser_derived_media_exported or downloadable_media_url_found
     blocked = page_state in BLOCKED_PAGE_STATES or visible_status == "blocked"
     exhausted = all_layers_executed and not deep_probe_media_found and visible_status not in {"available", "partial"} and not blocked
 
@@ -178,10 +185,14 @@ def derive_decision(payload: dict[str, Any], layers: list[dict[str, Any]]) -> di
         source_signal = "partial_transcript"
         next_step = "capture_partial_visible_transcript_then_normalize"
         status_hint = "source_partial"
-    elif deep_probe_media_found:
+    elif browser_derived_media_exported:
         source_signal = "browser_derived_media_acquired"
         next_step = "parse_subtitle_or_run_asr_pipeline"
         status_hint = "source_confirmed"
+    elif downloadable_media_url_found:
+        source_signal = "browser_derived_media_url_found"
+        next_step = "fetch_confirmed_public_media_or_subtitle_then_parse_or_asr"
+        status_hint = "source_failed"
     elif blocked:
         source_signal = {
             "login_required": "login_required",
@@ -208,6 +219,7 @@ def derive_decision(payload: dict[str, Any], layers: list[dict[str, Any]]) -> di
         "deep_probe_layers_executed": executed_layers,
         "deep_probe_media_found": deep_probe_media_found,
         "browser_derived_media_exported": browser_derived_media_exported,
+        "downloadable_media_url_found": downloadable_media_url_found,
         "local_media_files": local_media_files,
         "subtitle_files": subtitle_files,
         "confirmed_public_media_or_subtitle_urls": confirmed_public_urls,
@@ -228,6 +240,7 @@ def render_report(probe: dict[str, Any]) -> str:
         f"- Deep probe exhausted: `{str(probe['decision']['chrome_deep_probe_exhausted']).lower()}`",
         f"- Media found: `{str(probe['decision']['deep_probe_media_found']).lower()}`",
         f"- Browser-derived media exported: `{str(probe['decision']['browser_derived_media_exported']).lower()}`",
+        f"- Downloadable media URL found: `{str(probe['decision']['downloadable_media_url_found']).lower()}`",
         f"- Suggested signal: `{probe['decision']['suggested_acquisition_signal']}`",
         f"- Next step: `{probe['decision']['next_step']}`",
         "",
@@ -243,6 +256,8 @@ def render_report(probe: dict[str, Any]) -> str:
                 f"- Result: `{layer['result']}`",
                 f"- Media found: `{str(layer['media_found']).lower()}`",
                 f"- Local files: `{layer['local_files']}`",
+                f"- Existing local files: `{layer['existing_local_files']}`",
+                f"- Missing local files: `{layer['missing_local_files']}`",
                 f"- Public URLs: `{layer['public_urls']}`",
                 f"- Notes: {layer['notes'] or 'None.'}",
                 "",
@@ -300,6 +315,7 @@ def run_chrome_media_probe(args: argparse.Namespace) -> dict[str, Any]:
         "deep_probe_layers_executed": decision["deep_probe_layers_executed"],
         "deep_probe_media_found": decision["deep_probe_media_found"],
         "browser_derived_media_exported": decision["browser_derived_media_exported"],
+        "downloadable_media_url_found": decision["downloadable_media_url_found"],
         "suggested_acquisition_signal": decision["suggested_acquisition_signal"],
         "suggested_source_status": decision["suggested_source_status"],
         "files_written": [item["path"] for item in written],
@@ -346,6 +362,8 @@ def run_self_test() -> int:
         assert_true("visible signal", visible["suggested_acquisition_signal"] == "chrome_visible_transcript", failures)
         assert_true("visible not exhausted", visible["chrome_deep_probe_exhausted"] is False, failures)
 
+        existing_subtitle = base / "captions.vtt"
+        write_text(existing_subtitle, "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n")
         exported = run_fixture(
             base,
             "exported",
@@ -356,12 +374,47 @@ def run_self_test() -> int:
                 "layers": [
                     {"layer": "visible_transcript", "executed": True, "result": "not_found"},
                     {"layer": "pageAssets_list", "executed": True, "result": "success", "asset_kinds": ["video", "stylesheet"]},
-                    {"layer": "pageAssets_bundle", "executed": True, "result": "success", "local_files": ["C:/tmp/captions.vtt"]},
+                    {"layer": "pageAssets_bundle", "executed": True, "result": "success", "local_files": [str(existing_subtitle)]},
                 ],
             },
         )
         assert_true("exported media", exported["browser_derived_media_exported"] is True, failures)
         assert_true("exported signal", exported["suggested_acquisition_signal"] == "browser_derived_media_acquired", failures)
+
+        url_only = run_fixture(
+            base,
+            "url-only",
+            {
+                "visible_transcript_status": "not_visible",
+                "page_state_observed": "opened",
+                "layers": [
+                    {
+                        "layer": "playwright_evaluate",
+                        "executed": True,
+                        "result": "success",
+                        "public_urls": ["https://cdn.example.invalid/captions.vtt"],
+                        "confirmed_public_downloadable": True,
+                    }
+                ],
+            },
+        )
+        assert_true("url-only not exported", url_only["browser_derived_media_exported"] is False, failures)
+        assert_true("url-only signal not acquired", url_only["suggested_acquisition_signal"] == "browser_derived_media_url_found", failures)
+        assert_true("url-only not confirmed", url_only["suggested_source_status"] != "source_confirmed", failures)
+
+        missing_file = run_fixture(
+            base,
+            "missing-file",
+            {
+                "visible_transcript_status": "not_visible",
+                "page_state_observed": "opened",
+                "layers": [
+                    {"layer": "pageAssets_bundle", "executed": True, "result": "success", "local_files": [str(base / "missing.vtt")]}
+                ],
+            },
+        )
+        assert_true("missing file not exported", missing_file["browser_derived_media_exported"] is False, failures)
+        assert_true("missing file not acquired", missing_file["suggested_acquisition_signal"] != "browser_derived_media_acquired", failures)
 
         exhausted = run_fixture(
             base,
