@@ -1,7 +1,8 @@
 # Knowledge Document Composer Quality Gates
 
-Run these gates after `draft_report.md` and before `final_report.md`.
-Write the result in `quality_check.md`.
+Run these gates after `draft_report.md`, critique, and `revised_report.md`, and
+before `final_report.md`. Write the human-readable result in `quality_check.md`
+and the machine-readable result in `quality_gate.json`.
 
 Use this status vocabulary:
 
@@ -9,7 +10,12 @@ Use this status vocabulary:
 - `revise`: the draft can be fixed without new source work.
 - `block`: final delivery is not allowed until the issue is fixed or explicitly downgraded by the user.
 
-If any blocking gate fails, do not produce `final_report.md`. Revise the draft, rerun the gates, and only then finalize.
+If any blocking gate fails, do not produce `final_report.md`. Revise the draft
+or revised candidate, rerun the gates, and only then finalize.
+
+Use `scripts/final_report_auditor.py` as the hard final gate for audited
+workflow outputs. `scripts/final_report_writer.py` calls the auditor before it
+creates `final_report.md`.
 
 ## Gate 1: Evidence Gate
 
@@ -189,7 +195,22 @@ Blocking rule:
 
 ## Gate 10: Final Approval Rule
 
-Before creating `final_report.md`, `quality_check.md` must include:
+Before creating `final_report.md`, `quality_gate.json` must exist and include:
+
+```json
+{
+  "approved_for_final_report": true,
+  "source_status": "source_confirmed",
+  "report_scope": "full",
+  "gates": [],
+  "blocking_gates": []
+}
+```
+
+The exact `source_status` may be `source_partial` only when `report_scope` is
+`partial` and the report visibly says Partial Scope.
+
+`quality_check.md` must also include:
 
 ```markdown
 ## Gate Results
@@ -217,4 +238,9 @@ Approval rule:
 
 - If any gate status is `block`, approval must be `no`.
 - If any gate status is `revise`, revise first unless the revision is explicitly deferred by the user.
-- Only create `final_report.md` when approval is `yes`.
+- Only create `final_report.md` when `quality_gate.json.approved_for_final_report`
+  is `true` and the matching `quality_check.md` says approval is `yes`.
+- Do not approve a normal final report when source status is `secondary_only`,
+  `source_blocked`, `source_failed`, or `degraded_report_only`.
+- Do not approve `source_partial` unless the report is clearly partial and does
+  not reconstruct missing source sequence.

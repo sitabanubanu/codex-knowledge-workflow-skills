@@ -180,6 +180,23 @@ Operational rules:
 - Inference: what the composer derives from the source.
 - Extension: user ideas, critique, applications, outside frameworks, or recommendations.
 - Extension can be useful, but it must not be written as if the source said it.
+- In audited final reports, the Source section must cite registered claim ids
+  from `claim_map.json`, such as `doc_claim_001`.
+- A `source_partial` report must include `Partial Scope` in the title or source
+  status section and must not fill missing source sequence from secondary
+  material.
+
+## Final Report Closure
+
+For the final report loop, keep these artifacts:
+
+```text
+draft_report.md -> critique.md -> revised_report.md -> quality_gate.json -> final_report.md
+```
+
+`quality_gate.json` is the machine-readable authority for whether
+`final_report.md` may exist. If the gate blocks, revise the report candidate
+instead of weakening the gate.
 
 ## User-Extension Section
 

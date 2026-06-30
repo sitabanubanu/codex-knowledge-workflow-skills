@@ -17,6 +17,9 @@ Create these files in this order unless the user explicitly asks only for an int
 20_document/expansion_plan.md
 20_document/report_outline.md
 20_document/draft_report.md
+20_document/critique.md
+20_document/revised_report.md
+20_document/quality_gate.json
 20_document/quality_check.md
 20_document/final_report.md
 ```
@@ -32,6 +35,11 @@ drafting. It verifies `10_video/video_analysis_pack.md`,
 `composer_intake.json` and pre-draft planning artifacts. This runner is a gate
 and planning scaffold; it must not create `draft_report.md` or
 `final_report.md`.
+
+After the planning artifacts exist, use `scripts/final_report_writer.py` to run
+the draft -> critique -> revise -> source audit -> final report loop. Use
+`scripts/final_report_auditor.py` independently when a human or another agent
+edits `draft_report.md` or `revised_report.md`.
 
 ## Artifact Writing Reliability
 
@@ -226,9 +234,26 @@ Drafting rules:
 - Preserve source uncertainty and missing evidence notes.
 - Avoid empty abstractions such as "this shows a shift in thinking" unless the next sentence names the exact shift and why it matters.
 
-## Phase 8: Quality Check and Revision
+## Phase 8: Critique and Revision
+
+Create `critique.md` after `draft_report.md`.
+
+The critique must check:
+
+- Whether the draft keeps Source / Inference / Extension visibly separated.
+- Whether Source claims cite registered claim ids from `claim_map.json`.
+- Whether `source_partial` remains visibly labeled as Partial Scope.
+- Whether known evidence gaps are carried into the report.
+- Whether any weak claim is presented as settled Source.
+
+Create `revised_report.md` after applying critique findings. Do not audit
+`final_report.md` directly unless it is a manually edited candidate; normally
+audit `revised_report.md` and copy it to `final_report.md` only after approval.
+
+## Phase 9: Quality Check and Source Audit
 
 Create `quality_check.md` using `quality-gates.md` before `final_report.md`.
+Also create machine-readable `quality_gate.json`.
 
 For each gate:
 
@@ -246,9 +271,11 @@ Blocking failures include:
 - Missing source gaps or transcript limitations.
 - A report that answers a generic topic instead of the user's actual request.
 
-If any blocking gate fails, revise `draft_report.md` and rerun `quality_check.md`. Do not create `final_report.md` until blocking gates pass.
+If any blocking gate fails, revise `draft_report.md` or `revised_report.md` and
+rerun the auditor. Do not create `final_report.md` until
+`quality_gate.json.approved_for_final_report` is `true`.
 
-## Phase 9: Final Report and Optional Outputs
+## Phase 10: Final Report and Optional Outputs
 
 Create `final_report.md` only after quality gates pass.
 

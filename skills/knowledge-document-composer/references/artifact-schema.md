@@ -64,6 +64,9 @@ expansion_plan.md
 report_outline.md
 source_reconstruction.md
 draft_report.md
+critique.md
+revised_report.md
+quality_gate.json
 quality_check.md
 final_report.md
 ```
@@ -304,6 +307,81 @@ Guidance:
 - Explain abstract concepts before relying on them.
 - Keep the reasoning chain visible enough that a reader can follow how the document moves from source material to any added interpretation.
 
+Use `scripts/final_report_writer.py` for audited workflow scaffolding after
+`document_composer_runner.py` has written the planning artifacts. The writer may
+create a deterministic draft from the current planning files, but the same
+Source / Inference / Extension and source-status rules apply to any manual draft.
+
+## critique.md
+
+Purpose: record the critique pass between draft and revision.
+
+Minimum expectations:
+
+- Identify whether the draft preserves Source / Inference / Extension separation.
+- Identify missing registered Source claim ids, weak claims, or unsupported claims.
+- For `source_partial`, verify that partial scope is visible before revision.
+- Name revisions required before the final audit.
+
+## revised_report.md
+
+Purpose: final candidate after critique and revision.
+
+Rules:
+
+- This is the artifact audited before `final_report.md`.
+- It must preserve visible `## Source`, `## Inference`, and `## Extension`
+  sections or equivalent explicit labels.
+- It must include registered Source claim ids from `claim_map.json` in the
+  Source section.
+- For `source_partial`, it must visibly say `Partial Scope`.
+- It must include an evidence and limits section before final approval.
+
+## quality_gate.json
+
+Purpose: machine-readable final quality gate.
+
+Use `scripts/final_report_auditor.py` directly, or via
+`scripts/final_report_writer.py`, before creating or accepting
+`final_report.md`.
+
+Required fields:
+
+```json
+{
+  "runner": "knowledge-document-final-report-auditor",
+  "generated_at": "",
+  "document_root": "",
+  "report_path": "",
+  "source_status": "source_confirmed|source_partial",
+  "report_scope": "full|partial",
+  "approved_for_final_report": false,
+  "gates": [
+    {
+      "gate": "Evidence",
+      "status": "pass|block",
+      "evidence": "",
+      "required_revision": ""
+    }
+  ],
+  "blocking_gates": [],
+  "registered_source_claims": [],
+  "source_claims_used": [],
+  "files_checked": []
+}
+```
+
+Rules:
+
+- `final_report.md` may be created only when
+  `approved_for_final_report` is `true`.
+- `secondary_only`, `source_blocked`, `source_failed`, and
+  `degraded_report_only` must not pass this gate for a normal final report.
+- `source_partial` may pass only as `report_scope: partial` with a visible
+  partial-scope label.
+- Any Source claim used in the report must be registered in `claim_map.json` as
+  category `Source`, status `accepted`.
+
 ## quality_check.md
 
 Purpose: final pre-delivery check before producing `final_report.md` or optional formatted outputs.
@@ -318,6 +396,7 @@ Must check:
 - Whether the report answers the user's question.
 - Whether `10_video\05_gap_check\gap_check.md` has been read and addressed.
 - Whether uncertainty is marked where evidence is insufficient.
+- Whether `quality_gate.json` exists and approves final delivery.
 
 Suggested structure:
 
