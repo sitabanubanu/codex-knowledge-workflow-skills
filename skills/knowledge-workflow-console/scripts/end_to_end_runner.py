@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -12,10 +13,21 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 RUNNER_NAME = "knowledge-workflow-end-to-end-runner"
 STAGE_OUTPUTS = {
+    "platform_media_runner": [
+        "10_video/00_source/platform_media_result.json",
+        "10_video/00_source/platform_media_notes.md",
+        "10_video/00_source/source_status.json",
+    ],
+    "asr_pipeline": [
+        "10_video/00_source/source_status.json",
+        "10_video/01_transcript/clean_transcript.jsonl",
+        "10_video/00_source/asr_pipeline_report.json",
+    ],
     "transcript_normalizer": [
         "10_video/00_source/source_status.json",
         "10_video/01_transcript/clean_transcript.jsonl",
@@ -149,6 +161,7 @@ def stage_summary(result: dict[str, Any]) -> dict[str, Any]:
         for key in (
             "runner",
             "source_status",
+            "material_state",
             "next_step",
             "validation_next_step",
             "composer_decision",
@@ -156,25 +169,76 @@ def stage_summary(result: dict[str, Any]) -> dict[str, Any]:
             "pack_path",
             "document_root",
             "output_root",
+            "acquired_subtitle_files",
+            "acquired_audio_files",
+            "workflow_outcome",
         ):
             if key in summary:
                 slim[key] = summary[key]
     return slim
 
 
-def make_project_id(input_path: Path) -> str:
-    stem = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in input_path.stem).strip("-_")
+def sanitize_project_id(value: str) -> str:
+    stem = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in value).strip("-_")
     return stem[:60] or "knowledge-workflow"
+
+
+def make_project_id_from_path(input_path: Path) -> str:
+    return sanitize_project_id(input_path.expanduser().resolve().stem)
+
+
+def make_project_id_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower().replace("www.", "")
+    if "youtube.com" in host:
+        query = parsed.query
+        video_id = ""
+        for item in query.split("&"):
+            if item.startswith("v="):
+                video_id = item[2:]
+                break
+        if video_id:
+            return sanitize_project_id(f"youtube-{video_id}")
+    path_tail = Path(parsed.path).name or host or "url"
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:8]
+    return sanitize_project_id(f"{host}-{path_tail}-{digest}")
+
+
+def determine_input_mode(args: argparse.Namespace) -> str:
+    provided = [
+        bool(args.input_transcript),
+        bool(getattr(args, "input_media", None)),
+        bool(getattr(args, "input_url", None)),
+    ]
+    if sum(provided) != 1:
+        raise EndToEndRunnerError("exactly one of --input-transcript, --input-media, or --input-url is required")
+    if args.input_transcript:
+        return "local_transcript"
+    if getattr(args, "input_media", None):
+        return "local_media"
+    return "platform_url"
+
+
+def input_identity(args: argparse.Namespace, mode: str) -> str:
+    if mode == "local_transcript":
+        return str(args.input_transcript.expanduser().resolve())
+    if mode == "local_media":
+        return str(args.input_media.expanduser().resolve())
+    return str(args.input_url)
 
 
 def resolve_roots(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     if args.project_root:
         project_root = args.project_root.expanduser().resolve()
     else:
-        if args.input_transcript is None:
-            raise EndToEndRunnerError("--input-transcript is required when --project-root is omitted")
         base = args.output_base.expanduser().resolve()
-        project_root = base / make_project_id(args.input_transcript.expanduser().resolve())
+        mode = determine_input_mode(args)
+        if mode == "platform_url":
+            project_root = base / make_project_id_from_url(str(args.input_url))
+        elif mode == "local_media":
+            project_root = base / make_project_id_from_path(args.input_media)
+        else:
+            project_root = base / make_project_id_from_path(args.input_transcript)
     return project_root, project_root / "10_video", project_root / "20_document"
 
 
@@ -192,11 +256,17 @@ def load_run_state(path: Path) -> dict[str, Any]:
         return {}
 
 
-def initialize_run_state(args: argparse.Namespace, project_root: Path, video_root: Path, document_root: Path) -> dict[str, Any]:
+def initialize_run_state(
+    args: argparse.Namespace,
+    project_root: Path,
+    video_root: Path,
+    document_root: Path,
+    mode: str,
+) -> dict[str, Any]:
     return {
         "runner": RUNNER_NAME,
         "schema_version": 1,
-        "mode": "local_transcript",
+        "mode": mode,
         "status": "running",
         "created_at": now_iso(),
         "updated_at": now_iso(),
@@ -204,23 +274,29 @@ def initialize_run_state(args: argparse.Namespace, project_root: Path, video_roo
         "video_root": str(video_root),
         "document_root": str(document_root),
         "input_transcript": str(args.input_transcript.expanduser().resolve()) if args.input_transcript else "",
+        "input_media": str(args.input_media.expanduser().resolve()) if getattr(args, "input_media", None) else "",
+        "input_url": str(getattr(args, "input_url", "") or ""),
+        "input_identity": input_identity(args, mode),
         "resume_enabled": bool(getattr(args, "resume", False)),
         "current_stage": "",
-        "next_stage": "transcript_normalizer",
+        "next_stage": "platform_media_runner" if mode == "platform_url" else ("asr_pipeline" if mode == "local_media" else "transcript_normalizer"),
         "stages": [],
     }
 
 
-def validate_resume_state(state: dict[str, Any], args: argparse.Namespace, project_root: Path) -> None:
+def validate_resume_state(state: dict[str, Any], args: argparse.Namespace, project_root: Path, mode: str) -> None:
     if not state:
         return
     previous_project = str(state.get("project_root") or "")
     if previous_project and Path(previous_project).expanduser().resolve() != project_root.expanduser().resolve():
         raise EndToEndRunnerError("run_state project_root does not match the requested project root")
-    previous_input = str(state.get("input_transcript") or "")
-    current_input = str(args.input_transcript.expanduser().resolve()) if args.input_transcript else ""
-    if previous_input and Path(previous_input).expanduser().resolve() != Path(current_input).expanduser().resolve():
-        raise EndToEndRunnerError("run_state input_transcript does not match the requested input transcript")
+    previous_mode = str(state.get("mode") or "")
+    if previous_mode and previous_mode != mode:
+        raise EndToEndRunnerError("run_state mode does not match the requested input mode")
+    previous_input = str(state.get("input_identity") or state.get("input_transcript") or state.get("input_media") or state.get("input_url") or "")
+    current_input = input_identity(args, mode)
+    if previous_input and previous_input != current_input:
+        raise EndToEndRunnerError("run_state input does not match the requested input")
 
 
 def state_stage_index(state: dict[str, Any], stage: str) -> int | None:
@@ -278,10 +354,50 @@ def ensure_no_final_report(document_root: Path) -> None:
         raise EndToEndRunnerError("document runner unexpectedly left final_report.md in place")
 
 
-def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
-    if args.input_transcript is None:
-        raise EndToEndRunnerError("--input-transcript is required for local-transcript mode")
+def first_existing_file(paths: list[str]) -> Path | None:
+    for item in paths:
+        path = Path(item).expanduser()
+        if path.is_file() and path.stat().st_size > 0:
+            return path.resolve()
+    return None
 
+
+def render_degraded_report(*, input_value: str, mode: str, source_status: dict[str, Any], platform_result: dict[str, Any] | None) -> str:
+    lines = [
+        "# Degraded Acquisition Report",
+        "",
+        f"- Input mode: `{mode}`",
+        f"- Input: `{input_value}`",
+        f"- Source status: `{source_status.get('source_status', 'unknown')}`",
+        f"- Primary material available: `{str(bool(source_status.get('primary_material_available'))).lower()}`",
+        f"- Full decomposition allowed: `{str(bool(source_status.get('can_enter_full_decomposition'))).lower()}`",
+        f"- Next step: `{source_status.get('next_step', '')}`",
+        "",
+        "## Reason",
+        "",
+        str(source_status.get("status_reason") or "No primary transcript or ASR-ready transcript was produced."),
+        "",
+        "## Boundary",
+        "",
+        "This report is an acquisition/degraded report only. It is not a video analysis pack, speaker logic reconstruction, or complete source-faithful content analysis.",
+        "",
+    ]
+    if platform_result:
+        lines.extend(
+            [
+                "## Platform Material State",
+                "",
+                f"- Material state: `{platform_result.get('material_state') or platform_result.get('decision', {}).get('material_state', '')}`",
+                f"- Acquired subtitles: `{len(platform_result.get('acquired_subtitle_files') or [])}`",
+                f"- Acquired audio files: `{len(platform_result.get('acquired_audio_files') or [])}`",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
+    mode = determine_input_mode(args)
     video_skill_root = args.video_skill_root.expanduser().resolve()
     document_skill_root = args.document_skill_root.expanduser().resolve()
     project_root, video_root, document_root = resolve_roots(args)
@@ -291,8 +407,8 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
     run_state_path = logs_root / "run_state.json"
     previous_state = load_run_state(run_state_path) if args.resume else {}
     if args.resume:
-        validate_resume_state(previous_state, args, project_root)
-    state = initialize_run_state(args, project_root, video_root, document_root)
+        validate_resume_state(previous_state, args, project_root, mode)
+    state = initialize_run_state(args, project_root, video_root, document_root, mode)
     if args.resume and previous_state:
         state["created_at"] = previous_state.get("created_at") or state["created_at"]
         state["stages"] = previous_state.get("stages") if isinstance(previous_state.get("stages"), list) else []
@@ -363,45 +479,185 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
     document_scripts = document_skill_root / "scripts"
     py = sys.executable
 
-    run_stage(
-        "transcript_normalizer",
-        [
+    if mode == "platform_url":
+        platform_command = [
             py,
-            str(script_path(video_skill_root, "transcript_normalizer.py")),
+            str(script_path(video_skill_root, "platform_media_runner.py")),
             "--input",
-            str(args.input_transcript.expanduser().resolve()),
+            str(args.input_url),
             "--output-root",
             str(video_root),
+            "--mode",
+            args.platform_mode,
+            "--timeout-seconds",
+            str(args.platform_timeout_seconds),
+            "--subtitle-languages",
+            args.subtitle_languages,
+        ]
+        if args.youtube_cookies:
+            platform_command.extend(["--youtube-cookies", args.youtube_cookies])
+        if args.ytdlp:
+            platform_command.extend(["--ytdlp", args.ytdlp])
+        if args.node:
+            platform_command.extend(["--node", args.node])
+        if args.no_doctor:
+            platform_command.append("--no-doctor")
+        if args.use_js_runtime:
+            platform_command.append("--use-js-runtime")
+        if args.use_remote_components:
+            platform_command.append("--use-remote-components")
+        run_stage("platform_media_runner", platform_command, video_scripts)
+        platform_result = read_json(video_root / "00_source" / "platform_media_result.json")
+        subtitle_file = first_existing_file(list(platform_result.get("acquired_subtitle_files") or []))
+        audio_file = first_existing_file(list(platform_result.get("acquired_audio_files") or []))
+        if subtitle_file:
+            state["route_decision"] = "normalize_acquired_subtitle"
+            write_run_state(run_state_path, state)
+            run_stage(
+                "transcript_normalizer",
+                [
+                    py,
+                    str(script_path(video_skill_root, "transcript_normalizer.py")),
+                    "--input",
+                    str(subtitle_file),
+                    "--output-root",
+                    str(video_root),
+                    "--language",
+                    args.language,
+                ],
+                video_scripts,
+            )
+        elif audio_file:
+            state["route_decision"] = "run_asr_on_acquired_audio"
+            write_run_state(run_state_path, state)
+            asr_command = [
+                py,
+                str(script_path(video_skill_root, "asr_pipeline.py")),
+                "--input-media",
+                str(audio_file),
+                "--output-root",
+                str(video_root),
+                "--model",
+                args.asr_model,
+                "--language",
+                args.language if args.language != "unknown" else "",
+                "--device",
+                args.asr_device,
+                "--compute-type",
+                args.asr_compute_type,
+                "--timeout-seconds",
+                str(args.asr_timeout_seconds),
+                "--vad" if args.asr_vad else "--no-vad",
+            ]
+            if args.asr_python:
+                asr_command.extend(["--asr-python", args.asr_python])
+            if args.asr_jsonl:
+                asr_command.extend(["--asr-jsonl", str(args.asr_jsonl.expanduser().resolve())])
+            run_stage("asr_pipeline", [item for item in asr_command if item != ""], video_scripts)
+        else:
+            source_status = read_json(video_root / "00_source" / "source_status.json")
+            degraded = write_text(
+                video_root / "00_source" / "degraded_acquisition_report.md",
+                render_degraded_report(
+                    input_value=str(args.input_url),
+                    mode=mode,
+                    source_status=source_status,
+                    platform_result=platform_result,
+                ),
+            )
+            state["status"] = "completed"
+            state["workflow_outcome"] = "degraded_acquisition_only"
+            state["route_decision"] = "stop_without_primary_material"
+            state["current_stage"] = "platform_media_runner"
+            state["next_stage"] = source_status.get("next_step") or "request_primary_material"
+            state["completed_at"] = now_iso()
+            write_run_state(run_state_path, state)
+            summary = {
+                "runner": RUNNER_NAME,
+                "mode": mode,
+                "workflow_outcome": "degraded_acquisition_only",
+                "generated_at": now_iso(),
+                "project_root": str(project_root),
+                "video_root": str(video_root),
+                "document_root": str(document_root),
+                "steps": [stage_summary(step) for step in steps],
+                "source_status": source_status.get("source_status"),
+                "can_enter_full_decomposition": False,
+                "video_analysis_pack": "",
+                "composer_intake": "",
+                "final_report_written": False,
+                "degraded_report": degraded["path"],
+                "run_state": str(run_state_path),
+                "resume_enabled": bool(args.resume),
+                "next_step": source_status.get("next_step") or "request_primary_material",
+            }
+            write_json(logs_root / "end_to_end_summary.json", summary)
+            return summary
+    elif mode == "local_media":
+        asr_command = [
+            py,
+            str(script_path(video_skill_root, "asr_pipeline.py")),
+            "--input-media",
+            str(args.input_media.expanduser().resolve()),
+            "--output-root",
+            str(video_root),
+            "--model",
+            args.asr_model,
             "--language",
-            args.language,
-        ],
-        video_scripts,
-    )
-    run_stage(
-        "transcript_segmenter",
-        [py, str(script_path(video_skill_root, "transcript_segmenter.py")), "--output-root", str(video_root)],
-        video_scripts,
-    )
-    run_stage(
-        "inventory_extractor",
-        [py, str(script_path(video_skill_root, "inventory_extractor.py")), "--output-root", str(video_root)],
-        video_scripts,
-    )
-    run_stage(
-        "source_logic_builder",
-        [py, str(script_path(video_skill_root, "source_logic_builder.py")), "--output-root", str(video_root)],
-        video_scripts,
-    )
-    run_stage(
-        "evidence_auditor",
-        [py, str(script_path(video_skill_root, "evidence_auditor.py")), "--output-root", str(video_root)],
-        video_scripts,
-    )
-    run_stage(
-        "video_analysis_pack_builder",
-        [py, str(script_path(video_skill_root, "video_analysis_pack_builder.py")), "--output-root", str(video_root)],
-        video_scripts,
-    )
+            args.language if args.language != "unknown" else "",
+            "--device",
+            args.asr_device,
+            "--compute-type",
+            args.asr_compute_type,
+            "--timeout-seconds",
+            str(args.asr_timeout_seconds),
+            "--vad" if args.asr_vad else "--no-vad",
+        ]
+        if args.asr_python:
+            asr_command.extend(["--asr-python", args.asr_python])
+        if args.asr_jsonl:
+            asr_command.extend(["--asr-jsonl", str(args.asr_jsonl.expanduser().resolve())])
+        run_stage("asr_pipeline", [item for item in asr_command if item != ""], video_scripts)
+    else:
+        run_stage(
+            "transcript_normalizer",
+            [
+                py,
+                str(script_path(video_skill_root, "transcript_normalizer.py")),
+                "--input",
+                str(args.input_transcript.expanduser().resolve()),
+                "--output-root",
+                str(video_root),
+                "--language",
+                args.language,
+            ],
+            video_scripts,
+        )
+
+    for stage, command in [
+        (
+            "transcript_segmenter",
+            [py, str(script_path(video_skill_root, "transcript_segmenter.py")), "--output-root", str(video_root)],
+        ),
+        (
+            "inventory_extractor",
+            [py, str(script_path(video_skill_root, "inventory_extractor.py")), "--output-root", str(video_root)],
+        ),
+        (
+            "source_logic_builder",
+            [py, str(script_path(video_skill_root, "source_logic_builder.py")), "--output-root", str(video_root)],
+        ),
+        (
+            "evidence_auditor",
+            [py, str(script_path(video_skill_root, "evidence_auditor.py")), "--output-root", str(video_root)],
+        ),
+        (
+            "video_analysis_pack_builder",
+            [py, str(script_path(video_skill_root, "video_analysis_pack_builder.py")), "--output-root", str(video_root)],
+        ),
+    ]:
+        run_stage(stage, command, video_scripts)
+
     run_stage(
         "document_composer_runner",
         [
@@ -429,7 +685,8 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
 
     summary = {
         "runner": RUNNER_NAME,
-        "mode": "local_transcript",
+        "mode": mode,
+        "workflow_outcome": "analysis_pack_and_document_planning",
         "generated_at": now_iso(),
         "project_root": str(project_root),
         "video_root": str(video_root),
@@ -446,9 +703,17 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
+def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
+    if args.input_transcript is None:
+        raise EndToEndRunnerError("--input-transcript is required for local-transcript mode")
+    return run_workflow(args)
+
+
 def make_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run a local transcript through the knowledge workflow.")
+    parser = argparse.ArgumentParser(description="Run transcript, media, or URL input through the knowledge workflow.")
     parser.add_argument("--input-transcript", type=Path, default=None, help="Local transcript/subtitle file.")
+    parser.add_argument("--input-media", type=Path, default=None, help="Local audio/video file for ASR.")
+    parser.add_argument("--input-url", default=None, help="Platform video URL.")
     parser.add_argument("--project-root", type=Path, default=None, help="Project root containing 10_video and 20_document.")
     parser.add_argument("--output-base", type=Path, default=Path("outputs") / "knowledge-workflow", help="Base output directory when project-root is omitted.")
     parser.add_argument("--language", default="unknown", help="Transcript language label.")
@@ -457,7 +722,24 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--audience", default="reader who needs an auditable source-faithful explanation", help="Intended audience.")
     parser.add_argument("--video-skill-root", type=Path, default=default_skill_root("knowledge-video-decomposer"), help="knowledge-video-decomposer skill root.")
     parser.add_argument("--document-skill-root", type=Path, default=default_skill_root("knowledge-document-composer"), help="knowledge-document-composer skill root.")
-    parser.add_argument("--resume", action="store_true", help="Resume a previous local transcript run by skipping completed stages whose expected outputs still exist.")
+    parser.add_argument("--platform-mode", choices=["auto", "probe", "subtitles", "audio"], default="auto", help="Platform media acquisition mode for URL input.")
+    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt.")
+    parser.add_argument("--ytdlp", default=None, help="Optional yt-dlp executable override.")
+    parser.add_argument("--node", default=None, help="Optional Node.js executable override.")
+    parser.add_argument("--platform-timeout-seconds", type=int, default=90, help="Timeout for platform acquisition commands.")
+    parser.add_argument("--no-doctor", action="store_true", help="Skip doctor during platform acquisition.")
+    parser.add_argument("--use-js-runtime", action="store_true", help="Pass Node.js to yt-dlp through platform media runner.")
+    parser.add_argument("--use-remote-components", action="store_true", help="Allow yt-dlp remote solver components through platform media runner.")
+    parser.add_argument("--subtitle-languages", default="all,-live_chat", help="Subtitle language selector for platform media runner.")
+    parser.add_argument("--asr-jsonl", type=Path, default=None, help="Existing ASR JSONL to normalize instead of running ASR.")
+    parser.add_argument("--asr-python", default=None, help="Python runtime for faster-whisper.")
+    parser.add_argument("--asr-model", default="base", help="faster-whisper model name or local path.")
+    parser.add_argument("--asr-device", default="cpu", help="faster-whisper device.")
+    parser.add_argument("--asr-compute-type", default="int8", help="faster-whisper compute type.")
+    parser.add_argument("--asr-timeout-seconds", type=float, default=0.0, help="Soft ASR timeout seconds.")
+    parser.add_argument("--no-vad", dest="asr_vad", action="store_false", help="Disable VAD filtering for ASR.")
+    parser.set_defaults(asr_vad=True)
+    parser.add_argument("--resume", action="store_true", help="Resume a previous transcript, media, or URL run by skipping completed stages whose expected outputs still exist.")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print summary JSON.")
     parser.add_argument("--self-test", action="store_true", help="Run built-in tests.")
     return parser
@@ -481,6 +763,256 @@ def write_fixture_transcript(path: Path) -> None:
         )
         + "\n",
     )
+
+
+def write_fake_skill_scripts(base: Path) -> tuple[Path, Path]:
+    video_root = base / "fake_video_skill"
+    document_root = base / "fake_document_skill"
+    video_scripts = video_root / "scripts"
+    document_scripts = document_root / "scripts"
+    video_scripts.mkdir(parents=True, exist_ok=True)
+    document_scripts.mkdir(parents=True, exist_ok=True)
+
+    common = r'''
+import argparse, json
+from pathlib import Path
+
+def write_text(path, text):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+def write_json(path, payload):
+    write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+def emit(payload):
+    print(json.dumps(payload, ensure_ascii=False))
+'''
+
+    write_text(
+        video_scripts / "platform_media_runner.py",
+        common
+        + r'''
+p = argparse.ArgumentParser()
+p.add_argument("--input", required=True)
+p.add_argument("--output-root", type=Path, required=True)
+p.add_argument("--mode", default="auto")
+p.add_argument("--timeout-seconds", default="1")
+p.add_argument("--subtitle-languages", default="all")
+p.add_argument("--youtube-cookies", default=None)
+p.add_argument("--ytdlp", default=None)
+p.add_argument("--node", default=None)
+p.add_argument("--no-doctor", action="store_true")
+p.add_argument("--use-js-runtime", action="store_true")
+p.add_argument("--use-remote-components", action="store_true")
+args = p.parse_args()
+root = args.output_root
+source_status = {
+    "source_status": "secondary_only",
+    "can_enter_full_decomposition": False,
+    "can_enter_document_composer": True,
+    "allowed_report_type": "degraded_source_report",
+    "source_classes": ["platform_metadata"],
+    "primary_material_available": False,
+    "status_reason": "fake metadata only",
+    "failed_probes": [],
+    "next_step": "request_primary_material",
+}
+subtitles = []
+audio = []
+material_state = "no_primary_material_acquired"
+if "subtitle" in args.input:
+    sub = root / "00_source" / "raw" / "subtitles" / "fake.srt"
+    write_text(sub, "1\n00:00:00,000 --> 00:00:02,000\nFake subtitle text.\n")
+    subtitles = [str(sub.resolve())]
+    source_status.update({
+        "source_status": "source_confirmed",
+        "can_enter_full_decomposition": True,
+        "can_enter_document_composer": True,
+        "allowed_report_type": "full_video_analysis_pack",
+        "source_classes": ["primary_transcript"],
+        "primary_material_available": True,
+        "status_reason": "fake subtitle acquired",
+        "next_step": "normalize_acquired_subtitle",
+    })
+    material_state = "subtitle_acquired"
+elif "audio" in args.input:
+    media = root / "00_source" / "raw" / "audio" / "fake.mp3"
+    media.parent.mkdir(parents=True, exist_ok=True)
+    media.write_bytes(b"fake audio")
+    audio = [str(media.resolve())]
+    source_status.update({
+        "status_reason": "fake audio acquired pending ASR",
+        "next_step": "run_asr_pipeline_on_acquired_audio",
+        "pending_primary_media_for_asr": audio,
+    })
+    material_state = "audio_acquired_pending_asr"
+elif "blocked" in args.input:
+    source_status.update({
+        "source_status": "source_blocked",
+        "allowed_report_type": "acquisition_failure_report",
+        "can_enter_document_composer": True,
+        "source_classes": [],
+        "status_reason": "fake platform block",
+        "next_step": "request_primary_material",
+    })
+write_json(root / "00_source" / "source_status.json", source_status)
+result = {
+    "runner": "fake-platform-media-runner",
+    "input": args.input,
+    "source_status": source_status,
+    "acquired_subtitle_files": subtitles,
+    "acquired_audio_files": audio,
+    "decision": {"material_state": material_state, "next_step": source_status["next_step"]},
+    "material_state": material_state,
+}
+write_json(root / "00_source" / "platform_media_result.json", result)
+write_text(root / "00_source" / "platform_media_notes.md", "# Fake Platform Media Notes\n")
+emit({"runner": "fake-platform-media-runner", "source_status": source_status["source_status"], "material_state": material_state, "acquired_subtitle_files": subtitles, "acquired_audio_files": audio, "next_step": source_status["next_step"]})
+''',
+    )
+
+    write_text(
+        video_scripts / "transcript_normalizer.py",
+        common
+        + r'''
+p = argparse.ArgumentParser()
+p.add_argument("--input", required=True)
+p.add_argument("--output-root", type=Path, required=True)
+p.add_argument("--language", default="unknown")
+args = p.parse_args()
+root = args.output_root
+status = {
+    "source_status": "source_confirmed",
+    "can_enter_full_decomposition": True,
+    "can_enter_document_composer": True,
+    "allowed_report_type": "full_video_analysis_pack",
+    "source_classes": ["primary_transcript"],
+    "primary_material_available": True,
+    "status_reason": "fake normalized transcript",
+    "failed_probes": [],
+    "next_step": "enter_segmentation_inventory_logic_gap_check",
+}
+write_json(root / "00_source" / "source_status.json", status)
+write_text(root / "01_transcript" / "clean_transcript.jsonl", json.dumps({"id":"t001","text":"Fake transcript text.","normalized_text":"Fake transcript text.","source_ids":["raw_001"],"language":args.language}, ensure_ascii=False) + "\n")
+write_text(root / "01_transcript" / "clean_transcript.md", "# Clean Transcript\n\nFake transcript text.\n")
+emit({"runner": "fake-transcript-normalizer", "source_status": "source_confirmed", "next_step": "enter_segmentation_inventory_logic_gap_check"})
+''',
+    )
+
+    write_text(
+        video_scripts / "asr_pipeline.py",
+        common
+        + r'''
+p = argparse.ArgumentParser()
+p.add_argument("--input-media", type=Path, required=True)
+p.add_argument("--output-root", type=Path, required=True)
+p.add_argument("--model", default="base")
+p.add_argument("--language", default=None)
+p.add_argument("--device", default="cpu")
+p.add_argument("--compute-type", default="int8")
+p.add_argument("--timeout-seconds", default="0")
+p.add_argument("--asr-python", default=None)
+p.add_argument("--asr-jsonl", default=None)
+p.add_argument("--vad", action="store_true")
+p.add_argument("--no-vad", action="store_true")
+args = p.parse_args()
+root = args.output_root
+status = {
+    "source_status": "source_confirmed",
+    "can_enter_full_decomposition": True,
+    "can_enter_document_composer": True,
+    "allowed_report_type": "full_video_analysis_pack",
+    "source_classes": ["primary_audio_asr"],
+    "primary_material_available": True,
+    "status_reason": "fake ASR transcript",
+    "failed_probes": [],
+    "next_step": "enter_segmentation_inventory_logic_gap_check",
+}
+write_json(root / "00_source" / "source_status.json", status)
+write_json(root / "00_source" / "asr_pipeline_report.json", {"runner":"fake-asr-pipeline","input_media":str(args.input_media)})
+write_text(root / "01_transcript" / "clean_transcript.jsonl", json.dumps({"id":"t001","text":"Fake ASR text.","normalized_text":"Fake ASR text.","source_ids":["asr_001"],"language":args.language or "unknown"}, ensure_ascii=False) + "\n")
+write_text(root / "01_transcript" / "clean_transcript.md", "# Clean Transcript\n\nFake ASR text.\n")
+emit({"runner": "fake-asr-pipeline", "source_status": "source_confirmed", "source_class": "primary_audio_asr", "next_step": "enter_segmentation_inventory_logic_gap_check"})
+''',
+    )
+
+    write_text(
+        video_scripts / "transcript_segmenter.py",
+        common
+        + r'''
+p = argparse.ArgumentParser(); p.add_argument("--output-root", type=Path, required=True); args = p.parse_args(); root = args.output_root
+write_json(root / "02_segments" / "syntax_segments.json", {"segments":[{"id":"seg_syntax_001","transcript_ids":["t001"],"text":"Fake text."}]})
+write_json(root / "02_segments" / "argument_segments.json", {"segments":[{"id":"seg_argument_001","role":"opening","transcript_ids":["t001"],"evidence_spans":[{"transcript_ids":["t001"],"quote":"Fake text.","source":"clean_transcript"}]}]})
+emit({"runner":"fake-transcript-segmenter","next_step":"enter_inventory_extractor"})
+''',
+    )
+    write_text(
+        video_scripts / "inventory_extractor.py",
+        common
+        + r'''
+p = argparse.ArgumentParser(); p.add_argument("--output-root", type=Path, required=True); args = p.parse_args(); root = args.output_root
+span = [{"transcript_ids":["t001"],"quote":"Fake text.","source":"clean_transcript"}]
+write_json(root / "03_inventory" / "claims.json", {"claims":[{"id":"claim_001","text":"Fake claim.","claim_type":"source_claim","evidence_spans":span}]})
+write_json(root / "03_inventory" / "examples.json", {"examples":[]})
+write_json(root / "03_inventory" / "concepts.json", {"concepts":[]})
+write_json(root / "03_inventory" / "analogies.json", {"analogies":[]})
+emit({"runner":"fake-inventory-extractor","next_step":"enter_source_logic_builder"})
+''',
+    )
+    write_text(
+        video_scripts / "source_logic_builder.py",
+        common
+        + r'''
+p = argparse.ArgumentParser(); p.add_argument("--output-root", type=Path, required=True); args = p.parse_args(); root = args.output_root
+span = [{"transcript_ids":["t001"],"quote":"Fake text.","source":"clean_transcript"}]
+write_text(root / "04_logic" / "source_logic.md", "# Source Logic\n\nFake source logic.\n")
+write_json(root / "04_logic" / "logic_graph.json", {"nodes":[{"id":"claim_001","type":"claim","evidence_spans":span}],"edges":[]})
+emit({"runner":"fake-source-logic-builder","next_step":"enter_evidence_auditor"})
+''',
+    )
+    write_text(
+        video_scripts / "evidence_auditor.py",
+        common
+        + r'''
+p = argparse.ArgumentParser(); p.add_argument("--output-root", type=Path, required=True); args = p.parse_args(); root = args.output_root
+write_json(root / "05_gap_check" / "evidence_audit.json", {"runner":"fake-evidence-auditor","source_status":"source_confirmed","severity_counts":{"error":0,"warning":0,"info":0},"findings":[],"pack_gate":{"can_build_video_analysis_pack":True,"can_build_partial_pack":False,"next_step":"enter_video_analysis_pack_builder"}})
+write_text(root / "05_gap_check" / "gap_check.md", "# Gap Check\n")
+emit({"runner":"fake-evidence-auditor","validation_next_step":"enter_video_analysis_pack_builder"})
+''',
+    )
+    write_text(
+        video_scripts / "video_analysis_pack_builder.py",
+        common
+        + r'''
+p = argparse.ArgumentParser(); p.add_argument("--output-root", type=Path, required=True); args = p.parse_args(); root = args.output_root
+write_text(root / "video_analysis_pack.md", "# Video Analysis Pack\n\nFake pack.\n")
+emit({"runner":"fake-video-analysis-pack-builder","pack_path":str((root / "video_analysis_pack.md").resolve()),"next_step":"enter_document_composer"})
+''',
+    )
+    write_text(
+        document_scripts / "document_composer_runner.py",
+        common
+        + r'''
+p = argparse.ArgumentParser()
+p.add_argument("--video-root", type=Path, required=True)
+p.add_argument("--document-root", type=Path, required=True)
+p.add_argument("--document-goal", default="")
+p.add_argument("--final-language", default="")
+p.add_argument("--audience", default="")
+args = p.parse_args()
+root = args.document_root
+write_json(root / "composer_intake.json", {"composer_decision":"full","video_root":str(args.video_root)})
+write_text(root / "commitments.md", "# Commitments\n")
+write_text(root / "source_reconstruction.md", "# Source Reconstruction\n")
+write_json(root / "claim_map.json", {"claims":[]})
+write_text(root / "expansion_plan.md", "# Expansion Plan\n")
+write_text(root / "report_outline.md", "# Report Outline\n")
+write_text(root / "quality_check.md", "# Quality Check\n")
+emit({"runner":"fake-document-composer-runner","composer_decision":"full","final_report_written":False,"document_root":str(root.resolve()),"next_step":"draft_report_with_quality_gates"})
+''',
+    )
+    return video_root, document_root
 
 
 def run_self_test() -> int:
@@ -557,6 +1089,92 @@ def run_self_test() -> int:
         else:
             failures.append("resume changed input: expected EndToEndRunnerError")
 
+        fake_video_root, fake_document_root = write_fake_skill_scripts(base)
+
+        def fake_args(**overrides: Any) -> argparse.Namespace:
+            payload: dict[str, Any] = {
+                "input_transcript": None,
+                "input_media": None,
+                "input_url": None,
+                "project_root": base / "fake_project",
+                "output_base": base / "outputs",
+                "language": "en",
+                "document_goal": "Fake document",
+                "final_language": "zh-CN",
+                "audience": "workflow reviewer",
+                "video_skill_root": fake_video_root,
+                "document_skill_root": fake_document_root,
+                "platform_mode": "auto",
+                "youtube_cookies": None,
+                "ytdlp": None,
+                "node": None,
+                "platform_timeout_seconds": 1,
+                "no_doctor": True,
+                "use_js_runtime": False,
+                "use_remote_components": False,
+                "subtitle_languages": "all,-live_chat",
+                "asr_jsonl": None,
+                "asr_python": None,
+                "asr_model": "base",
+                "asr_device": "cpu",
+                "asr_compute_type": "int8",
+                "asr_timeout_seconds": 0.0,
+                "asr_vad": True,
+                "resume": False,
+            }
+            payload.update(overrides)
+            return argparse.Namespace(**payload)
+
+        url_sub_project = base / "url_subtitle_project"
+        url_subtitle = run_workflow(
+            fake_args(input_url="https://example.invalid/subtitle", project_root=url_sub_project)
+        )
+        assert_true("url subtitle mode", url_subtitle["mode"] == "platform_url", failures)
+        assert_true("url subtitle pack", (url_sub_project / "10_video" / "video_analysis_pack.md").is_file(), failures)
+        url_sub_stage_names = [step["stage"] for step in url_subtitle["steps"]]
+        assert_true("url subtitle platform stage", "platform_media_runner" in url_sub_stage_names, failures)
+        assert_true("url subtitle normalizer stage", "transcript_normalizer" in url_sub_stage_names, failures)
+
+        url_subtitle_resume = run_workflow(
+            fake_args(input_url="https://example.invalid/subtitle", project_root=url_sub_project, resume=True)
+        )
+        resume_state = read_json(url_sub_project / "logs" / "run_state.json")
+        platform_rows = [row for row in resume_state.get("stages", []) if row.get("stage") == "platform_media_runner"]
+        assert_true(
+            "url resume skips platform stage",
+            platform_rows and platform_rows[-1].get("status") == "skipped",
+            failures,
+            json.dumps(resume_state, ensure_ascii=False),
+        )
+        assert_true("url resume enabled", url_subtitle_resume["resume_enabled"] is True, failures)
+
+        url_audio_project = base / "url_audio_project"
+        url_audio = run_workflow(fake_args(input_url="https://example.invalid/audio", project_root=url_audio_project))
+        assert_true("url audio pack", (url_audio_project / "10_video" / "video_analysis_pack.md").is_file(), failures)
+        url_audio_stage_names = [step["stage"] for step in url_audio["steps"]]
+        assert_true("url audio asr stage", "asr_pipeline" in url_audio_stage_names, failures)
+
+        local_media_project = base / "local_media_project"
+        media = base / "fake_media.mp3"
+        media.write_bytes(b"fake media")
+        local_media = run_workflow(fake_args(input_media=media, project_root=local_media_project))
+        assert_true("local media mode", local_media["mode"] == "local_media", failures)
+        assert_true("local media asr stage", local_media["steps"][0]["stage"] == "asr_pipeline", failures)
+
+        metadata_project = base / "metadata_project"
+        metadata_only = run_workflow(fake_args(input_url="https://example.invalid/metadata", project_root=metadata_project))
+        assert_true("metadata degraded outcome", metadata_only["workflow_outcome"] == "degraded_acquisition_only", failures)
+        assert_true("metadata no pack", not (metadata_project / "10_video" / "video_analysis_pack.md").exists(), failures)
+        assert_true("metadata no segments", not (metadata_project / "10_video" / "02_segments").exists(), failures)
+
+        blocked_project = base / "blocked_project"
+        blocked = run_workflow(fake_args(input_url="https://example.invalid/blocked", project_root=blocked_project))
+        assert_true("blocked degraded outcome", blocked["workflow_outcome"] == "degraded_acquisition_only", failures)
+        assert_true("blocked source status", blocked["source_status"] == "source_blocked", failures)
+        assert_true("blocked no pack", not (blocked_project / "10_video" / "video_analysis_pack.md").exists(), failures)
+        assert_true("blocked no segments", not (blocked_project / "10_video" / "02_segments").exists(), failures)
+        assert_true("blocked no document intake", not (blocked_project / "20_document" / "composer_intake.json").exists(), failures)
+
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)
@@ -573,7 +1191,7 @@ def main() -> int:
         return run_self_test()
 
     try:
-        summary = run_local_transcript_workflow(args)
+        summary = run_workflow(args)
     except EndToEndRunnerError as exc:
         emit_json(
             {

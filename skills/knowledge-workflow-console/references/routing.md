@@ -61,11 +61,15 @@ Route:
 
 Productized runner:
 
-- When the input is a local transcript/subtitle file and the user wants the full
-  gated workflow through video analysis pack plus document planning, use
-  `scripts/end_to_end_runner.py`.
-- The runner currently covers only the local transcript/subtitle route. It does
-  not fetch media, launch Chrome, run ASR, or process a platform URL directly.
+- When the input is a local transcript/subtitle file, local media file, or
+  platform URL and the user wants the gated workflow through video analysis pack
+  plus document planning, use `scripts/end_to_end_runner.py`.
+- For URL input, the runner calls the video decomposer platform media runner
+  first. If subtitles are acquired, it normalizes them. If audio is acquired, it
+  runs ASR. If only metadata, blocked state, or failed acquisition remains, it
+  writes degraded acquisition output and does not create a full analysis pack.
+- The runner does not launch or control Chrome. If Chrome deep-probe is needed,
+  use the video decomposer Chrome route before or around the runner.
 
 If the user explicitly only wants an article or report, route directly to knowledge-document-composer.
 

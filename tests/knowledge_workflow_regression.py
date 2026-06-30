@@ -127,6 +127,15 @@ def test_local_transcript_e2e(base: Path) -> None:
     assert_true("final report not written", not (project_root / "20_document" / "final_report.md").exists())
 
 
+def test_end_to_end_runner_self_test(base: Path) -> None:
+    result = run_ok(
+        [sys.executable, str(CONSOLE / "scripts" / "end_to_end_runner.py"), "--self-test"],
+        cwd=CONSOLE / "scripts",
+        timeout=240,
+    )
+    assert_true("end-to-end self-test", "self-test passed" in result["stdout"])
+
+
 def test_asr_resume(base: Path) -> None:
     root = base / "asr_resume" / "10_video"
     media = base / "asr_resume" / "fixture.mp3"
@@ -248,6 +257,7 @@ def test_blocked_validator(base: Path) -> None:
 def main() -> int:
     tests = [
         test_local_transcript_e2e,
+        test_end_to_end_runner_self_test,
         test_asr_resume,
         test_chrome_url_only_gate,
         test_platform_media_runner_gate,

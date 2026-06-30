@@ -103,7 +103,18 @@ Producer: knowledge-workflow-console
 
 Consumers: knowledge-workflow-console, user-facing closeout
 
-Use `scripts/end_to_end_runner.py` only for the local transcript/subtitle route.
+Use `scripts/end_to_end_runner.py` for the productized transcript-to-document
+workflow. Supported inputs:
+
+- `--input-transcript`: normalize a local transcript/subtitle, then run the
+  decomposition and document planning stages.
+- `--input-media`: run local ASR, then run the decomposition and document
+  planning stages.
+- `--input-url`: run platform media acquisition first. If subtitles are
+  acquired, normalize them. If audio is acquired, run ASR. If no primary
+  material is acquired, stop at degraded acquisition output without creating a
+  full analysis pack.
+
 It orchestrates existing stage scripts and writes:
 
 ```text
@@ -118,6 +129,26 @@ logs/end_to_end_summary.json
 20_document/expansion_plan.md
 20_document/report_outline.md
 20_document/quality_check.md
+```
+
+URL mode may also write:
+
+```text
+10_video/00_source/platform_media_result.json
+10_video/00_source/platform_media_notes.md
+10_video/00_source/degraded_acquisition_report.md
+```
+
+When URL mode stops degraded, it must not write:
+
+```text
+10_video/01_transcript/*
+10_video/02_segments/*
+10_video/03_inventory/*
+10_video/04_logic/*
+10_video/05_gap_check/*
+10_video/video_analysis_pack.md
+20_document/*
 ```
 
 It must not write:
@@ -141,12 +172,17 @@ Suggested fields:
 {
   "runner": "knowledge-workflow-end-to-end-runner",
   "schema_version": 1,
-  "mode": "local_transcript",
+  "mode": "local_transcript|local_media|platform_url",
   "status": "running|completed|failed",
+  "workflow_outcome": "analysis_pack_and_document_planning|degraded_acquisition_only",
   "project_root": "",
   "video_root": "",
   "document_root": "",
   "input_transcript": "",
+  "input_media": "",
+  "input_url": "",
+  "input_identity": "",
+  "route_decision": "",
   "resume_enabled": false,
   "current_stage": "",
   "next_stage": "",
@@ -170,4 +206,8 @@ Resume rule:
 - `--resume` may skip a stage only when run state marks that stage
   `completed` or `skipped` and the stage's expected output files still exist.
 - If expected outputs are missing, rerun the stage.
+- URL mode may skip `platform_media_runner` only when
+  `10_video/00_source/platform_media_result.json`,
+  `10_video/00_source/platform_media_notes.md`, and
+  `10_video/00_source/source_status.json` still exist.
 - If a stage fails, preserve the failed record and do not continue downstream.

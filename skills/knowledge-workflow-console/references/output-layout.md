@@ -43,6 +43,27 @@ Store workflow logs in `logs\`:
 - acceptance_report.md
 - rework_notes.md
 
+## URL / Media Acquisition Outputs
+
+When `end_to_end_runner.py` starts from `--input-url`, store platform
+acquisition outputs under `10_video\00_source\`:
+
+- platform_media_result.json
+- platform_media_notes.md
+- acquisition_runner_report.json
+- acquisition_notes.md
+- degraded_acquisition_report.md, only when no primary material was acquired
+
+If URL mode acquires subtitles, the normal transcript layout under
+`10_video\01_transcript\` may be created by the transcript normalizer.
+
+If URL mode or `--input-media` runs ASR, ASR provenance goes under
+`10_video\00_source\` and transcript artifacts under `10_video\01_transcript\`.
+
+If URL mode has only metadata, blocked state, or failed acquisition, do not
+create the full analysis directory appearance beyond `00_source\`, and do not
+create `video_analysis_pack.md` or `20_document\` planning artifacts.
+
 ## Naming Rules
 
 - Use both .jsonl and .md formats for transcripts.
