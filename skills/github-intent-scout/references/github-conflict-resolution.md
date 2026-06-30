@@ -79,6 +79,8 @@ If a conflict cannot be resolved:
 - Mark adoption class as compare-before-choosing, component-use, reference-only, or unverified as appropriate.
 - Name what evidence would settle it: runtime test, source inspection, maintainer docs, release note, issue, or user constraint.
 
+If resolution was blocked by code search empty, API/rate-limit failure, auth failure, README encoding failure, raw file failure, path 404, missing registry entry, archived/migrated repo, or README-file mismatch, record a compact Blocked Step with cause, recovery used, evidence lost, and confidence impact.
+
 ## Scorecard Impact
 
 Evidence conflicts should affect scoring:

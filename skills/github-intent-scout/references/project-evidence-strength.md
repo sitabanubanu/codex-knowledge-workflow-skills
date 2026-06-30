@@ -2,6 +2,19 @@
 
 Use this reference when judging how much to trust GitHub project claims.
 
+## Contents
+
+- Core Rule
+- Evidence Strength Ladder
+- Claim-To-Evidence Fit
+- Install Source Strength
+- Security/Data Boundary Signal
+- Evidence Level Tags
+- Search Evidence Positioning
+- Weak Evidence Rules
+- Evidence Strength Output
+- Best Match Minimum
+
 ## Core Rule
 
 Treat README claims, stars, names, descriptions, and search snippets as leads, not proof. Prefer runtime behavior, implementation files, interfaces, examples, and current project artifacts.
@@ -57,6 +70,33 @@ For tools, scripts, plugins, MCP servers, or private-data workflows, identify th
 | `Opinion` | Judgment, preference, or recommendation rather than evidence. |
 
 README-only claims are usually `ReasonableInference` or `Unverified` unless backed by files. Stars cannot make a claim `Supported`. Missing parser/adapter code turns broad support claims into `Overstated` or `Unsupported`.
+
+## Evidence Level Tags
+
+Keep adoption recommendation separate from evidence level. Adoption says how to use the project; Evidence Level says what checked evidence supports that action.
+
+Use lightweight tags for Best Match or serious candidates:
+
+- `README-claimed`
+- `README-verified`
+- `source-path-checked`
+- `package-metadata-checked`
+- `install-source-verified`
+- `runtime-verified`
+- `runtime-unverified`
+- `conflict-unresolved`
+- `path-ambiguous`
+- `direction-ambiguous`
+
+Do not turn these tags into a scoring system. Use only the tags that matter.
+
+## Search Evidence Positioning
+
+Repo search and web search can discover candidates. Repository file inspection is the main evidence source. Code search is useful for horizontal discovery and supplemental checks, but low-yield code search does not automatically lower a candidate's value.
+
+When code search is empty, mark it as low-yield and move to repo search, file tree, README, package metadata, and source-path checks. Do not conclude that no project exists from code search alone.
+
+When fallback loses evidence, note the loss: `runtime-unverified`, `path-ambiguous`, `install-source unknown`, or `conflict-unresolved`.
 
 ## Weak Evidence Rules
 

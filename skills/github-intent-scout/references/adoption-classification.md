@@ -6,6 +6,8 @@ Use this reference to state what the user should do with each serious candidate 
 
 Keep adoption class separate from best use role. Do not stretch a component or reference into a direct recommendation just to have an answer.
 
+Keep adoption recommendation separate from evidence level. `direct-use` or `light-adapt` describes the action path, not proof that runtime was verified. Pair serious recommendations with an Evidence Level such as `README-verified + source-path-checked + runtime-unverified`.
+
 ## Adoption Classes
 
 | Adoption Class | Meaning | Typical Next Step |
@@ -35,6 +37,7 @@ When adoption matters, classify candidates with `unknown` install source cautiou
 
 - `Best use role` says where the candidate sits in the solution architecture.
 - `Adoption Class` says what action the user should take.
+- `Evidence Level` says what checked evidence supports that action.
 
 Example: a parser library may have best use role `supporting-component` and adoption class `component-use`.
 

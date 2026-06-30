@@ -2,6 +2,17 @@
 
 Use this reference before serious candidates enter claim checks, scoring, or adoption recommendations.
 
+## Contents
+
+- Core Rule
+- When To Write Project Notes
+- Project Note Template
+- Field Guidance
+- Evidence Compression Rules
+- Decision Use
+- Compact Output
+- Project Note Quality Check
+
 ## Core Rule
 
 A Project Note is the bridge between raw repo discovery and final recommendation. Do not score or recommend a serious candidate until its claims, evidence, caveats, and adoption path are compressed into a Project Note.
@@ -27,10 +38,12 @@ Project Note:
 - Repo:
 - URL:
 - Answer shape:
+- Subtype:
 - Direction:
 - Candidate category:
 - Best use role:
 - Adoption class:
+- Evidence level:
 - Upstream / family relationship:
 - Claimed mechanism:
 - Verified mechanism:
@@ -43,6 +56,10 @@ Project Note:
 - Data boundary:
 - Install source:
 - Security/data boundary:
+- Transform semantics:
+- Copy or sync only:
+- Host-specific rewrite:
+- Target host validation:
 - Maintenance signal:
 - Smallest adoption path:
 - Caveat:
@@ -54,14 +71,20 @@ Project Note:
 | Field | Use |
 |---|---|
 | Answer shape | Skill, plugin/MCP, library/CLI, platform, workflow, or composite-toolchain. |
+| Subtype | For agent-skill ecosystem tasks: skill-pack, skill-creator, skill-converter, skill-sync, skill-manager, skill-marketplace, migrator-to-host, host-bridge, or plugin-mcp-wrapper. |
 | Candidate category | Direct, Adaptable, UnderlyingTool, ReferencePattern, NearMiss, or Excluded. |
 | Best use role | Core solution, host adapter, supporting component, architecture reference, inspiration-only, or exclude. |
 | Adoption class | Direct-use, light-adapt, component-use, reference-only, near-miss, or exclude. |
+| Evidence level | Tags such as README-verified, source-path-checked, package-metadata-checked, runtime-unverified, conflict-unresolved, path-ambiguous, or direction-ambiguous. |
 | Evidence strength | Strongest evidence level and adoption-critical gaps. |
 | Runtime status | SmokeTested, PartiallySmokeTested, RuntimeBlocked, RuntimeUnverified, or RuntimeFailed. |
 | Direction | Source/target direction for skill migration, sync, converter, or host-bridge projects. |
 | Install source | GitHub only, npm, pip, cargo/crates, Homebrew, binary release, install script, or unknown. |
 | Security/data boundary | Local files only, runs install scripts, starts MCP server, may call external API, writes config/files, or unknown. |
+| Transform semantics | yes/no/partial/unknown for whether content meaning is converted. |
+| Copy or sync only | yes/no/partial/unknown for file movement without semantic conversion. |
+| Host-specific rewrite | yes/no/unknown for target-host markers, paths, or metadata rewrite. |
+| Target host validation | yes/no/unknown for checking target host rules. |
 | Recommendation impact | Why this note changes ranking, caveats, or adoption action. |
 
 ## Evidence Compression Rules

@@ -2,6 +2,19 @@
 
 Use this reference when shaping final GitHub scout answers.
 
+## Contents
+
+- Core Rule
+- Output Modes
+- Best Match Minimum Evidence
+- Full GitHub Scout Dossier
+- Validation Mode Output
+- Conditional Sections
+- Compact Final Requirements
+- Execution Log
+- Deviation Notes
+- Red Flags To Keep Visible
+
 ## Core Rule
 
 Always include links to used sources. For each recommendation, explain the mechanism match in plain language and state what evidence was checked.
@@ -18,6 +31,10 @@ Search Depth controls internal work. Output Mode controls what is shown.
 
 Deep search can still produce compact output. Do not print full Project Notes or Claim Ledgers in compact mode unless the user asks.
 
+At the start of each scout, state the chosen route in one short line: `Search Depth: ... Output Mode: ... Reason: ...`. This is a declaration, not a confirmation prompt.
+
+Allowed combinations include deep search + compact output. Do not treat compact output as quick search, quick search as full dossier, or deep search as permission to print all intermediate notes.
+
 ## Best Match Minimum Evidence
 
 Every Best Match must show a minimal evidence chain:
@@ -25,6 +42,8 @@ Every Best Match must show a minimal evidence chain:
 ```text
 Evidence: Files checked: ...
 Claim status: ...
+Evidence level: ...
+Adoption: ...
 Caveat: ...
 Runtime status: ...
 ```
@@ -36,6 +55,27 @@ Runtime status is mandatory for serious candidates. If no runtime test was perfo
 ```text
 RuntimeUnverified: No install/run was requested or performed in this scout pass.
 ```
+
+For agent skill, plugin, MCP, converter, sync, migrator, or host-bridge tasks, each Best Match should use structured fields:
+
+```text
+Project:
+Subtype:
+Direction:
+Evidence Files Checked:
+Claim Status:
+Evidence Level:
+Runtime Status:
+Codex Path Evidence:
+Install Source:
+Security/Data Boundary:
+Caveat:
+Recommendation:
+```
+
+Use the expanded fields only for agent-skill ecosystem tasks, not ordinary CLI/library searches.
+
+Keep adoption separate from evidence. `Adoption` says what action to take; `Evidence Level` says what checked evidence supports that action.
 
 ## Full GitHub Scout Dossier
 
@@ -61,6 +101,18 @@ For substantial searches, produce a `GitHub Scout Dossier` with these sections:
 18. `Remaining Uncertainty`: what would need deeper verification.
 19. `Execution Log`: references read, repo searches, code searches, candidates inspected, files checked, runtime tests, deviations.
 
+## Validation Mode Output
+
+When the user is testing, replaying, comparing, auditing, or reviewing this skill itself, include at least a compact validation summary:
+
+- Search Depth and Output Mode.
+- References read.
+- Search failures and recovery used.
+- Deviations and blocked steps, if any.
+- Runtime status and Evidence Level.
+- Remaining risks.
+- Whether behavior followed the skill.
+
 ## Conditional Sections
 
 Include these only when triggered:
@@ -83,6 +135,13 @@ Design Miner Handoff:
 - Patterns to inspect:
 - Weak or overstated claims:
 - Remaining unknowns:
+
+Blocked Step:
+- Cause:
+- Recovery Used:
+- Did Recovery Follow Skill:
+- Evidence Lost:
+- Confidence Impact:
 ```
 
 Compact output may limit family maps and high-star exclusions to 2-3 items. Do not force these sections when they do not apply.
@@ -103,31 +162,6 @@ For small searches, keep the final answer compact but still include:
 - Search terms that worked.
 - Short execution log when search was standard/deep.
 
-## Compact Final Shape
-
-```text
-I found three categories:
-
-1. Direct matches
-2. Adaptable or underlying tools
-3. Popular but wrong-category projects
-
-Best next action:
-...
-
-Why I trust this:
-...
-
-Search terms that worked:
-...
-
-Execution Log:
-- References/searches/runtime/deviations: ...
-
-Remaining uncertainty:
-...
-```
-
 ## Execution Log
 
 For `standard` and `deep` work, include a short execution log:
@@ -137,6 +171,8 @@ Execution Log:
 - References read:
 - Repo searches:
 - Code searches:
+- Search failures:
+- Recovery used:
 - Candidates inspected:
 - Files checked:
 - Runtime tests:

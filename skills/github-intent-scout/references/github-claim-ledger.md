@@ -2,6 +2,16 @@
 
 Use this reference before recommending serious candidates.
 
+## Contents
+
+- Core Rule
+- Claim Ledger Template
+- Claim Types To Check
+- Minimum Ledger For Best Match
+- Common Claim Checks
+- Link To Scoring
+- Compact Output
+
 ## Core Rule
 
 A GitHub recommendation is only as strong as the claims that survive implementation checks. The Project Note summarizes the candidate; the Claim Ledger tests the candidate; the Scorecard ranks only after the claim ledger.
@@ -63,6 +73,8 @@ Every Best Match should check at least:
 - Privacy/data boundary when user data matters.
 - Runtime status when the user wants to use it now.
 
+For agent skill, plugin, MCP, converter, sync, migrator, or host-bridge tasks, also check Direction, Codex path evidence, install source, security/data boundary, and whether behavior is semantic conversion or file sync.
+
 ## Status Guidance
 
 - Use `Supported` only when implementation or runtime evidence backs the claim.
@@ -86,9 +98,13 @@ Every Best Match should check at least:
 | "Migrates/syncs skills" | Check direction: source -> target, bidirectional, sync-only, migrator-into-host, from-host-supported, or unknown. |
 | "Safe/local tool" | Check whether it reads local files, runs install scripts, starts MCP servers, calls APIs, or writes config/files. |
 
+Code search can support these checks, but repository file inspection is the stronger evidence source. Empty or low-yield code search is a search failure to record and recover from, not proof that a claim is false or no project exists.
+
 ## Link To Scoring
 
 Do not score a serious candidate until required and important claims have status and confidence. If a required claim is `Unverified`, `Unsupported`, or unresolved, lower confidence or change adoption class instead of forcing a recommendation.
+
+Keep Adoption Recommendation and Evidence Level separate. A candidate can be `direct-use` while still carrying `runtime-unverified`, `path-ambiguous`, or `direction-ambiguous` evidence tags.
 
 ## Compact Output
 

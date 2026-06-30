@@ -11,7 +11,7 @@ Do not recommend from name, description, stars, or README alone. Put plausible p
 | Candidate | Category | Stars | Updated | Host/format | Best use role | Evidence checked | Fit notes |
 |---|---|---:|---|---|---|---|---|
 
-For agent skill, plugin, sync, converter, or migration tasks, add `Direction` in notes when relevant: `source -> target`, `bidirectional`, `sync-only`, `migrator-into-host`, `from-host-supported`, or `unknown`.
+For agent skill, plugin, MCP, sync, converter, migrator, or host-bridge tasks, add `Subtype` and `Direction` in notes when relevant. Use existing subtype labels from answer-shape routing and direction labels below.
 
 ## Candidate Categories
 
@@ -69,6 +69,19 @@ Use portability labels instead of over-penalizing ecosystem mismatch.
 | `migrator-into-host` | Imports content into one target host. |
 | `from-host-supported` | Explicitly exports or converts from a named host. |
 | `unknown` | Direction is unclear; do not treat as strong adaptation evidence. |
+
+## Conversion / Sync Boundary
+
+For agent skill, plugin, converter, sync, or migrator candidates, record these fields in Fit notes or Project Notes:
+
+| Field | Values |
+|---|---|
+| Transform semantics | yes / no / partial / unknown |
+| Copy or sync only | yes / no / partial / unknown |
+| Host-specific rewrite | yes / no / unknown |
+| Target host validation | yes / no / unknown |
+
+Use these fields to separate real semantic conversion from file copying or host-folder sync.
 
 ## Evidence To Check
 
