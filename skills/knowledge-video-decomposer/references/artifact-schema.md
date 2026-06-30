@@ -560,6 +560,12 @@ Purpose: main deliverable for `knowledge-document-composer`.
 This file should be readable on its own and should point to the detailed artifacts under `10_video`.
 It is the handoff contract between video decomposition and document composition.
 
+Use `scripts/video_analysis_pack_builder.py` only after
+`05_gap_check/evidence_audit.json` exists and its `pack_gate` allows a full or
+explicitly partial pack. The builder writes only `video_analysis_pack.md`; it
+does not rerun acquisition, transcript extraction, segmentation, inventory
+extraction, source logic reconstruction, or evidence auditing.
+
 Recommended structure:
 
 ```markdown
@@ -599,3 +605,5 @@ Minimum expectations:
 - List key examples with evidence references.
 - Point to `04_logic/source_logic.md`, `04_logic/logic_graph.json`, and `05_gap_check/gap_check.md`.
 - Include downstream cautions that the document composer must not ignore.
+- For `source_partial`, title or body must visibly label the pack as partial scope.
+- If `evidence_audit.json` contains error findings, do not write this file.

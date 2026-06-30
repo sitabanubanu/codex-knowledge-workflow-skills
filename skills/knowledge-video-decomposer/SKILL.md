@@ -28,11 +28,12 @@ Core workflow:
 18. Use scripts/inventory_extractor.py to extract candidate concepts, examples, claims, and analogies into `03_inventory/`. Inventory entries must preserve evidence spans and remain candidates until source logic review verifies them. The extractor must not write source logic or video_analysis_pack.
 19. Use scripts/source_logic_builder.py to reconstruct source-faithful speaker logic into `04_logic/source_logic.md` and `04_logic/logic_graph.json`. This stage may write source-logic gap notes, but it must not add external critique, downstream interpretation, or video_analysis_pack.
 20. Use scripts/evidence_auditor.py after source logic exists to audit transcript, segment, inventory, and graph evidence. It writes `05_gap_check/evidence_audit.json` and `05_gap_check/gap_check.md`; it must not write `video_analysis_pack.md`.
-21. Preserve evidence links to timestamps or source spans.
-22. For Chinese, non-ASCII, Markdown, or JSON artifacts, use scripts/write_artifact.py, apply_patch, or another verified UTF-8 path. Do not write long Chinese artifacts through shell here-strings, inline command strings, PowerShell `>` redirection, or other paths that can silently change encoding or turn characters into question marks.
-23. In `source_blocked`, `source_failed`, `secondary_only`, or `degraded_report_only`, do not pre-create the full analysis directory shape (`01_transcript`, `02_segments`, `03_inventory`, `04_logic`, `05_gap_check`) and do not create `video_analysis_pack.md`. Write only `00_source` notes plus a clearly labeled degraded/acquisition report.
-24. Validate outputs with scripts/artifact_validator.py before handing them downstream.
-25. Output a video_analysis_pack for knowledge-document-composer only after evidence audit and validation pass for an allowed full or explicitly partial source status.
+21. Use scripts/video_analysis_pack_builder.py only after `05_gap_check/evidence_audit.json` exists and its `pack_gate` allows a full or explicitly partial pack. This stage writes `video_analysis_pack.md` and must preserve the full/partial scope label.
+22. Preserve evidence links to timestamps or source spans.
+23. For Chinese, non-ASCII, Markdown, or JSON artifacts, use scripts/write_artifact.py, apply_patch, or another verified UTF-8 path. Do not write long Chinese artifacts through shell here-strings, inline command strings, PowerShell `>` redirection, or other paths that can silently change encoding or turn characters into question marks.
+24. In `source_blocked`, `source_failed`, `secondary_only`, or `degraded_report_only`, do not pre-create the full analysis directory shape (`01_transcript`, `02_segments`, `03_inventory`, `04_logic`, `05_gap_check`) and do not create `video_analysis_pack.md`. Write only `00_source` notes plus a clearly labeled degraded/acquisition report.
+25. Validate outputs with scripts/artifact_validator.py before handing them downstream.
+26. Output a video_analysis_pack for knowledge-document-composer only after evidence audit and validation pass for an allowed full or explicitly partial source status.
 
 Runner guidance:
 - Use scripts/doctor.py before acquisition when the environment is unknown, after a tool-path failure, or before long platform runs. Treat doctor failures as environment/setup issues, not source-content failures.
@@ -42,6 +43,7 @@ Runner guidance:
 - Use scripts/inventory_extractor.py after `02_segments/argument_segments.json` exists. It writes `03_inventory` artifacts and inventory gap notes only; source logic and final pack creation remain later stages.
 - Use scripts/source_logic_builder.py after `03_inventory` exists. It writes `04_logic` artifacts and source-logic gap notes only; final pack creation remains a later gated stage.
 - Use scripts/evidence_auditor.py after `04_logic/logic_graph.json` and `04_logic/source_logic.md` exist. It writes final pre-pack gap artifacts and returns whether the next stage may build a full pack, a partial pack, or must fix evidence findings first.
+- Use scripts/video_analysis_pack_builder.py after the evidence auditor returns `enter_video_analysis_pack_builder` or `enter_partial_video_analysis_pack_builder`. It writes only `video_analysis_pack.md` and relies on the audit gate rather than reinterpreting source material.
 - Use scripts/workflow_runner.py as a low-cost hard-gate runner for acquisition signals and minimal blocked/degraded status outputs.
 - Do not treat workflow_runner.py as a full analyzer: it does not fetch media, launch Chrome, create transcripts, segment content, or produce a complete video_analysis_pack.
 
