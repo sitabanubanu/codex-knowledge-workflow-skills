@@ -46,6 +46,7 @@ Key artifacts:
 - raw_transcript.jsonl
 - clean_transcript.jsonl
 - clean_transcript.md
+- subtitle_segments.json
 - syntax_segments.json
 - argument_segments.json
 - concepts.json

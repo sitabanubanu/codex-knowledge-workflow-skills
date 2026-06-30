@@ -342,15 +342,68 @@ Recommended format:
 
 Keep the transcript readable while preserving enough timestamp detail for source checking.
 
-## 02_segments/syntax_segments.json
+## 02_segments stage
 
-Purpose: mechanical or syntax-oriented grouping of transcript material.
+Purpose: split transcript material into separate subtitle/readability,
+syntax/mechanical, and argument/semantic layers.
 
 Use `scripts/transcript_segmenter.py` after `01_transcript/clean_transcript.jsonl`
 exists and source status is `source_confirmed` or explicitly partial. This stage
-is allowed to write `02_segments/syntax_segments.json`,
-`02_segments/argument_segments.json`, and a segmentation gap note. It must not
-write `03_inventory`, `04_logic`, or `video_analysis_pack.md`.
+is allowed to write `02_segments/subtitle_segments.json`,
+`02_segments/syntax_segments.json`, `02_segments/argument_segments.json`, and a
+segmentation gap note. It must not write `03_inventory`, `04_logic`, or
+`video_analysis_pack.md`.
+
+## 02_segments/subtitle_segments.json
+
+Purpose: subtitle/readability segmentation of transcript material.
+
+This layer is for display and review ergonomics, not source-logic
+reconstruction. It should preserve transcript IDs while recording whether each
+subtitle-like unit is readable and timing-safe.
+
+Suggested fields:
+
+```json
+{
+  "line_policy": {
+    "max_line_chars": 42,
+    "max_lines": 2,
+    "max_reading_cps": 20.0
+  },
+  "segments": [
+    {
+      "id": "seg_subtitle_001",
+      "start": 0.0,
+      "end": 4.2,
+      "text": "",
+      "lines": ["subtitle display line"],
+      "transcript_ids": ["t0001"],
+      "source_transcript_ids": ["t0001"],
+      "line_width_chars": 21,
+      "reading_speed_cps": 8.2,
+      "timestamp_continuity": "continuous|gap_before|overlap|missing",
+      "sentence_complete": true,
+      "chapter": "",
+      "issues": [],
+      "segmentation_confidence": "high|medium|low"
+    }
+  ]
+}
+```
+
+Minimum expectations:
+
+- `lines` should respect `max_line_chars` when practical.
+- High reading speed, missing timestamps, timestamp gaps or overlaps, incomplete
+  sentences, and chapter boundaries should be recorded in `issues`.
+- Subtitle segments must not be treated as claims, examples, or source logic.
+- Downstream semantic processing should use `argument_segments.json`, while
+  subtitle segments remain a readability/timing layer.
+
+## 02_segments/syntax_segments.json
+
+Purpose: mechanical or syntax-oriented grouping of transcript material.
 
 Suggested fields:
 
@@ -363,7 +416,7 @@ Suggested fields:
       "end": 32.4,
       "text": "",
       "transcript_ids": ["t0001", "t0002"],
-      "split_reason": "pause|topic_shift|sentence_boundary|slide_change|speaker_change|length_limit|manual"
+      "split_reason": "pause|topic_shift|sentence_boundary|slide_change|speaker_change|chapter_boundary|length_limit|manual"
     }
   ]
 }
@@ -393,7 +446,10 @@ Suggested fields:
       "title": "",
       "summary": "",
       "transcript_ids": ["t0001", "t0002"],
-      "evidence_spans": []
+      "evidence_spans": [],
+      "source_syntax_segment_ids": ["seg_syntax_001"],
+      "source_subtitle_segment_ids": ["seg_subtitle_001"],
+      "segmentation_confidence": "high|medium|low"
     }
   ]
 }
@@ -406,6 +462,8 @@ Allowed `role` values include:
 - `example`
 - `definition`
 - `claim`
+- `contrast`
+- `causal_chain`
 - `analogy`
 - `transition`
 - `conclusion`

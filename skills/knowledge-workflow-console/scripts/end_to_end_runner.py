@@ -46,6 +46,7 @@ STAGE_OUTPUTS = {
     ],
     "transcript_segmenter": [
         "10_video/02_segments/argument_segments.json",
+        "10_video/02_segments/subtitle_segments.json",
         "10_video/02_segments/syntax_segments.json",
     ],
     "inventory_extractor": [
@@ -88,6 +89,7 @@ STAGE_INPUTS = {
     "inventory_extractor": [
         "10_video/01_transcript/clean_transcript.jsonl",
         "10_video/02_segments/argument_segments.json",
+        "10_video/02_segments/subtitle_segments.json",
         "10_video/02_segments/syntax_segments.json",
     ],
     "source_logic_builder": [
@@ -100,6 +102,7 @@ STAGE_INPUTS = {
     "evidence_auditor": [
         "10_video/01_transcript/clean_transcript.jsonl",
         "10_video/02_segments/argument_segments.json",
+        "10_video/02_segments/subtitle_segments.json",
         "10_video/02_segments/syntax_segments.json",
         "10_video/03_inventory/claims.json",
         "10_video/03_inventory/examples.json",
@@ -1333,8 +1336,9 @@ emit({"runner": "fake-asr-pipeline", "source_status": "source_confirmed", "sourc
         common
         + r'''
 p = argparse.ArgumentParser(); p.add_argument("--output-root", type=Path, required=True); args = p.parse_args(); root = args.output_root
+write_json(root / "02_segments" / "subtitle_segments.json", {"segments":[{"id":"seg_subtitle_001","transcript_ids":["t001"],"lines":["Fake text."],"text":"Fake text.","segmentation_confidence":"high"}]})
 write_json(root / "02_segments" / "syntax_segments.json", {"segments":[{"id":"seg_syntax_001","transcript_ids":["t001"],"text":"Fake text."}]})
-write_json(root / "02_segments" / "argument_segments.json", {"segments":[{"id":"seg_argument_001","role":"opening","transcript_ids":["t001"],"evidence_spans":[{"transcript_ids":["t001"],"quote":"Fake text.","source":"clean_transcript"}]}]})
+write_json(root / "02_segments" / "argument_segments.json", {"segments":[{"id":"seg_argument_001","role":"opening","transcript_ids":["t001"],"source_subtitle_segment_ids":["seg_subtitle_001"],"evidence_spans":[{"transcript_ids":["t001"],"quote":"Fake text.","source":"clean_transcript"}]}]})
 emit({"runner":"fake-transcript-segmenter","next_step":"enter_inventory_extractor"})
 ''',
     )
