@@ -106,7 +106,7 @@ def load_source_status(video_root: Path) -> dict[str, Any]:
         raise DocumentComposerRunnerError(
             f"normal document composition requires source_confirmed or source_partial; got {source_status!r}"
         )
-    if not status.get("primary_material_available"):
+    if status.get("primary_material_available") is not True:
         raise DocumentComposerRunnerError("normal document composition requires primary_material_available=true")
     return status
 
@@ -580,7 +580,7 @@ def run_document_composer(args: argparse.Namespace) -> dict[str, Any]:
         "source_status": status_value,
         "composer_decision": SOURCE_STATUS_TO_DECISION[status_value],
         "files_written": [item["path"] for item in files],
-        "final_report_written": (document_root / "final_report.md").exists(),
+        "final_report_written": False,
         "next_step": "draft_report_with_quality_gates",
     }
 
@@ -807,6 +807,28 @@ def run_self_test() -> int:
         else:
             failures.append("blocked source: expected DocumentComposerRunnerError")
         assert_true("blocked no commitments", not (blocked_doc / "commitments.md").exists(), failures)
+
+        malformed_video = base / "malformed" / "10_video"
+        malformed_doc = base / "malformed" / "20_document"
+        write_video_fixture(malformed_video, source_status="source_confirmed")
+        malformed_status = read_json(malformed_video / "00_source" / "source_status.json")
+        malformed_status["primary_material_available"] = "true"
+        write_json(malformed_video / "00_source" / "source_status.json", malformed_status)
+        try:
+            run_document_composer(
+                argparse.Namespace(
+                    video_root=malformed_video,
+                    document_root=malformed_doc,
+                    document_goal=None,
+                    final_language=None,
+                    audience=None,
+                )
+            )
+        except DocumentComposerRunnerError:
+            pass
+        else:
+            failures.append("malformed primary flag: expected DocumentComposerRunnerError")
+        assert_true("malformed no commitments", not (malformed_doc / "commitments.md").exists(), failures)
 
     if failures:
         for failure in failures:
