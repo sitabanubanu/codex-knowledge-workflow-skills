@@ -219,8 +219,8 @@ Example command:
 & 'C:\Users\Socrates\.codex\tools\hearsay-venv\Scripts\python.exe' `
   'C:\Users\Socrates\.codex\skills\knowledge-video-decomposer\scripts\transcribe_faster_whisper.py' `
   'C:\path\to\input.mp4' `
-  'C:\path\to\01_transcript\clean_transcript.md' `
-  'C:\path\to\01_transcript\clean_transcript.jsonl' `
+  'C:\path\to\01_transcript\asr_transcript.md' `
+  'C:\path\to\01_transcript\asr_transcript.jsonl' `
   --model base --language zh --vad --timeout-seconds 3600
 ```
 
