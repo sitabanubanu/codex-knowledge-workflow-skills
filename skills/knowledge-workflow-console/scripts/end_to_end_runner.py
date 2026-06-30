@@ -211,6 +211,18 @@ def initialize_run_state(args: argparse.Namespace, project_root: Path, video_roo
     }
 
 
+def validate_resume_state(state: dict[str, Any], args: argparse.Namespace, project_root: Path) -> None:
+    if not state:
+        return
+    previous_project = str(state.get("project_root") or "")
+    if previous_project and Path(previous_project).expanduser().resolve() != project_root.expanduser().resolve():
+        raise EndToEndRunnerError("run_state project_root does not match the requested project root")
+    previous_input = str(state.get("input_transcript") or "")
+    current_input = str(args.input_transcript.expanduser().resolve()) if args.input_transcript else ""
+    if previous_input and Path(previous_input).expanduser().resolve() != Path(current_input).expanduser().resolve():
+        raise EndToEndRunnerError("run_state input_transcript does not match the requested input transcript")
+
+
 def state_stage_index(state: dict[str, Any], stage: str) -> int | None:
     stages = state.get("stages")
     if not isinstance(stages, list):
@@ -278,6 +290,8 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
     run_state_path = logs_root / "run_state.json"
     previous_state = load_run_state(run_state_path) if args.resume else {}
+    if args.resume:
+        validate_resume_state(previous_state, args, project_root)
     state = initialize_run_state(args, project_root, video_root, document_root)
     if args.resume and previous_state:
         state["created_at"] = previous_state.get("created_at") or state["created_at"]
@@ -307,6 +321,7 @@ def run_local_transcript_workflow(args: argparse.Namespace) -> dict[str, Any]:
                     "command": command,
                     "skipped_at": now_iso(),
                     "reason": "resume_completed_outputs_present",
+                    "stderr": "",
                 },
             )
             state["current_stage"] = stage
@@ -518,6 +533,29 @@ def run_self_test() -> int:
         resume_state = read_json(project_root / "logs" / "run_state.json")
         skipped = [row for row in resume_state.get("stages", []) if row.get("status") == "skipped"]
         assert_true("resume skipped stages", len(skipped) >= 7, failures, json.dumps(resume_state, ensure_ascii=False))
+        assert_true("resume skipped stderr", all("stderr" in row for row in skipped), failures)
+
+        other_transcript = base / "other_fixture.txt"
+        write_fixture_transcript(other_transcript)
+        try:
+            run_local_transcript_workflow(
+                argparse.Namespace(
+                    input_transcript=other_transcript,
+                    project_root=project_root,
+                    output_base=base / "outputs",
+                    language="en",
+                    document_goal="Write an auditable source-faithful report",
+                    final_language="zh-CN",
+                    audience="workflow reviewer",
+                    video_skill_root=default_skill_root("knowledge-video-decomposer"),
+                    document_skill_root=default_skill_root("knowledge-document-composer"),
+                    resume=True,
+                )
+            )
+        except EndToEndRunnerError:
+            pass
+        else:
+            failures.append("resume changed input: expected EndToEndRunnerError")
 
     if failures:
         for failure in failures:
