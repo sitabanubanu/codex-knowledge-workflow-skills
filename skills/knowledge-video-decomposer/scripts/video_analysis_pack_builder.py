@@ -99,18 +99,26 @@ def load_source_status(path: Path) -> dict[str, Any]:
     return status
 
 
-def load_evidence_audit(path: Path, source_status: str) -> dict[str, Any]:
+def load_evidence_audit(path: Path, source_status: str, output_root: Path) -> dict[str, Any]:
     audit = read_json(path)
     audit_status = audit.get("source_status")
     if audit_status != source_status:
         raise VideoAnalysisPackBuilderError(
             f"evidence audit source_status {audit_status!r} does not match source status {source_status!r}"
         )
+    audit_root = audit.get("output_root")
+    if Path(str(audit_root or "")).expanduser().resolve() != output_root.expanduser().resolve():
+        raise VideoAnalysisPackBuilderError("evidence audit output_root does not match the requested output root")
     counts = audit.get("severity_counts")
     if not isinstance(counts, dict):
         raise VideoAnalysisPackBuilderError("evidence_audit.json is missing severity_counts")
     if int(counts.get("error") or 0) > 0:
         raise VideoAnalysisPackBuilderError("evidence audit has error findings; fix them before building pack")
+    findings = audit.get("findings")
+    if not isinstance(findings, list):
+        raise VideoAnalysisPackBuilderError("evidence_audit.json is missing findings")
+    if any(isinstance(finding, dict) and finding.get("severity") == "error" for finding in findings):
+        raise VideoAnalysisPackBuilderError("evidence audit findings contain errors; fix them before building pack")
     gate = audit.get("pack_gate")
     if not isinstance(gate, dict):
         raise VideoAnalysisPackBuilderError("evidence_audit.json is missing pack_gate")
@@ -413,10 +421,10 @@ def render_pack(
 
 def run_pack_builder(args: argparse.Namespace) -> dict[str, Any]:
     output_root = args.output_root.expanduser().resolve()
-    source_status_path = args.source_status or output_root / "00_source" / "source_status.json"
-    audit_path = args.evidence_audit or output_root / "05_gap_check" / "evidence_audit.json"
+    source_status_path = output_root / "00_source" / "source_status.json"
+    audit_path = output_root / "05_gap_check" / "evidence_audit.json"
     source_status = load_source_status(source_status_path)
-    evidence_audit = load_evidence_audit(audit_path, str(source_status.get("source_status")))
+    evidence_audit = load_evidence_audit(audit_path, str(source_status.get("source_status")), output_root)
 
     metadata = read_json(output_root / "00_source" / "metadata.json", required=False)
     transcript_rows = read_jsonl(output_root / "01_transcript" / "clean_transcript.jsonl")
@@ -444,12 +452,23 @@ def run_pack_builder(args: argparse.Namespace) -> dict[str, Any]:
         evidence_audit=evidence_audit,
         gap_check=gap_check,
     )
-    written = write_text(output_root / "video_analysis_pack.md", pack_text)
+    pack_path = output_root / "video_analysis_pack.md"
+    had_existing_pack = pack_path.exists()
+    existing_pack_bytes = pack_path.read_bytes() if had_existing_pack else None
+    written = write_text(pack_path, pack_text)
     validation = artifact_validator.validate_artifact_root(
         output_root,
         source_status_path,
         mode="strict",
     )
+    if not validation.get("valid"):
+        if had_existing_pack and existing_pack_bytes is not None:
+            pack_path.write_bytes(existing_pack_bytes)
+        else:
+            pack_path.unlink(missing_ok=True)
+        raise VideoAnalysisPackBuilderError(
+            f"artifact validation failed after pack render: {validation.get('next_step')}"
+        )
     return {
         "runner": RUNNER_NAME,
         "output_root": str(output_root),
@@ -465,8 +484,6 @@ def run_pack_builder(args: argparse.Namespace) -> dict[str, Any]:
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build video_analysis_pack.md from audited decomposition artifacts.")
     parser.add_argument("--output-root", type=Path, required=False, help="Artifact root containing audited decomposition artifacts.")
-    parser.add_argument("--source-status", type=Path, default=None, help="Optional source_status.json override.")
-    parser.add_argument("--evidence-audit", type=Path, default=None, help="Optional evidence_audit.json override.")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print summary JSON.")
     parser.add_argument("--self-test", action="store_true", help="Run built-in tests.")
     return parser
@@ -511,7 +528,7 @@ def run_self_test() -> int:
 
         full = base / "full"
         build_audited_fixture(full)
-        full_result = run_pack_builder(argparse.Namespace(output_root=full, source_status=None, evidence_audit=None))
+        full_result = run_pack_builder(argparse.Namespace(output_root=full))
         pack_text = (full / "video_analysis_pack.md").read_text(encoding="utf-8")
         assert_true("full pack exists", (full / "video_analysis_pack.md").is_file(), failures)
         assert_true("full pack title", "# Video Analysis Pack" in pack_text, failures)
@@ -520,7 +537,7 @@ def run_self_test() -> int:
 
         partial = base / "partial"
         build_audited_fixture(partial, source_status="source_partial")
-        partial_result = run_pack_builder(argparse.Namespace(output_root=partial, source_status=None, evidence_audit=None))
+        partial_result = run_pack_builder(argparse.Namespace(output_root=partial))
         partial_text = (partial / "video_analysis_pack.md").read_text(encoding="utf-8")
         assert_true("partial pack exists", (partial / "video_analysis_pack.md").is_file(), failures)
         assert_true("partial scope title", "Partial Scope" in partial_text, failures)
@@ -529,7 +546,7 @@ def run_self_test() -> int:
         bad = base / "bad"
         build_audited_fixture(bad, bad_edge=True)
         try:
-            run_pack_builder(argparse.Namespace(output_root=bad, source_status=None, evidence_audit=None))
+            run_pack_builder(argparse.Namespace(output_root=bad))
         except VideoAnalysisPackBuilderError:
             pass
         else:
@@ -540,12 +557,43 @@ def run_self_test() -> int:
         evidence_auditor.build_fixture(missing_audit)
         write_metadata(missing_audit)
         try:
-            run_pack_builder(argparse.Namespace(output_root=missing_audit, source_status=None, evidence_audit=None))
+            run_pack_builder(argparse.Namespace(output_root=missing_audit))
         except VideoAnalysisPackBuilderError:
             pass
         else:
             failures.append("missing audit: expected VideoAnalysisPackBuilderError")
         assert_true("missing audit no pack", not (missing_audit / "video_analysis_pack.md").exists(), failures)
+
+        mismatched_audit = base / "mismatched-audit"
+        build_audited_fixture(mismatched_audit)
+        other = base / "other"
+        build_audited_fixture(other)
+        (mismatched_audit / "05_gap_check" / "evidence_audit.json").write_bytes(
+            (other / "05_gap_check" / "evidence_audit.json").read_bytes()
+        )
+        try:
+            run_pack_builder(argparse.Namespace(output_root=mismatched_audit))
+        except VideoAnalysisPackBuilderError:
+            pass
+        else:
+            failures.append("mismatched audit root: expected VideoAnalysisPackBuilderError")
+        assert_true("mismatched audit no pack", not (mismatched_audit / "video_analysis_pack.md").exists(), failures)
+
+        inconsistent_findings = base / "inconsistent-findings"
+        build_audited_fixture(inconsistent_findings)
+        audit_path = inconsistent_findings / "05_gap_check" / "evidence_audit.json"
+        audit = read_json(audit_path)
+        audit["severity_counts"]["error"] = 0
+        audit["pack_gate"]["can_build_video_analysis_pack"] = True
+        audit["findings"].append({"severity": "error", "code": "self_test_error", "message": "contract mismatch"})
+        evidence_auditor.write_json(audit_path, audit)
+        try:
+            run_pack_builder(argparse.Namespace(output_root=inconsistent_findings))
+        except VideoAnalysisPackBuilderError:
+            pass
+        else:
+            failures.append("inconsistent findings: expected VideoAnalysisPackBuilderError")
+        assert_true("inconsistent findings no pack", not (inconsistent_findings / "video_analysis_pack.md").exists(), failures)
 
     if failures:
         for failure in failures:
