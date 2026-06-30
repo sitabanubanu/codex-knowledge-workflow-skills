@@ -13,6 +13,7 @@ productized workflow paths:
 - local transcript to `10_video/video_analysis_pack.md` and `20_document` planning artifacts
 - ASR resume mode from existing ASR JSONL, including `primary_audio_asr` provenance
 - Chrome probe URL-only gating, ensuring a discovered URL does not become acquired media
+- platform media runner gating, ensuring acquired audio remains pending ASR and does not unlock full decomposition
 - document composer source gate checks
 - blocked/degraded source validation against full-pack shells
 

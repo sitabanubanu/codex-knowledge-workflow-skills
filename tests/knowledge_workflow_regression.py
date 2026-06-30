@@ -199,6 +199,14 @@ def test_chrome_url_only_gate(base: Path) -> None:
     assert_true("url-only not exported", payload["browser_derived_media_exported"] is False)
 
 
+def test_platform_media_runner_gate(base: Path) -> None:
+    result = run_ok(
+        [sys.executable, str(VIDEO / "scripts" / "platform_media_runner.py"), "--self-test"],
+        cwd=VIDEO / "scripts",
+    )
+    assert_true("platform media self-test", "self-test passed" in result["stdout"])
+
+
 def test_document_composer_blocks_bad_primary_flag(base: Path) -> None:
     # Reuse the document runner self-test because it explicitly covers malformed
     # truthy primary_material_available and audit errors.
@@ -242,6 +250,7 @@ def main() -> int:
         test_local_transcript_e2e,
         test_asr_resume,
         test_chrome_url_only_gate,
+        test_platform_media_runner_gate,
         test_document_composer_blocks_bad_primary_flag,
         test_blocked_validator,
     ]

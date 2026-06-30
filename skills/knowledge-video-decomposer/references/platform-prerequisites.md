@@ -91,6 +91,49 @@ This downloads subtitles only. It still does not download audio/video media.
 If subtitle download succeeds and local subtitle files are written, the source
 can be marked as `source_confirmed` for transcript-based decomposition.
 
+## Platform Media Runner
+
+Use `scripts/platform_media_runner.py` when the workflow needs a productized
+URL-to-material acquisition step instead of a probe-only report. It wraps
+`acquisition_runner.py`, tries subtitles first, and can download audio for
+downstream ASR.
+
+Recommended auto command:
+
+```powershell
+python scripts/platform_media_runner.py `
+  --input <video-url> `
+  --output-root outputs/knowledge-workflow/<run-id>/10_video `
+  --youtube-cookies work/youtube-cookies/youtube.cookies.txt `
+  --use-js-runtime `
+  --mode auto `
+  --pretty
+```
+
+Modes:
+
+- `probe`: run metadata/subtitle/format probes only.
+- `subtitles`: try subtitle acquisition only.
+- `audio`: download audio for ASR.
+- `auto`: try subtitles first, then audio when media formats are available and
+  no subtitle was acquired.
+
+Output:
+
+```text
+00_source/platform_media_result.json
+00_source/platform_media_notes.md
+```
+
+Gate rule:
+
+- A downloaded subtitle may be passed to `transcript_normalizer.py`.
+- A downloaded audio file must be passed to `asr_pipeline.py`.
+- Downloaded audio is recorded as `pending_primary_media_for_asr`; it must not
+  be treated as `primary_audio_asr` or `source_confirmed` until ASR succeeds.
+- Listed formats, metadata, and discovered media URLs do not unlock full
+  decomposition by themselves.
+
 ## Recommended yt-dlp Baseline
 
 Use the newest available yt-dlp in the active runtime before diagnosing platform
