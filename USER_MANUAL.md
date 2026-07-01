@@ -4,6 +4,10 @@
 
 This manual is for users who want a Codex Agent to use this project. If you only want to analyze a video, you do not need to run every script manually. Install the three skills and ask the Agent to start with `knowledge-workflow-console`.
 
+这个项目不是“万能爬视频”。它会先确认有没有一手字幕、transcript、浏览器可见 transcript 或可转写音视频。拿不到时，它应该输出降级状态和下一步需要你补充的材料。
+
+This project is not a universal video crawler. It first checks whether first-hand subtitles, transcripts, browser-visible transcript, or transcribable media can be obtained. If not, it should output a degraded status and tell you what material is needed.
+
 ## 1. 安装 / Installation
 
 从 release zip 解压后，优先使用同步脚本安装并校验三个 skill：
@@ -68,10 +72,12 @@ Copy this to the Codex Agent and replace the URL and goal:
 
 ```text
 请使用 knowledge-workflow-console 处理这个视频链接。
+先运行 workflow_preflight，告诉我预计路线、成功率、需要我做什么、是否可能生成完整报告。
 先跑 doctor 检查环境，再判断是否能拿到一手 transcript、字幕或音频。
 如果能拿到一手材料，就完整拆解并生成 video_analysis_pack。
 然后使用 knowledge-document-composer 生成最终报告。
 如果拿不到一手材料，不要伪装完整分析，只输出降级说明和下一步需要我提供什么。
+结束时请运行 workflow_status_summary，告诉我当前阶段、关键文件和下一步。
 
 链接：<video-url>
 报告语言：中文
@@ -82,10 +88,12 @@ English version:
 
 ```text
 Use knowledge-workflow-console for this video URL.
+Run workflow_preflight first and tell me the likely route, success estimate, required user actions, and whether a full report is possible.
 Run doctor first, then decide whether primary transcript, subtitles, or audio can be acquired.
 If primary material is available, decompose the source and build a video_analysis_pack.
 Then use knowledge-document-composer to write the final report.
 If primary material is not available, do not fake a full analysis. Produce a degraded acquisition report and tell me what material I need to provide.
+At the end, run workflow_status_summary and report the current stage, key files, and next step.
 
 URL: <video-url>
 Final language: English
@@ -104,6 +112,7 @@ Goal: Write an auditable knowledge report with thesis, argument structure, examp
 
 ```text
 Input
+  -> preflight route estimate
   -> classify input
   -> doctor and source acquisition
   -> source-status gate
@@ -119,6 +128,7 @@ Input
   -> revised report
   -> quality_gate.json
   -> final_report.md
+  -> workflow_status_summary
 ```
 
 核心规则：
@@ -142,7 +152,22 @@ means no full video analysis.
 - ASR 失败：提供 transcript、字幕、短音频，或允许更长运行时间。
 - CAPTCHA、paywall、private、region lock、账号权限：需要用户提供授权访问或一手材料。
 
-## 7. 手动脚本入口 / Manual Script Entrypoints
+## 7. 模式选择 / Choose A Mode
+
+- `quick`: 快速初筛。可以使用标题、简介、章节和网页上下文，但必须标注“非一手材料”，不能写完整视频分析。
+- `standard`: 标准视频分析。需要字幕、transcript、可见 transcript 或可转写音视频。
+- `audit`: 可审计研究报告。必须经过 source gate、evidence audit、claim map、quality gate。
+
+## 8. 手动脚本入口 / Manual Script Entrypoints
+
+预检：
+
+```powershell
+python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py `
+  --input "https://www.youtube.com/watch?v=..." `
+  --mode audit `
+  --pretty
+```
 
 本地 transcript/subtitle：
 
@@ -185,7 +210,15 @@ python .\skills\knowledge-document-composer\scripts\final_report_writer.py `
   --pretty
 ```
 
-## 8. 测试 / Tests
+状态摘要：
+
+```powershell
+python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py `
+  --project-root .\outputs\knowledge-workflow\sample `
+  --pretty
+```
+
+## 9. 测试 / Tests
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE='1'
@@ -193,6 +226,8 @@ python .\tests\knowledge_workflow_regression.py
 python .\tests\live_platform_smoke.py
 python .\tests\asr_integration.py
 python .\tests\real_workflow_acceptance.py
+python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py --self-test
+python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py --self-test
 ```
 
 默认测试不要求真实平台访问。真实平台 smoke 和真实 ASR smoke 需要额外环境变量，详见 `README.md`。真实平台 smoke 的样本定义在 `tests/fixtures/live_cases.json`，运行后会把机器可读结果写到 `test_outputs/live_platform_smoke/<timestamp>/summary.json`。ASR 和完整本地闭环测试也会在 `test_outputs/` 下留下 summary。

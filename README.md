@@ -1,8 +1,80 @@
 # Knowledge Workflow Project
 
-一套给 Codex 使用的知识视频工作流。用户不需要自己记住每个脚本怎么跑；正确用法是把这三个 skill 安装到 Codex，然后直接让 Agent 按这个 workflow 处理视频、字幕、音频或文字稿。
+一个面向 AI 学习者、研究型创作者和知识工作者的视频知识工作流。它不会假装看懂无法获取的一手内容，而是把可获取的视频、音频、字幕和文字稿转化为可审计、可复用的知识报告。
 
-This is a Codex skill workflow for knowledge-heavy videos, audio, subtitles, and transcripts. Users are not expected to manually orchestrate every script. The intended usage is to install the three skills into Codex and ask the Agent to run the workflow.
+This is a video knowledge workflow for AI learners, research-oriented creators, and knowledge workers. It does not pretend to understand unavailable first-hand content. It turns obtainable video, audio, subtitles, and transcripts into auditable, reusable knowledge reports.
+
+## 它解决什么问题 / What It Solves
+
+很多视频总结工具会在只有标题、简介或二手摘要时写出像“完整分析”的内容。本项目的目标相反：先确认有没有一手材料，再分析；拿不到一手材料时，明确告诉你缺什么，而不是编造视频内容。
+
+Many video summarizers produce confident-looking summaries from titles, descriptions, or secondary snippets. This project does the opposite: acquire first-hand material first, analyze only what is supported, and explain what is missing when acquisition fails.
+
+适合：
+
+Good for:
+
+- 长视频、课程、访谈、播客、会议、研究型视频。
+- 把字幕、音频、文字稿变成报告、脚本、研究笔记、知识库材料。
+- 需要 Source / Inference / Extension 区分的可审计内容。
+- 失败时也需要知道“为什么失败、下一步补什么”的工作流。
+
+Not for:
+
+- “万能爬视频”或绕过平台限制。
+- CAPTCHA、付费墙、私密视频、区域限制、账号权限的自动绕过。
+- 只想快速看一条短视频大概好不好笑的轻量消费场景。
+
+## 产品承诺 / Product Promise
+
+用户给一个链接或文件后，系统会先判断能不能获取一手材料：
+
+After a URL or file is provided, the workflow first checks whether first-hand material can be acquired:
+
+```text
+URL / media / subtitle / transcript
+  -> preflight: estimate route and user actions
+  -> source gate: confirm transcript, subtitles, browser-visible transcript, or transcribable media
+  -> if confirmed: decompose evidence and generate report
+  -> if not confirmed: produce degraded/acquisition status and ask for needed material
+```
+
+成功时输出：
+
+When successful:
+
+- `video_analysis_pack.md`
+- `quality_gate.json`
+- `final_report.md`
+- Source / Inference / Extension 分层报告
+
+失败或受阻时输出：
+
+When blocked or degraded:
+
+- 来源状态和失败原因
+- 已尝试路径
+- 是否允许完整报告：否
+- 下一步需要用户提供什么：cookies、字幕、音频、视频或 transcript
+
+## 三种使用模式 / Three Modes
+
+| Mode | 中文 | 使用场景 | 允许材料 | 输出边界 |
+| --- | --- | --- | --- | --- |
+| `quick` | 快速初筛 | 判断页面/视频大概是什么、值不值得继续 | 标题、简介、章节、可见页面、二手上下文 | 必须标注非一手；不能生成完整分析 |
+| `standard` | 标准视频分析 | 拆解视频内容和论证 | transcript、字幕、可见 transcript、ASR 音视频 | 可生成 `video_analysis_pack.md` |
+| `audit` | 可审计研究报告 | 写报告、文章、研究笔记、脚本 | 通过 source gate 和 evidence audit 的材料 | 可生成 `quality_gate.json` 和 `final_report.md` |
+
+## 平台支持矩阵 / Platform Support Matrix
+
+| 平台 / Platform | 字幕可获取 / Subtitles | 音频可获取 / Audio | Cookies | 完整报告 / Full Report | 备注 / Notes |
+| --- | --- | --- | --- | --- | --- |
+| YouTube public video | 高 / High | 中 / Medium | 有时需要 / Sometimes | 是，取决于字幕或 ASR / Yes if subtitles or ASR works | 最适合当前 URL 路线 |
+| X video | 低到中 / Low-medium | 不稳定 / Unstable | 可能需要 / Possible | 不稳定 / Unstable | 常见 degraded 或 blocked |
+| 小红书 / Xiaohongshu | 不稳定 / Unstable | 不稳定 / Unstable | 高概率 / Likely | 低 / Low | 更适合用户提供字幕/录屏/音频 |
+| 抖音 / Douyin | 不稳定 / Unstable | 不稳定 / Unstable | 高概率 / Likely | 低 / Low | 更适合用户提供一手材料 |
+| 本地字幕/文字稿 / Local transcript | 高 / High | 不需要 / N/A | 不需要 / No | 高 / High | 最稳定路径 |
+| 本地音视频 / Local media | 不需要 / N/A | 高 / High | 不需要 / No | 中到高 / Medium-high | 取决于 ASR 环境和音质 |
 
 ## 你应该怎么使用它 / How You Should Use It
 
@@ -183,6 +255,21 @@ python .\skills\knowledge-video-decomposer\scripts\doctor.py `
   --pretty
 ```
 
+### 开跑前预检 / Preflight
+
+```powershell
+python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py `
+  --input "https://www.youtube.com/watch?v=..." `
+  --mode audit `
+  --output-json .\outputs\knowledge-workflow\youtube-case\logs\preflight.json `
+  --output-md .\outputs\knowledge-workflow\youtube-case\logs\preflight.md `
+  --pretty
+```
+
+Preflight 不获取媒体，也不创建分析包。它只告诉用户预计路线、成功率、可能需要的手动动作，以及只能生成降级报告还是可以尝试完整报告。
+
+Preflight does not acquire media or create analysis artifacts. It explains the likely route, success estimate, likely user actions, and whether a full report can be attempted.
+
 ### 本地字幕或文字稿 / Local Transcript Or Subtitle
 
 ```powershell
@@ -229,6 +316,20 @@ python .\skills\knowledge-document-composer\scripts\final_report_writer.py `
 `final_report.md` 只会在 `quality_gate.json.approved_for_final_report = true` 时生成。
 
 `final_report.md` is created only when `quality_gate.json.approved_for_final_report = true`.
+
+### 查看统一状态 / Status Summary
+
+```powershell
+python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py `
+  --project-root .\outputs\knowledge-workflow\youtube-case `
+  --output-json .\outputs\knowledge-workflow\youtube-case\logs\status_summary.json `
+  --output-md .\outputs\knowledge-workflow\youtube-case\logs\status_summary.md `
+  --pretty
+```
+
+这个状态摘要回答用户真正关心的问题：现在到哪一步、为什么失败、是否允许完整报告、最终报告在哪里、下一步要补什么。
+
+The status summary answers the practical user questions: current stage, failure reason, whether full analysis is allowed, where the final report is, and what material is needed next.
 
 ## 失败时应该怎么办 / What To Do When It Fails
 
@@ -309,6 +410,8 @@ python .\tests\knowledge_workflow_regression.py
 python .\tests\live_platform_smoke.py
 python .\tests\asr_integration.py
 python .\tests\real_workflow_acceptance.py
+python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py --self-test
+python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py --self-test
 ```
 
 可选真实平台 smoke：

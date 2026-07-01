@@ -33,6 +33,10 @@ outputs\knowledge-workflow\<project-id>\
 ## Logs
 
 Store workflow logs in `logs\`:
+- preflight.json
+- preflight.md
+- status_summary.json
+- status_summary.md
 - run_state.json
 - tool_calls.md
 - decisions.md

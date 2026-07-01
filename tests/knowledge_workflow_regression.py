@@ -136,6 +136,19 @@ def test_end_to_end_runner_self_test(base: Path) -> None:
     assert_true("end-to-end self-test", "self-test passed" in result["stdout"])
 
 
+def test_workflow_preflight_and_status_self_tests(base: Path) -> None:
+    preflight = run_ok(
+        [sys.executable, str(CONSOLE / "scripts" / "workflow_preflight.py"), "--self-test"],
+        cwd=CONSOLE / "scripts",
+    )
+    assert_true("preflight self-test", "self-test passed" in preflight["stdout"])
+    status = run_ok(
+        [sys.executable, str(CONSOLE / "scripts" / "workflow_status_summary.py"), "--self-test"],
+        cwd=CONSOLE / "scripts",
+    )
+    assert_true("status self-test", "self-test passed" in status["stdout"])
+
+
 def test_asr_resume(base: Path) -> None:
     root = base / "asr_resume" / "10_video"
     media = base / "asr_resume" / "fixture.mp3"
@@ -266,6 +279,7 @@ def main() -> int:
     tests = [
         test_local_transcript_e2e,
         test_end_to_end_runner_self_test,
+        test_workflow_preflight_and_status_self_tests,
         test_asr_resume,
         test_chrome_url_only_gate,
         test_platform_media_runner_gate,

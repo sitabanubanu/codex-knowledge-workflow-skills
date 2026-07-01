@@ -1,6 +1,6 @@
 ---
 name: knowledge-document-composer
-description: Compose structured knowledge artifacts into reports, essays, briefings, research notes, scripts, outlines, and other documents. Use when Codex needs to transform a video_analysis_pack, transcript, claim map, logic graph, or source notes into a coherent document with source/inference/extension separation, argument reconstruction, critique, revision, and final quality checks.
+description: Turn an approved video_analysis_pack or source-confirmed transcript artifacts into a gated report, outline, briefing, script, or research note with Source / Inference / Extension separation and final quality checks.
 ---
 
 # Knowledge Document Composer

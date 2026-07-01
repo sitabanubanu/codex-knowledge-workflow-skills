@@ -31,6 +31,8 @@ $env:PYTHONDONTWRITEBYTECODE='1'
 python .\tests\live_platform_smoke.py
 python .\tests\asr_integration.py
 python .\tests\real_workflow_acceptance.py
+python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py --self-test
+python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py --self-test
 ```
 
 These tests are deterministic by default:
@@ -49,6 +51,8 @@ These tests are deterministic by default:
 - Real workflow acceptance verifies the local transcript route through
   `video_analysis_pack.md`, document planning, `quality_gate.json`, and
   `final_report.md`.
+- Workflow preflight/status self-tests verify the user-facing product layer:
+  route estimates before a run and status summaries after a run.
 
 Optional live platform smoke is disabled unless explicitly enabled:
 

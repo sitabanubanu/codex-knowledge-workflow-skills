@@ -4,9 +4,11 @@ knowledge-workflow-console is the controller. It only decides the route, invokes
 
 ## Supervisor Dispatch Layer
 
-Use subagent-supervisor before or around the normal route when the task is complex, multi-stage, parallelizable, high-risk, or when the user explicitly asks for subagents, delegation, a worker, a reviewer, a manager, or independent verification.
+subagent-supervisor is an optional enhancement layer, not a dependency of the released three-skill package.
 
-subagent-supervisor wraps the route; it does not replace web-intent-scout, Chrome, knowledge-video-decomposer, or knowledge-document-composer. The console still chooses the route and project layout, while subagent-supervisor creates bounded handoffs, coordinates parallel work, verifies returns, records acceptance, and requests rework when needed.
+Use subagent-supervisor only when it is installed and the user explicitly asks for subagents, delegation, a worker, a reviewer, a manager, or independent verification. If it is not installed, keep the workflow inside `knowledge-workflow-console`, `knowledge-video-decomposer`, and `knowledge-document-composer`.
+
+When used, subagent-supervisor wraps the route; it does not replace web-intent-scout, Chrome, knowledge-video-decomposer, or knowledge-document-composer. The console still chooses the route and project layout, while subagent-supervisor creates bounded handoffs, coordinates parallel work, verifies returns, records acceptance, and requests rework when needed.
 
 Do not use subagent-supervisor for simple single-stage routing unless the user asks for delegated work.
 
@@ -21,6 +23,64 @@ Subagent budget rules:
 - Do not expand worker or reviewer count to bypass source, Chrome, or document handoff gates.
 
 ## Entry Types
+
+## Product Modes
+
+Choose the lightest mode that satisfies the user's request. Do not force every
+task through the audit path.
+
+### Quick Triage Mode
+
+Use when the user asks whether a video/page is worth watching, what the page
+appears to be about, or requests a low-cost first look.
+
+- Allowed sources: title, description, chapters, visible metadata, screenshots,
+  and secondary context.
+- Required label: non-primary / degraded / quick triage.
+- Prohibited: complete speaker logic reconstruction, complete claims inventory,
+  or `video_analysis_pack.md`.
+- Output: short triage, uncertainty, and what primary material is needed for a
+  full analysis.
+
+### Standard Video Analysis Mode
+
+Use when the user wants the video content analyzed.
+
+- Required sources: transcript, subtitles, browser-visible transcript, or local
+  audio/video that ASR can transcribe.
+- Output: transcript artifacts, decomposition artifacts, and
+  `video_analysis_pack.md` when source gates allow.
+- If no primary material exists, stop at degraded acquisition output.
+
+### Audit Report Mode
+
+Use when the user wants a research-grade report, article, briefing, or reusable
+knowledge asset.
+
+- Required path: source gate -> evidence audit -> video_analysis_pack ->
+  document planning -> final report quality gate.
+- Output: Source / Inference / Extension separated report, `quality_gate.json`,
+  and `final_report.md` only when approved.
+
+## Preflight Stage
+
+Before long URL/media runs, uncertain platform runs, or any run where the user
+may expect "drop a link and get a report", run:
+
+```powershell
+python scripts/workflow_preflight.py --input <url-or-file> --mode quick|standard|audit --pretty
+```
+
+Preflight must explain:
+
+- estimated success,
+- likely route,
+- whether cookies/local media/transcript may be needed,
+- whether a full report is possible,
+- what output is allowed if only metadata is available.
+
+Preflight is advisory. It must not create `10_video`, `20_document`, or claim
+source confirmation.
 
 ### 1. Topic Discovery
 
@@ -167,3 +227,22 @@ Rules:
 - If the user asks for video content analysis, stop at video_analysis_pack.
 - If the user asks for a report, article, or script, continue to 20_document.
 - If the user asks for a final deliverable file, continue to 30_final.
+
+## User-Facing Status Summary
+
+When a project directory exists, finish by running:
+
+```powershell
+python scripts/workflow_status_summary.py --project-root <project-root> --pretty
+```
+
+Use the status summary to answer the user's practical questions:
+
+- current stage,
+- source status,
+- whether primary material exists,
+- whether full analysis is allowed,
+- whether `video_analysis_pack.md` or `final_report.md` exists,
+- failure or gate reason,
+- user action required,
+- next safe step.

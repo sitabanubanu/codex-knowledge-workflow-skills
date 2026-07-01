@@ -1,6 +1,6 @@
 ---
 name: knowledge-video-decomposer
-description: Decompose knowledge-heavy videos, video pages, local video/audio files, subtitles, and transcripts into structured analysis artifacts. Use when Codex needs to extract or normalize transcripts, inspect video source context, segment content, identify concepts/examples/claims/analogies, reconstruct the speaker's argument logic, and produce a video_analysis_pack for downstream document composition.
+description: Extract, normalize, segment, and audit first-hand video, audio, subtitle, transcript, or video URL material before any report is written. Use for source gates, ASR, Chrome/page probes, and video_analysis_pack creation.
 ---
 
 # Knowledge Video Decomposer

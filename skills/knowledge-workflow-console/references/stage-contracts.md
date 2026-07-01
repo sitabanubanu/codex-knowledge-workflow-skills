@@ -169,6 +169,58 @@ It must not write:
 If any stage fails, stop at that stage and read `logs/end_to_end_steps.json`
 before retrying.
 
+## Preflight Contract
+
+Producer: knowledge-workflow-console
+
+Consumer: user-facing closeout, end-to-end runner planning
+
+Use `scripts/workflow_preflight.py` before long or uncertain runs. It writes
+only advisory planning artifacts when requested:
+
+```text
+logs/preflight.json
+logs/preflight.md
+```
+
+It must not create `10_video`, `20_document`, `video_analysis_pack.md`, or
+`final_report.md`.
+
+Suggested fields:
+
+```json
+{
+  "runner": "knowledge-workflow-preflight",
+  "input_kind": "url|media|transcript_or_subtitle|unknown",
+  "platform": "youtube|x|xiaohongshu|douyin|bilibili|web_video|local|unknown",
+  "requested_mode": "quick|standard|audit",
+  "estimated_success": "high|medium-high|medium|low-medium|low|unknown",
+  "route": "",
+  "primary_material_policy": "",
+  "possible_primary_paths": "",
+  "user_action_likely": "",
+  "full_report_possible": "",
+  "allowed_outputs": [],
+  "next_step": ""
+}
+```
+
+## Status Summary Contract
+
+Producer: knowledge-workflow-console
+
+Consumer: user-facing closeout
+
+Use `scripts/workflow_status_summary.py` to condense current project state into:
+
+```text
+logs/status_summary.json
+logs/status_summary.md
+```
+
+It reads existing artifacts only. It must not change source status, create
+analysis artifacts, or approve final reports.
+
 ### logs/run_state.json
 
 Purpose: resumable machine state for long transcript, media, and URL workflows.
