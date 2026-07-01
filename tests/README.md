@@ -30,6 +30,7 @@ Run the fixture-backed real-world smoke tests:
 $env:PYTHONDONTWRITEBYTECODE='1'
 python .\tests\live_platform_smoke.py
 python .\tests\asr_integration.py
+python .\tests\real_workflow_acceptance.py
 ```
 
 These tests are deterministic by default:
@@ -45,6 +46,9 @@ These tests are deterministic by default:
   signals stay out of full decomposition.
 - Final report audit smoke verifies that `quality_gate.json` contains the final
   delivery gates before `final_report.md` is created.
+- Real workflow acceptance verifies the local transcript route through
+  `video_analysis_pack.md`, document planning, `quality_gate.json`, and
+  `final_report.md`.
 
 Optional live platform smoke is disabled unless explicitly enabled:
 
@@ -52,12 +56,19 @@ Optional live platform smoke is disabled unless explicitly enabled:
 $env:KW_LIVE_PLATFORM_SMOKE='1'
 $env:KW_YOUTUBE_WITH_SUBTITLES_URL='https://www.youtube.com/watch?v=...'
 $env:KW_YOUTUBE_WITHOUT_SUBTITLES_URL='https://www.youtube.com/watch?v=...'
+$env:KW_YOUTUBE_COOKIES_REQUIRED_URL='https://www.youtube.com/watch?v=...'
 $env:KW_X_BLOCKED_URL='https://x.com/...'
 $env:KW_XIAOHONGSHU_BLOCKED_URL='https://www.xiaohongshu.com/explore/...'
 $env:KW_DOUYIN_BLOCKED_URL='https://www.douyin.com/...'
+$env:KW_INVALID_FAILED_URL='https://example.invalid/not-a-video'
 $env:KW_YOUTUBE_COOKIES='work/youtube-cookies/youtube.cookies.txt'
 python .\tests\live_platform_smoke.py
 ```
+
+Live case definitions live in `tests/fixtures/live_cases.json`. Each run writes
+`test_outputs/live_platform_smoke/<timestamp>/summary.json` plus
+`suite_summary.json`, so blocked, metadata-only, subtitle, audio-pending, and
+failed routes can be audited after the process exits.
 
 Optional real ASR smoke is also disabled by default:
 
@@ -69,6 +80,11 @@ $env:KW_REAL_ASR_MODEL='tiny'
 $env:KW_REAL_ASR_LANGUAGE='en'
 python .\tests\asr_integration.py
 ```
+
+`asr_integration.py` writes persistent summaries under
+`test_outputs/asr_integration/<timestamp>/`. `real_workflow_acceptance.py`
+validates the shortest complete local path from confirmed transcript to final
+report and writes `test_outputs/real_workflow_acceptance/<timestamp>/summary.json`.
 
 Do not require live platform or real ASR smoke in ordinary CI unless the
 environment provides the URLs, cookies handoff, media files, and ASR runtime.

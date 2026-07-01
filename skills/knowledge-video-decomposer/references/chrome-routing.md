@@ -2,6 +2,11 @@
 
 This file defines when and how `knowledge-video-decomposer` must use Chrome to inspect video pages, probe for media assets, and — when the page is blocked to bare external extraction — retry yt-dlp with the user's own Chrome browser identity. It is an execution rule set for downstream agents, not a suggestion list.
 
+For the exact machine-readable fields to record after Chrome inspection, follow
+`chrome-probe-contract.md`. This routing file decides when and why Chrome is
+used; the contract file defines the JSON shape that must be saved or passed to
+`scripts/chrome_media_probe.py`.
+
 ## When Chrome Is Required
 
 Chrome is the required next step when any of the following is true:
@@ -164,6 +169,9 @@ After stopping, record the reason and select `source_blocked`, `source_failed`, 
 ## Output Requirements
 
 Any workflow that executes or explicitly skips the Chrome route must record the following fields in acquisition notes, metadata, or run state:
+
+Use `chrome-probe-contract.md` as the preferred full schema. The compact schema
+below is the minimum compatible subset.
 
 Prefer writing the standard machine artifact with:
 

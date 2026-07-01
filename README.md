@@ -8,9 +8,23 @@ This is a Codex skill workflow for knowledge-heavy videos, audio, subtitles, and
 
 ### 1. 安装三个 skill / Install the three skills
 
-把仓库里的三个目录复制到你的 Codex skill 目录：
+推荐使用仓库根目录里的同步脚本安装和校验：
 
-Copy these three directories into your Codex skills directory:
+Use the sync script from the repository root to install and verify the skills:
+
+```powershell
+.\sync_to_codex_skills.ps1 -DryRun
+.\sync_to_codex_skills.ps1
+.\sync_to_codex_skills.ps1 -VerifyOnly
+```
+
+这个脚本只会同步三个正式 skill，不会同步 `subagent-supervisor` 或你的其他个人 skill。
+
+The script syncs only the three release skills. It does not sync `subagent-supervisor` or any other personal skills.
+
+如果你不用同步脚本，也可以手动复制：
+
+If you do not use the sync script, copy these three directories into your Codex skills directory:
 
 ```powershell
 Copy-Item -Recurse -Force .\skills\knowledge-workflow-console $env:USERPROFILE\.codex\skills\
@@ -294,6 +308,7 @@ $env:PYTHONDONTWRITEBYTECODE='1'
 python .\tests\knowledge_workflow_regression.py
 python .\tests\live_platform_smoke.py
 python .\tests\asr_integration.py
+python .\tests\real_workflow_acceptance.py
 ```
 
 可选真实平台 smoke：
@@ -304,11 +319,17 @@ Optional live platform smoke:
 $env:KW_LIVE_PLATFORM_SMOKE='1'
 $env:KW_YOUTUBE_WITH_SUBTITLES_URL='https://www.youtube.com/watch?v=...'
 $env:KW_YOUTUBE_WITHOUT_SUBTITLES_URL='https://www.youtube.com/watch?v=...'
+$env:KW_YOUTUBE_COOKIES_REQUIRED_URL='https://www.youtube.com/watch?v=...'
 $env:KW_X_BLOCKED_URL='https://x.com/...'
 $env:KW_XIAOHONGSHU_BLOCKED_URL='https://www.xiaohongshu.com/explore/...'
 $env:KW_DOUYIN_BLOCKED_URL='https://www.douyin.com/...'
+$env:KW_INVALID_FAILED_URL='https://example.invalid/not-a-video'
 python .\tests\live_platform_smoke.py
 ```
+
+真实平台样本定义在 `tests/fixtures/live_cases.json`。每次运行都会在 `test_outputs/live_platform_smoke/<timestamp>/` 下写入 `summary.json` 和 `suite_summary.json`，用于审计每个 URL 的 `source_status`、路线选择、是否生成 transcript、是否错误生成完整 pack。
+
+Live platform cases are defined in `tests/fixtures/live_cases.json`. Each run writes `summary.json` and `suite_summary.json` under `test_outputs/live_platform_smoke/<timestamp>/`, including `source_status`, route choice, transcript presence, and whether a full pack was correctly withheld.
 
 可选真实 ASR smoke：
 
@@ -320,6 +341,12 @@ $env:KW_REAL_ASR_MP3='C:\path\sample.mp3'
 $env:KW_REAL_ASR_MP4='C:\path\sample.mp4'
 python .\tests\asr_integration.py
 ```
+
+ASR smoke writes `test_outputs/asr_integration/<timestamp>/summary.json`.
+The local end-to-end acceptance smoke writes
+`test_outputs/real_workflow_acceptance/<timestamp>/summary.json` and verifies
+that a confirmed local transcript reaches `video_analysis_pack.md`,
+`quality_gate.json`, and `final_report.md`.
 
 ## 当前状态 / Current Status
 

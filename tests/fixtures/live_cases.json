@@ -1,0 +1,68 @@
+{
+  "description": "Optional real-platform smoke cases. Live runs are disabled unless KW_LIVE_PLATFORM_SMOKE=1 is set.",
+  "cases": [
+    {
+      "id": "youtube_captioned_001",
+      "platform": "youtube",
+      "url_env": "KW_YOUTUBE_WITH_SUBTITLES_URL",
+      "expected_min_statuses": ["source_confirmed"],
+      "expected_route": "subtitle",
+      "requires_cookies": false,
+      "notes": "YouTube video where subtitles should be available and normalized as primary material."
+    },
+    {
+      "id": "youtube_audio_required_001",
+      "platform": "youtube",
+      "url_env": "KW_YOUTUBE_WITHOUT_SUBTITLES_URL",
+      "expected_min_statuses": ["secondary_only", "source_blocked", "source_failed"],
+      "expected_route": "audio_or_metadata_only",
+      "requires_cookies": false,
+      "notes": "YouTube video without subtitles; the acquisition route should either acquire audio for ASR or stop without a full pack."
+    },
+    {
+      "id": "youtube_cookies_required_001",
+      "platform": "youtube",
+      "url_env": "KW_YOUTUBE_COOKIES_REQUIRED_URL",
+      "expected_min_statuses": ["source_blocked", "source_failed", "secondary_only"],
+      "expected_route": "cookies_or_blocked",
+      "requires_cookies": true,
+      "notes": "YouTube case expected to need exported cookies or authenticated browser state."
+    },
+    {
+      "id": "x_blocked_001",
+      "platform": "x",
+      "url_env": "KW_X_BLOCKED_URL",
+      "expected_min_statuses": ["source_blocked", "source_failed", "secondary_only"],
+      "expected_route": "blocked_or_metadata_only",
+      "requires_cookies": false,
+      "notes": "X video/status route should produce explicit acquisition status when media cannot be acquired."
+    },
+    {
+      "id": "xiaohongshu_blocked_001",
+      "platform": "xiaohongshu",
+      "url_env": "KW_XIAOHONGSHU_BLOCKED_URL",
+      "expected_min_statuses": ["source_blocked", "source_failed", "secondary_only"],
+      "expected_route": "blocked_or_metadata_only",
+      "requires_cookies": false,
+      "notes": "Xiaohongshu route usually blocks direct acquisition; it must not create a full pack from metadata."
+    },
+    {
+      "id": "douyin_blocked_001",
+      "platform": "douyin",
+      "url_env": "KW_DOUYIN_BLOCKED_URL",
+      "expected_min_statuses": ["source_blocked", "source_failed", "secondary_only"],
+      "expected_route": "blocked_or_metadata_only",
+      "requires_cookies": false,
+      "notes": "Douyin route should record blocked/degraded acquisition when no primary media is available."
+    },
+    {
+      "id": "invalid_failed_001",
+      "platform": "other",
+      "url_env": "KW_INVALID_FAILED_URL",
+      "expected_min_statuses": ["source_failed"],
+      "expected_route": "failed",
+      "requires_cookies": false,
+      "notes": "Known bad URL used to verify stable failure handling."
+    }
+  ]
+}

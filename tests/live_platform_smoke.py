@@ -13,7 +13,7 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +85,110 @@ def assert_true(name: str, condition: bool, details: str = "") -> None:
 def assert_eq(name: str, actual: Any, expected: Any) -> None:
     if actual != expected:
         raise SmokeFailure(f"{name}: expected {expected!r}, got {actual!r}")
+
+
+def timestamp_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def route_from_material_state(material_state: str, status: dict[str, Any]) -> str:
+    if material_state == "subtitle_acquired":
+        return "subtitle"
+    if material_state == "audio_acquired_pending_asr":
+        return "audio"
+    source_status = status.get("source_status")
+    if source_status == "source_blocked":
+        return "blocked"
+    if source_status == "source_failed":
+        return "failed"
+    if source_status in {"secondary_only", "degraded_report_only"}:
+        return "metadata_only"
+    return material_state or "unknown"
+
+
+def expected_route_compatible(expected_route: str, observed_route: str) -> bool:
+    compatible = {
+        "subtitle": {"subtitle"},
+        "audio_or_metadata_only": {"audio", "metadata_only", "blocked", "failed"},
+        "cookies_or_blocked": {"blocked", "failed", "metadata_only"},
+        "blocked_or_metadata_only": {"blocked", "metadata_only", "failed"},
+        "failed": {"failed"},
+    }
+    return observed_route in compatible.get(expected_route, {expected_route})
+
+
+def status_text(status: dict[str, Any] | None) -> str:
+    if not status:
+        return ""
+    return json.dumps(status, ensure_ascii=False, sort_keys=True).lower()
+
+
+def has_degraded_or_block_reason(status: dict[str, Any] | None, failure_reason: str | None) -> bool:
+    text = f"{status_text(status)} {(failure_reason or '').lower()}"
+    markers = [
+        "blocked",
+        "captcha",
+        "login",
+        "sign",
+        "metadata",
+        "no primary",
+        "failed",
+        "timeout",
+        "request",
+        "unavailable",
+        "cookies",
+    ]
+    return any(marker in text for marker in markers)
+
+
+def has_cookie_or_auth_signal(status: dict[str, Any] | None, failure_reason: str | None) -> bool:
+    text = f"{status_text(status)} {(failure_reason or '').lower()}"
+    markers = ["cookie", "cookies", "login", "sign in", "auth", "bot", "captcha", "chrome"]
+    return any(marker in text for marker in markers)
+
+
+def load_live_cases() -> list[dict[str, Any]]:
+    case_path = FIXTURES / "live_cases.json"
+    if not case_path.exists():
+        return []
+    payload = json.loads(case_path.read_text(encoding="utf-8"))
+    return list(payload.get("cases") or [])
+
+
+def build_case_record(
+    *,
+    case: dict[str, Any],
+    output: Path,
+    command_result: dict[str, Any],
+    status: dict[str, Any] | None,
+    media_result: dict[str, Any] | None,
+    failure_reason: str | None,
+) -> dict[str, Any]:
+    material_state = str((media_result or {}).get("material_decision", {}).get("material_state") or "")
+    route = route_from_material_state(material_state, status or {})
+    transcript_exists = (output / "01_transcript" / "clean_transcript.jsonl").is_file()
+    media_files = list((output / "00_source" / "raw" / "audio").rglob("*")) if (output / "00_source" / "raw" / "audio").exists() else []
+    return {
+        "case_id": case.get("id"),
+        "url": os.environ.get(str(case.get("url_env") or ""), ""),
+        "platform": case.get("platform"),
+        "source_status": (status or {}).get("source_status"),
+        "route": route,
+        "expected_route": case.get("expected_route"),
+        "route_compatible": expected_route_compatible(str(case.get("expected_route") or ""), route),
+        "requires_cookies": bool(case.get("requires_cookies")),
+        "cookies_supplied": bool(os.environ.get("KW_YOUTUBE_COOKIES")),
+        "cookies_signal_observed": has_cookie_or_auth_signal(status, failure_reason),
+        "status_reason": (status or {}).get("status_reason"),
+        "next_step": (status or {}).get("next_step"),
+        "transcript_exists": transcript_exists,
+        "media_exists": any(path.is_file() for path in media_files),
+        "analysis_pack_exists": (output / "video_analysis_pack.md").is_file(),
+        "final_report_exists": (output.parent / "20_document" / "final_report.md").is_file(),
+        "failure_reason": failure_reason,
+        "resume_safe": bool((output.parent / "logs" / "run_state.json").exists() or (output / "00_source" / "platform_media_result.json").exists()),
+        "command_returncode": command_result.get("returncode"),
+    }
 
 
 def test_transcript_and_subtitle_fixtures(base: Path) -> None:
@@ -297,50 +401,104 @@ def test_final_report_audit(base: Path) -> None:
 
 
 def test_optional_live_platform_smoke(base: Path) -> None:
+    summary_path = base.parent / "summary.json"
+    records: list[dict[str, Any]] = []
     if os.environ.get("KW_LIVE_PLATFORM_SMOKE") != "1":
+        write_json(
+            summary_path,
+            {
+                "mode": "fixture",
+                "live_enabled": False,
+                "records": records,
+                "message": "Set KW_LIVE_PLATFORM_SMOKE=1 to enable live platform smoke.",
+            },
+        )
         print("SKIP optional live platform smoke; set KW_LIVE_PLATFORM_SMOKE=1 to enable")
         return
-    cases = [
-        ("youtube_with_subtitles", os.environ.get("KW_YOUTUBE_WITH_SUBTITLES_URL"), {"source_confirmed"}),
-        ("youtube_without_subtitles", os.environ.get("KW_YOUTUBE_WITHOUT_SUBTITLES_URL"), {"secondary_only", "source_failed", "source_blocked"}),
-        ("x_blocked", os.environ.get("KW_X_BLOCKED_URL"), {"source_blocked"}),
-        ("xiaohongshu_blocked", os.environ.get("KW_XIAOHONGSHU_BLOCKED_URL"), {"source_blocked"}),
-        ("douyin_blocked", os.environ.get("KW_DOUYIN_BLOCKED_URL"), {"source_blocked"}),
-    ]
+    cases = load_live_cases()
     cookies = os.environ.get("KW_YOUTUBE_COOKIES")
     ran = False
-    for name, url, expected_statuses in cases:
-        if not url:
-            continue
-        ran = True
-        output = base / "live" / name / "10_video"
-        command = [
-            sys.executable,
-            str(VIDEO / "scripts" / "platform_media_runner.py"),
-            "--input",
-            url,
-            "--output-root",
-            str(output),
-            "--mode",
-            "probe",
-            "--timeout-seconds",
-            "30",
-            "--pretty",
-        ]
-        if cookies:
-            command.extend(["--youtube-cookies", cookies])
-        result = run(command, cwd=VIDEO / "scripts", timeout=90)
-        status_path = output / "00_source" / "source_status.json"
-        result_path = output / "00_source" / "platform_media_result.json"
-        assert_true(f"{name} wrote source status", status_path.is_file())
-        status = json.loads(status_path.read_text(encoding="utf-8"))
-        assert_true(f"{name} expected status", status["source_status"] in expected_statuses, json.dumps(status, ensure_ascii=False))
-        assert_true(f"{name} result written", result_path.is_file())
-        if name.endswith("blocked"):
-            assert_true(f"{name} full gate closed", status["can_enter_full_decomposition"] is False)
-        if name == "youtube_with_subtitles":
-            assert_true(f"{name} primary material", status["primary_material_available"] is True)
-        assert_true(f"{name} no full pack in platform smoke", not (output / "video_analysis_pack.md").exists())
+    try:
+        for case in cases:
+            name = str(case.get("id"))
+            url = os.environ.get(str(case.get("url_env") or ""))
+            expected_statuses = set(case.get("expected_min_statuses") or [])
+            if not url:
+                continue
+            ran = True
+            output = base / "live" / name / "10_video"
+            command = [
+                sys.executable,
+                str(VIDEO / "scripts" / "platform_media_runner.py"),
+                "--input",
+                url,
+                "--output-root",
+                str(output),
+                "--mode",
+                "auto",
+                "--timeout-seconds",
+                "30",
+                "--pretty",
+            ]
+            if cookies:
+                command.extend(["--youtube-cookies", cookies])
+            result = run(command, cwd=VIDEO / "scripts", timeout=90)
+            status_path = output / "00_source" / "source_status.json"
+            result_path = output / "00_source" / "platform_media_result.json"
+            status = None
+            media_result = None
+            failure_reason = None
+            if status_path.is_file():
+                status = json.loads(status_path.read_text(encoding="utf-8"))
+            if result_path.is_file():
+                media_result = json.loads(result_path.read_text(encoding="utf-8"))
+            if result["returncode"] != 0:
+                failure_reason = result["stderr"] or result["stdout"] or "platform_media_runner failed"
+            records.append(
+                build_case_record(
+                    case=case,
+                    output=output,
+                    command_result=result,
+                    status=status,
+                    media_result=media_result,
+                    failure_reason=failure_reason,
+                )
+            )
+            record = records[-1]
+            assert_true(f"{name} wrote source status", status_path.is_file())
+            assert_true(f"{name} expected status", status["source_status"] in expected_statuses, json.dumps(status, ensure_ascii=False))
+            assert_true(f"{name} result written", result_path.is_file())
+            assert_true(
+                f"{name} expected route",
+                record["route_compatible"] is True,
+                json.dumps(record, ensure_ascii=False),
+            )
+            if case.get("requires_cookies") and not os.environ.get("KW_YOUTUBE_COOKIES"):
+                assert_true(
+                    f"{name} cookie/auth signal",
+                    record["cookies_signal_observed"] is True,
+                    json.dumps(record, ensure_ascii=False),
+                )
+            if case.get("expected_route") in {"blocked_or_metadata_only", "failed", "cookies_or_blocked"}:
+                assert_true(f"{name} full gate closed", status["can_enter_full_decomposition"] is False)
+                if record["route"] != "blocked":
+                    assert_true(
+                        f"{name} degraded/failure reason",
+                        has_degraded_or_block_reason(status, failure_reason),
+                        json.dumps(record, ensure_ascii=False),
+                    )
+            if case.get("expected_route") == "subtitle":
+                assert_true(f"{name} primary material", status["primary_material_available"] is True)
+            assert_true(f"{name} no full pack in platform smoke", not (output / "video_analysis_pack.md").exists())
+    finally:
+        write_json(
+            summary_path,
+            {
+                "mode": "live",
+                "live_enabled": True,
+                "records": records,
+            },
+        )
     assert_true("live env has at least one URL", ran, "set at least one KW_*_URL environment variable")
 
 
@@ -354,8 +512,10 @@ def main() -> int:
         test_optional_live_platform_smoke,
     ]
     failures: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="kw-live-smoke-") as tmp:
-        base = Path(tmp)
+    output_root = REPO_ROOT / "test_outputs" / "live_platform_smoke" / timestamp_id()
+    base = output_root / "work"
+    base.mkdir(parents=True, exist_ok=True)
+    try:
         for test in tests:
             try:
                 test(base)
@@ -363,12 +523,22 @@ def main() -> int:
             except Exception as exc:
                 failures.append(f"{test.__name__}: {exc}")
                 print(f"FAIL {test.__name__}: {exc}", file=sys.stderr)
+    finally:
+        write_json(
+            output_root / "suite_summary.json",
+            {
+                "output_root": str(output_root.resolve()),
+                "failures": failures,
+                "passed": not failures,
+            },
+        )
     if failures:
         print("\nFailures:", file=sys.stderr)
         for failure in failures:
             print(f"- {failure}", file=sys.stderr)
+        print(f"summary: {output_root / 'suite_summary.json'}", file=sys.stderr)
         return 1
-    print("live platform smoke suite passed")
+    print(f"live platform smoke suite passed; summary: {output_root / 'suite_summary.json'}")
     return 0
 
 

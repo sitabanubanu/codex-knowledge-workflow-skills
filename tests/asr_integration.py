@@ -12,7 +12,7 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +76,64 @@ def assert_eq(name: str, actual: Any, expected: Any) -> None:
         raise AsrIntegrationFailure(f"{name}: expected {expected!r}, got {actual!r}")
 
 
+def timestamp_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
+
+
+def write_json(path: Path, payload: Any) -> None:
+    write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
+def build_asr_record(
+    *,
+    case_id: str,
+    media: Path,
+    output_root: Path,
+    command_result: dict[str, Any] | None,
+    mode: str,
+    failure_reason: str | None = None,
+) -> dict[str, Any]:
+    report_path = output_root / "00_source" / "asr_pipeline_report.json"
+    quality: dict[str, Any] = {}
+    language_detected = None
+    segments_count = None
+    asr_engine = "fixture-jsonl" if mode == "fixture" else "faster-whisper"
+    if report_path.is_file():
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        quality = dict(report.get("quality") or {})
+        language_detected = report.get("language")
+        segments_count = report.get("segments_count")
+        asr_engine = report.get("engine") or asr_engine
+    transcript_path = output_root / "01_transcript" / "clean_transcript.jsonl"
+    if transcript_path.is_file() and segments_count is None:
+        segments_count = sum(1 for line in transcript_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    low_confidence_segments = quality.get("low_confidence_segments")
+    if low_confidence_segments is None:
+        low_confidence_segments = 0
+    return {
+        "case_id": case_id,
+        "mode": mode,
+        "input_media": str(media.resolve()),
+        "duration_seconds": quality.get("duration_seconds"),
+        "language_detected": language_detected,
+        "segments_count": segments_count,
+        "transcript_exists": transcript_path.is_file(),
+        "quality_report_exists": report_path.is_file(),
+        "alignment_report_exists": (output_root / "00_source" / "asr_alignment_report.json").is_file(),
+        "diarization_report_exists": (output_root / "00_source" / "asr_diarization.json").is_file(),
+        "low_confidence_segments": low_confidence_segments,
+        "asr_engine": asr_engine,
+        "status": "passed" if failure_reason is None else "failed",
+        "failure_reason": failure_reason,
+        "command_returncode": None if command_result is None else command_result.get("returncode"),
+    }
+
+
 def run_fixture_asr(media: Path, output_root: Path) -> dict[str, Any]:
     result = run_ok(
         [
@@ -112,7 +170,7 @@ def assert_asr_outputs(output_root: Path, expected_media: Path) -> None:
     assert_true("clean transcript", (output_root / "01_transcript" / "clean_transcript.jsonl").is_file())
 
 
-def test_fixture_mp3_and_mp4(base: Path) -> None:
+def test_fixture_mp3_and_mp4(base: Path, records: list[dict[str, Any]]) -> None:
     cases = [
         ("mp3", FIXTURES / "fixture.mp3"),
         ("mp4", FIXTURES / "fixture.mp4"),
@@ -122,9 +180,18 @@ def test_fixture_mp3_and_mp4(base: Path) -> None:
         payload = run_fixture_asr(media, output_root)
         assert_eq(f"{name} source class", payload["source_class"], "primary_audio_asr")
         assert_asr_outputs(output_root, media)
+        records.append(
+            build_asr_record(
+                case_id=f"fixture_{name}",
+                media=media,
+                output_root=output_root,
+                command_result=None,
+                mode="fixture",
+            )
+        )
 
 
-def test_optional_real_asr(base: Path) -> None:
+def test_optional_real_asr(base: Path, records: list[dict[str, Any]]) -> None:
     if os.environ.get("KW_REAL_ASR_SMOKE") != "1":
         print("SKIP optional real ASR smoke; set KW_REAL_ASR_SMOKE=1 to enable")
         return
@@ -152,6 +219,17 @@ def test_optional_real_asr(base: Path) -> None:
         if asr_python:
             command.extend(["--asr-python", asr_python])
         result = run(command, cwd=VIDEO / "scripts", timeout=300)
+        failure_reason = None if result["returncode"] == 0 else (result["stderr"] or result["stdout"] or "ASR command failed")
+        records.append(
+            build_asr_record(
+                case_id=f"real_{media.stem}",
+                media=media,
+                output_root=output_root,
+                command_result=result,
+                mode="real",
+                failure_reason=failure_reason,
+            )
+        )
         assert_true(f"real ASR command returned for {media.name}", result["returncode"] == 0, result["stderr"])
         assert_asr_outputs(output_root, media)
 
@@ -159,21 +237,43 @@ def test_optional_real_asr(base: Path) -> None:
 def main() -> int:
     tests = [test_fixture_mp3_and_mp4, test_optional_real_asr]
     failures: list[str] = []
-    with tempfile.TemporaryDirectory(prefix="kw-asr-integration-") as tmp:
-        base = Path(tmp)
+    output_root = REPO_ROOT / "test_outputs" / "asr_integration" / timestamp_id()
+    base = output_root / "work"
+    base.mkdir(parents=True, exist_ok=True)
+    records: list[dict[str, Any]] = []
+    try:
         for test in tests:
             try:
-                test(base)
+                test(base, records)
                 print(f"PASS {test.__name__}")
             except Exception as exc:
                 failures.append(f"{test.__name__}: {exc}")
                 print(f"FAIL {test.__name__}: {exc}", file=sys.stderr)
+    finally:
+        write_json(
+            output_root / "summary.json",
+            {
+                "mode": "real" if os.environ.get("KW_REAL_ASR_SMOKE") == "1" else "fixture",
+                "real_enabled": os.environ.get("KW_REAL_ASR_SMOKE") == "1",
+                "records": records,
+                "failures": failures,
+            },
+        )
+        write_json(
+            output_root / "suite_summary.json",
+            {
+                "output_root": str(output_root.resolve()),
+                "failures": failures,
+                "passed": not failures,
+            },
+        )
     if failures:
         print("\nFailures:", file=sys.stderr)
         for failure in failures:
             print(f"- {failure}", file=sys.stderr)
+        print(f"summary: {output_root / 'suite_summary.json'}", file=sys.stderr)
         return 1
-    print("ASR integration suite passed")
+    print(f"ASR integration suite passed; summary: {output_root / 'suite_summary.json'}")
     return 0
 
 

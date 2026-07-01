@@ -2,9 +2,12 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.log
+__pycache__/
+*.pyc
 tmp/
 temp/
 _tmp/
 dist/
 build/
 .cache/
+test_outputs/

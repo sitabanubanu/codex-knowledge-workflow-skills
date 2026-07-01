@@ -6,9 +6,23 @@ This manual is for users who want a Codex Agent to use this project. If you only
 
 ## 1. 安装 / Installation
 
-从 release zip 解压后，把三个 skill 目录复制到 Codex skill 目录：
+从 release zip 解压后，优先使用同步脚本安装并校验三个 skill：
 
-After extracting the release zip, copy these three skill folders into your Codex skills directory:
+After extracting the release zip, prefer the sync script to install and verify the three skills:
+
+```powershell
+.\sync_to_codex_skills.ps1 -DryRun
+.\sync_to_codex_skills.ps1
+.\sync_to_codex_skills.ps1 -VerifyOnly
+```
+
+这个脚本只同步 `knowledge-workflow-console`、`knowledge-video-decomposer` 和 `knowledge-document-composer`。它不会同步 `subagent-supervisor`，也不会碰你的其他个人 skill。
+
+The script syncs only `knowledge-workflow-console`, `knowledge-video-decomposer`, and `knowledge-document-composer`. It does not sync `subagent-supervisor` or any other personal skills.
+
+如果你不用同步脚本，也可以手动复制：
+
+If you do not use the sync script, copy these three skill folders into your Codex skills directory:
 
 ```powershell
 Copy-Item -Recurse -Force .\skills\knowledge-workflow-console $env:USERPROFILE\.codex\skills\
@@ -178,8 +192,9 @@ $env:PYTHONDONTWRITEBYTECODE='1'
 python .\tests\knowledge_workflow_regression.py
 python .\tests\live_platform_smoke.py
 python .\tests\asr_integration.py
+python .\tests\real_workflow_acceptance.py
 ```
 
-默认测试不要求真实平台访问。真实平台 smoke 和真实 ASR smoke 需要额外环境变量，详见 `README.md`。
+默认测试不要求真实平台访问。真实平台 smoke 和真实 ASR smoke 需要额外环境变量，详见 `README.md`。真实平台 smoke 的样本定义在 `tests/fixtures/live_cases.json`，运行后会把机器可读结果写到 `test_outputs/live_platform_smoke/<timestamp>/summary.json`。ASR 和完整本地闭环测试也会在 `test_outputs/` 下留下 summary。
 
-Default tests do not require live platform access. See `README.md` for optional live platform and real ASR smoke tests.
+Default tests do not require live platform access. See `README.md` for optional live platform and real ASR smoke tests. Live platform cases are defined in `tests/fixtures/live_cases.json`, and each run writes machine-readable results to `test_outputs/live_platform_smoke/<timestamp>/summary.json`. ASR and local acceptance tests also leave summaries under `test_outputs/`.
