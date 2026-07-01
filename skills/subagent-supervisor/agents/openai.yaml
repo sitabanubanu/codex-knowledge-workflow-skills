@@ -1,4 +1,0 @@
-interface:
-  display_name: "Subagent Supervisor"
-  short_description: "Decides when to avoid, reuse, spawn, review, and close subagents."
-  default_prompt: "Use $subagent-supervisor to decide whether this task should stay supervisor-only, reuse an existing subagent, spawn a bounded subagent, or add independent review."

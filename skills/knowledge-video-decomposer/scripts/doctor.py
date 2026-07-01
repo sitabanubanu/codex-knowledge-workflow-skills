@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 """Environment doctor for knowledge-video-decomposer.
 
 The doctor is read-only with respect to platforms and credentials. It checks
@@ -325,7 +325,7 @@ def check_chromium_app_bound_state() -> Check:
 
 
 def check_utf8_write() -> Check:
-    content = "中文 utf-8 check\nemoji-safe-as-input: ok\n"
+    content = "Chinese UTF-8 check: \u4e2d\u6587\nemoji-safe-as-input: ok\n"
     try:
         with tempfile.TemporaryDirectory(prefix="kw-doctor-") as tmp:
             path = Path(tmp) / "utf8_check.md"
@@ -346,6 +346,45 @@ def check_utf8_write() -> Check:
         summary="UTF-8 artifact write check passed." if ok else "UTF-8 artifact readback differed.",
         details={"roundtrip_ok": ok},
         next_step="" if ok else "Avoid shell redirection and use scripts/write_artifact.py.",
+    )
+
+
+def check_python_encoding() -> Check:
+    filesystem_encoding = sys.getfilesystemencoding()
+    default_encoding = sys.getdefaultencoding()
+    stdout_encoding = getattr(sys.stdout, "encoding", None)
+    preferred_encoding = None
+    try:
+        import locale
+
+        preferred_encoding = locale.getpreferredencoding(False)
+    except Exception as exc:  # pragma: no cover - defensive only
+        preferred_encoding = f"unavailable: {exc.__class__.__name__}"
+    values = {
+        "filesystem_encoding": filesystem_encoding,
+        "default_encoding": default_encoding,
+        "stdout_encoding": stdout_encoding,
+        "preferred_encoding": preferred_encoding,
+        "utf8_mode": sys.flags.utf8_mode,
+    }
+    unsafe = [
+        key
+        for key, value in values.items()
+        if value is not None and key != "utf8_mode" and "utf" not in str(value).lower()
+    ]
+    if unsafe:
+        return Check(
+            name="python_encoding",
+            status="warn",
+            summary="Python is not consistently reporting UTF-8-oriented encodings.",
+            details=values | {"non_utf8_fields": unsafe},
+            next_step="Set PYTHONUTF8=1 or use scripts/write_artifact.py/apply_patch for Chinese Markdown and JSON artifacts.",
+        )
+    return Check(
+        name="python_encoding",
+        status="ok",
+        summary="Python encoding settings are UTF-8 compatible.",
+        details=values,
     )
 
 
@@ -383,8 +422,60 @@ def capability_matrix(checks: list[Check]) -> dict[str, Any]:
         "x_video_metadata_download_prerequisites": yt,
         "xiaohongshu_metadata_download_prerequisites": yt,
         "chrome_page_probe_prerequisites": chrome,
-        "safe_utf8_artifact_writes": is_ok("utf8_write"),
+        "safe_utf8_artifact_writes": is_ok("utf8_write") and is_ok("python_encoding"),
     }
+
+
+def setup_requirements(report: dict[str, Any]) -> list[dict[str, str]]:
+    checks = {check["name"]: check for check in report["checks"]}
+
+    def status(name: str) -> str:
+        return str(checks.get(name, {}).get("status", "fail"))
+
+    return [
+        {
+            "item": "yt-dlp",
+            "level": "required for platform URL acquisition",
+            "status": status("yt_dlp"),
+            "user_action": "Install yt-dlp or use a runtime where it is on PATH.",
+        },
+        {
+            "item": "ffmpeg and ffprobe",
+            "level": "required for local audio/video and ASR routes",
+            "status": "ok" if status("ffmpeg") == "ok" and status("ffprobe") == "ok" else "warn",
+            "user_action": "Install ffmpeg and ffprobe or add them to PATH before media/ASR runs.",
+        },
+        {
+            "item": "faster-whisper",
+            "level": "required when no transcript/subtitle exists and ASR is needed",
+            "status": status("python_module:faster_whisper"),
+            "user_action": "Install faster-whisper in the selected ASR Python environment, or provide transcript/subtitle files.",
+        },
+        {
+            "item": "Node.js",
+            "level": "recommended for current YouTube player challenge solving",
+            "status": status("node_js"),
+            "user_action": "Install Node.js or use the bundled runtime when yt-dlp reports player challenge problems.",
+        },
+        {
+            "item": "Chrome plugin",
+            "level": "required for Chrome page inspection and browser-visible transcript checks",
+            "status": status("chrome_plugin"),
+            "user_action": "Install or repair the Codex Chrome plugin before Chrome deep-probe tasks.",
+        },
+        {
+            "item": "User-exported cookies.txt",
+            "level": "manual handoff when YouTube blocks bare yt-dlp or browser-cookie decryption fails",
+            "status": status("youtube_cookies_file"),
+            "user_action": "Export Netscape-format cookies.txt locally; never paste cookie values into chat or commit them.",
+        },
+        {
+            "item": "Python UTF-8 encoding",
+            "level": "required for reliable Chinese Markdown/JSON artifact writing",
+            "status": "ok" if status("utf8_write") == "ok" and status("python_encoding") == "ok" else "warn",
+            "user_action": "Use PYTHONUTF8=1, scripts/write_artifact.py, or apply_patch for Chinese artifacts.",
+        },
+    ]
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -401,7 +492,31 @@ def render_markdown(report: dict[str, Any]) -> str:
     ]
     for key, value in report["capabilities"].items():
         lines.append(f"- `{key}`: `{value}`")
-    lines.extend(["", "## Checks", ""])
+    lines.extend(
+        [
+            "",
+            "## Setup Requirements",
+            "",
+            "| Item | Level | Status | Next step |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    for row in report.get("setup_requirements", []):
+        lines.append(f"| {row['item']} | {row['level']} | `{row['status']}` | {row['user_action']} |")
+    lines.extend(
+        [
+            "",
+            "## Manual User Handoffs",
+            "",
+            "- Browser extensions and cookie export must be installed or approved by the user.",
+            "- Cookie files must stay in an ignored local path such as `work/youtube-cookies/`.",
+            "- CAPTCHA, paywall, private video, permission, or region blocks require user action or alternate primary material.",
+            "- Doctor does not fetch media, launch Chrome, download subtitles/audio, or reveal cookie values.",
+            "",
+            "## Checks",
+            "",
+        ]
+    )
     for check in report["checks"]:
         lines.append(f"### {check['name']}")
         lines.append("")
@@ -463,6 +578,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         check_youtube_cookies(Path(args.youtube_cookies) if args.youtube_cookies else None),
         check_chromium_app_bound_state(),
         check_chrome_plugin(Path(args.chrome_plugin_root) if args.chrome_plugin_root else None),
+        check_python_encoding(),
         check_utf8_write(),
     ]
     cookie_sample_read = any(
@@ -485,6 +601,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             "browser_launched": False,
         },
     }
+    report["setup_requirements"] = setup_requirements(report)
     return report
 
 
@@ -548,15 +665,25 @@ def run_self_test() -> int:
 
     utf8 = check_utf8_write()
     assert_true("utf8 write", utf8.status == "ok", failures, json.dumps(utf8.as_dict(), ensure_ascii=False))
+    encoding = check_python_encoding()
+    assert_true("python encoding check returns status", encoding.status in {"ok", "warn"}, failures)
     md = render_markdown(
         {
             "generated_at": "2026-06-29T00:00:00+00:00",
             "overall_status": "ok",
             "capabilities": {"safe_utf8_artifact_writes": True},
             "checks": [ok.as_dict()],
+            "setup_requirements": [
+                {
+                    "item": "yt-dlp",
+                    "level": "required",
+                    "status": "ok",
+                    "user_action": "No action.",
+                }
+            ],
         }
     )
-    assert_true("markdown render", "Overall status" in md and "ok_check" in md, failures)
+    assert_true("markdown render", "Overall status" in md and "ok_check" in md and "Setup Requirements" in md, failures)
     with tempfile.TemporaryDirectory(prefix="kw-doctor-output-") as tmp:
         out = Path(tmp) / "doctor.json"
         args_no_overwrite = argparse.Namespace(output_json=str(out), output_md=None, overwrite=False)
@@ -568,6 +695,7 @@ def run_self_test() -> int:
             "checks": [],
             "capabilities": {},
             "privacy": {},
+            "setup_requirements": [],
         }
         write_outputs(report, args_no_overwrite)
         no_overwrite_failed = False

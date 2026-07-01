@@ -1,0 +1,38 @@
+{
+  "offline_cases": [
+    {
+      "name": "youtube_with_subtitles_fixture",
+      "url": "https://www.youtube.com/watch?v=fixture_subtitles",
+      "expected_route": "subtitle_acquired"
+    },
+    {
+      "name": "youtube_without_subtitles_fixture",
+      "url": "https://www.youtube.com/watch?v=fixture_no_subtitles",
+      "expected_route": "metadata_only_or_audio_required"
+    },
+    {
+      "name": "x_blocked_fixture",
+      "url": "https://x.com/example/status/123",
+      "expected_route": "blocked"
+    },
+    {
+      "name": "xiaohongshu_blocked_fixture",
+      "url": "https://www.xiaohongshu.com/explore/fixture",
+      "expected_route": "blocked"
+    },
+    {
+      "name": "douyin_blocked_fixture",
+      "url": "https://www.douyin.com/jingxuan?modal_id=fixture",
+      "expected_route": "blocked"
+    }
+  ],
+  "live_env": {
+    "enable": "KW_LIVE_PLATFORM_SMOKE",
+    "youtube_with_subtitles_url": "KW_YOUTUBE_WITH_SUBTITLES_URL",
+    "youtube_without_subtitles_url": "KW_YOUTUBE_WITHOUT_SUBTITLES_URL",
+    "x_blocked_url": "KW_X_BLOCKED_URL",
+    "xiaohongshu_blocked_url": "KW_XIAOHONGSHU_BLOCKED_URL",
+    "douyin_blocked_url": "KW_DOUYIN_BLOCKED_URL",
+    "youtube_cookies": "KW_YOUTUBE_COOKIES"
+  }
+}

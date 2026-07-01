@@ -1,4 +1,0 @@
-interface:
-  display_name: "GitHub Design Miner"
-  short_description: "Extract transferable design patterns from GitHub projects and map them to your project."
-  default_prompt: "Use github-design-miner to study reference GitHub projects, decompose their architecture, extract transferable patterns, compare them with my current project, and produce a design transfer map."

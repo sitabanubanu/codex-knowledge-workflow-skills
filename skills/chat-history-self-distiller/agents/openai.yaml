@@ -1,3 +1,0 @@
-display_name: Chat History Self Distiller
-short_description: Evidence-backed chat and long-document analysis with self/persona skill drafts.
-default_prompt: Analyze this chat or long-document dataset with evidence, confidence labels, and a confirmation preview before finalizing sensitive claims.

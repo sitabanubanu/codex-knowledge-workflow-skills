@@ -1,0 +1,2 @@
+{"id":"asr_001","start":0.0,"end":3.0,"text":"ASR source text preserves evidence.","language":"en","engine":"fixture-asr","words":[{"word":"ASR","start":0.0,"end":0.4},{"word":"source","start":0.4,"end":0.9},{"word":"text","start":0.9,"end":1.2}]}
+{"id":"asr_002","start":3.0,"end":6.0,"text":"The transcript remains tied to source spans.","language":"en","engine":"fixture-asr","words":[{"word":"transcript","start":3.0,"end":3.7},{"word":"source","start":4.4,"end":4.9},{"word":"spans","start":4.9,"end":5.4}]}

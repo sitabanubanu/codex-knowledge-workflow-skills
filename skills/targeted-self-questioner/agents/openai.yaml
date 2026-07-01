@@ -1,3 +1,0 @@
-display_name: Targeted Self Questioner
-short_description: Calibrate self reports with targeted questions.
-default_prompt: Use this skill after an existing chat/persona analysis to generate targeted questions, process user corrections, update claim weights, and write a calibrated final self-report.

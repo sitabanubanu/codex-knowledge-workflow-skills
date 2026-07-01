@@ -1,4 +1,0 @@
-interface:
-  display_name: "Web Intent Scout"
-  short_description: "Evidence-led web research, claim checking, and practical recommendations."
-  default_prompt: "Use this skill to search the web through intent mapping, research briefs, task routing, source notes, credibility checks, claim ledgers, conflict resolution, freshness/risk checks, and practical recommendations."

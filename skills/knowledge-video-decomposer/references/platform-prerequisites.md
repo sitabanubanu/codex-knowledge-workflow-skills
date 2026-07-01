@@ -21,6 +21,49 @@ declaring a route failed:
   for YouTube player `n` challenge solving.
 - A safe cookies handoff path: required when bare yt-dlp hits YouTube
   bot/sign-in checks and browser-cookie decryption fails.
+- Codex Chrome plugin: required for Chrome page inspection, visible transcript
+  checks, pageAssets inspection, and browser-state evidence.
+- Python UTF-8-safe artifact writing: required for Chinese Markdown, JSON, and
+  transcript artifacts.
+
+## Required vs Optional Setup
+
+Required before a normal platform URL workflow:
+
+- `yt-dlp` available to the active runtime.
+- `ffmpeg` and `ffprobe` when audio/video or ASR may be used.
+- Codex Chrome plugin when Chrome route, visible transcript, or page-state
+  inspection is needed.
+- UTF-8-safe writing path for Markdown/JSON artifacts.
+
+Required only for specific routes:
+
+- `faster-whisper` or another local ASR runtime when no transcript/subtitle
+  exists and an allowed local audio/video file must be transcribed.
+- User-exported Netscape `cookies.txt` when YouTube or another platform blocks
+  bare yt-dlp and browser-cookie decryption is unavailable or fails.
+- Node.js when yt-dlp reports player JavaScript challenge problems, only images
+  are exposed, or subtitle/audio discovery depends on challenge solving.
+
+Optional:
+
+- `--remote-components ejs:github`, only when the user accepts yt-dlp fetching
+  the recommended remote JavaScript solver component.
+- Live platform smoke tests, only when the user provides test URLs and any
+  required cookies handoff.
+- Real ASR smoke tests, only when the user provides small local media fixtures
+  and accepts model/runtime cost.
+
+Manual user actions:
+
+- Install/approve browser extensions yourself; the agent should not click
+  through extension permission prompts on your behalf.
+- Export cookies as a local Netscape-format file when requested. Do not paste
+  cookie values into chat.
+- Provide local audio/video or transcript files when platform access is blocked,
+  private, CAPTCHA-gated, paywalled, region-locked, or permission-limited.
+- Close or unlock browsers only if you want a browser-cookie route attempted;
+  otherwise use exported cookies.
 
 Run `scripts/doctor.py` before long platform acquisition runs, when the
 environment is unknown, or after any tool-path/authentication setup failure.
@@ -47,6 +90,14 @@ only say the local toolchain is ready to try that route.
 - `xiaohongshu_metadata_download_prerequisites`
 - `chrome_page_probe_prerequisites`
 - `safe_utf8_artifact_writes`
+
+Doctor also writes a `setup_requirements` table in JSON and Markdown. Use it as
+the human-readable next-step list for a new Agent:
+
+- `level` says whether a tool is required, route-specific, recommended, or a
+  manual handoff.
+- `status` says whether the local environment is ready.
+- `user_action` says the narrow next step to fix the missing prerequisite.
 
 ## Acquisition Runner
 
