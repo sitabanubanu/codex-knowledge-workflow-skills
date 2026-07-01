@@ -19,7 +19,7 @@ Core workflow:
 9. Treat Chrome as a high-priority visual page reconnaissance tool for real webpage state, video pages, visible transcripts, login-state context, dynamic content, screenshots, and page context checks.
 10. Do not directly perform detailed video analysis or document writing inside this skill; delegate those details to knowledge-video-decomposer and knowledge-document-composer.
 11. When the user needs a report, run the video decomposition stage before the document composition stage unless a complete upstream analysis pack already exists.
-12. Finish by running scripts/workflow_status_summary.py when a project directory exists, then report the user-facing status, key artifacts, and next step.
+12. Finish by running scripts/workflow_status_summary.py and scripts/result_index_writer.py when a project directory exists, then report the user-facing status, key artifacts, and next step.
 
 Runner guidance:
 - `scripts/workflow_preflight.py` produces a user-facing route estimate before acquisition. It does not fetch media or create analysis artifacts.
@@ -28,6 +28,7 @@ Runner guidance:
 - Use `end_to_end_runner.py --resume` to continue a previous transcript, media, or URL run. Resume skips stages only when the prior run state marks them complete/skipped and the expected output files still exist. In URL mode this prevents repeated platform media acquisition when `platform_media_result.json` already exists.
 - For Chrome deep-probe work, browser-visible transcript capture, or pageAssets inspection, route through the video decomposer Chrome gate before or around URL mode. The end-to-end runner consumes acquired files and source-status artifacts; it does not control Chrome.
 - `scripts/workflow_status_summary.py` condenses `run_state.json`, `source_status.json`, `quality_gate.json`, and output existence into a user-facing status object.
+- `scripts/result_index_writer.py` writes `result_index.md` and `logs/result_index.json` as the user-facing entry point for a run. It reads existing artifacts only and must not change source status, create analysis artifacts, or approve final reports.
 
 Read references/routing.md before deciding which skill or tool should run.
 Read references/stage-contracts.md before passing artifacts between skills.

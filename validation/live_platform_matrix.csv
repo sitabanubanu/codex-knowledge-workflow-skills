@@ -1,0 +1,8 @@
+case_id,platform,case_type,env_var,expected_route,expected_status_notes
+yt_subtitles,youtube,public subtitles,KW_YOUTUBE_WITH_SUBTITLES_URL,subtitles,source_confirmed when subtitle file is acquired
+yt_audio,youtube,no subtitles but audio,KW_YOUTUBE_WITHOUT_SUBTITLES_URL,audio_asr,pending_primary_media_for_asr then primary_audio_asr after ASR
+yt_cookies,youtube,cookies required,KW_YOUTUBE_COOKIES_REQUIRED_URL,cookies_then_subtitles_or_audio,blocked unless authorized cookies are provided
+x_blocked,x,blocked sample,KW_X_BLOCKED_URL,degraded_or_blocked,no full pack from metadata only
+xiaohongshu_blocked,xiaohongshu,blocked sample,KW_XIAOHONGSHU_BLOCKED_URL,degraded_or_blocked,recommend user primary material
+douyin_blocked,douyin,blocked sample,KW_DOUYIN_BLOCKED_URL,degraded_or_blocked,recommend user primary material
+invalid_url,generic,invalid URL,KW_INVALID_FAILED_URL,failed,source_failed with reproducible reason

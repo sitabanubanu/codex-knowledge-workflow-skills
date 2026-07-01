@@ -221,6 +221,35 @@ logs/status_summary.md
 It reads existing artifacts only. It must not change source status, create
 analysis artifacts, or approve final reports.
 
+## Result Index Contract
+
+Producer: knowledge-workflow-console
+
+Consumer: user-facing closeout
+
+Use `scripts/result_index_writer.py` at the end of a preflight, run, status
+refresh, or final report workflow. It writes:
+
+```text
+result_index.md
+logs/result_index.json
+```
+
+It reads existing artifacts only:
+
+- `logs/preflight.json`
+- `logs/run_state.json`
+- `10_video/00_source/source_status.json`
+- `10_video/00_source/platform_media_result.json`
+- `10_video/video_analysis_pack.md`
+- `20_document/quality_gate.json`
+- `20_document/final_report.md`
+
+It must not change source status, create transcript/decomposition/document
+artifacts, or approve final reports. Its job is to tell the user where to start,
+whether full analysis was allowed, why the run succeeded/degraded/failed, and
+what action is safe next.
+
 ### logs/run_state.json
 
 Purpose: resumable machine state for long transcript, media, and URL workflows.

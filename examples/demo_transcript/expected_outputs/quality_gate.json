@@ -1,0 +1,7 @@
+{
+  "approved_for_final_report": true,
+  "report_scope": "full",
+  "source_status": "source_confirmed",
+  "blocking_gates": [],
+  "note": "Expected shape only. Real quality gates include checked files and source claim identifiers."
+}

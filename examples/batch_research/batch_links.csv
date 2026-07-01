@@ -1,0 +1,3 @@
+id,input,priority,goal,mode,language,template
+001,../demo_transcript/input.txt,high,Understand source-gated video workflows,audit,en,research_brief
+002,../demo_transcript/input.txt,medium,Create study notes from the same source,audit,en,study_notes

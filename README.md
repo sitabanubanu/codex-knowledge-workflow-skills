@@ -1,475 +1,211 @@
-# Knowledge Workflow Project
+# Knowledge Workflow Skills
 
-一个面向 AI 学习者、研究型创作者和知识工作者的视频知识工作流。它不会假装看懂无法获取的一手内容，而是把可获取的视频、音频、字幕和文字稿转化为可审计、可复用的知识报告。
+Auditable Codex workflow for turning videos, audio, subtitles, and transcripts into evidence-grounded knowledge reports.
 
-This is a video knowledge workflow for AI learners, research-oriented creators, and knowledge workers. It does not pretend to understand unavailable first-hand content. It turns obtainable video, audio, subtitles, and transcripts into auditable, reusable knowledge reports.
+给使用 Codex / 本地 Agent 的研究型用户，把长视频、音频、字幕和文字稿转成可审计知识资产。
 
-## 它解决什么问题 / What It Solves
+## What This Is
 
-很多视频总结工具会在只有标题、简介或二手摘要时写出像“完整分析”的内容。本项目的目标相反：先确认有没有一手材料，再分析；拿不到一手材料时，明确告诉你缺什么，而不是编造视频内容。
+This project is not a universal video crawler and not a casual video summarizer. It is a Codex skill package and local workflow that:
 
-Many video summarizers produce confident-looking summaries from titles, descriptions, or secondary snippets. This project does the opposite: acquire first-hand material first, analyze only what is supported, and explain what is missing when acquisition fails.
+- checks whether first-hand material exists before analysis,
+- turns transcripts, subtitles, or transcribable media into structured source artifacts,
+- separates Source / Inference / Extension in the final report,
+- writes degraded reports instead of pretending when primary material is unavailable.
 
-适合：
+## Who It Is For
 
-Good for:
+Use it if you:
 
-- 长视频、课程、访谈、播客、会议、研究型视频。
-- 把字幕、音频、文字稿变成报告、脚本、研究笔记、知识库材料。
-- 需要 Source / Inference / Extension 区分的可审计内容。
-- 失败时也需要知道“为什么失败、下一步补什么”的工作流。
+- use Codex or a local coding agent as a research assistant,
+- analyze long videos, courses, interviews, podcasts, talks, or research material,
+- need evidence-linked notes, reports, scripts, or knowledge-base inputs,
+- care about knowing when a workflow is blocked or degraded.
 
-Not for:
+It is not for bypassing CAPTCHA, paywalls, private videos, region locks, account permission barriers, or platform access controls.
 
-- “万能爬视频”或绕过平台限制。
-- CAPTCHA、付费墙、私密视频、区域限制、账号权限的自动绕过。
-- 只想快速看一条短视频大概好不好笑的轻量消费场景。
+## Three-Minute Start
 
-## 产品承诺 / Product Promise
-
-用户给一个链接或文件后，系统会先判断能不能获取一手材料：
-
-After a URL or file is provided, the workflow first checks whether first-hand material can be acquired:
-
-```text
-URL / media / subtitle / transcript
-  -> preflight: estimate route and user actions
-  -> source gate: confirm transcript, subtitles, browser-visible transcript, or transcribable media
-  -> if confirmed: decompose evidence and generate report
-  -> if not confirmed: produce degraded/acquisition status and ask for needed material
-```
-
-成功时输出：
-
-When successful:
-
-- `video_analysis_pack.md`
-- `quality_gate.json`
-- `final_report.md`
-- Source / Inference / Extension 分层报告
-
-失败或受阻时输出：
-
-When blocked or degraded:
-
-- 来源状态和失败原因
-- 已尝试路径
-- 是否允许完整报告：否
-- 下一步需要用户提供什么：cookies、字幕、音频、视频或 transcript
-
-## 三种使用模式 / Three Modes
-
-| Mode | 中文 | 使用场景 | 允许材料 | 输出边界 |
-| --- | --- | --- | --- | --- |
-| `quick` | 快速初筛 | 判断页面/视频大概是什么、值不值得继续 | 标题、简介、章节、可见页面、二手上下文 | 必须标注非一手；不能生成完整分析 |
-| `standard` | 标准视频分析 | 拆解视频内容和论证 | transcript、字幕、可见 transcript、ASR 音视频 | 可生成 `video_analysis_pack.md` |
-| `audit` | 可审计研究报告 | 写报告、文章、研究笔记、脚本 | 通过 source gate 和 evidence audit 的材料 | 可生成 `quality_gate.json` 和 `final_report.md` |
-
-## 平台支持矩阵 / Platform Support Matrix
-
-| 平台 / Platform | 字幕可获取 / Subtitles | 音频可获取 / Audio | Cookies | 完整报告 / Full Report | 备注 / Notes |
-| --- | --- | --- | --- | --- | --- |
-| YouTube public video | 高 / High | 中 / Medium | 有时需要 / Sometimes | 是，取决于字幕或 ASR / Yes if subtitles or ASR works | 最适合当前 URL 路线 |
-| X video | 低到中 / Low-medium | 不稳定 / Unstable | 可能需要 / Possible | 不稳定 / Unstable | 常见 degraded 或 blocked |
-| 小红书 / Xiaohongshu | 不稳定 / Unstable | 不稳定 / Unstable | 高概率 / Likely | 低 / Low | 更适合用户提供字幕/录屏/音频 |
-| 抖音 / Douyin | 不稳定 / Unstable | 不稳定 / Unstable | 高概率 / Likely | 低 / Low | 更适合用户提供一手材料 |
-| 本地字幕/文字稿 / Local transcript | 高 / High | 不需要 / N/A | 不需要 / No | 高 / High | 最稳定路径 |
-| 本地音视频 / Local media | 不需要 / N/A | 高 / High | 不需要 / No | 中到高 / Medium-high | 取决于 ASR 环境和音质 |
-
-## 你应该怎么使用它 / How You Should Use It
-
-### 1. 安装三个 skill / Install the three skills
-
-推荐使用仓库根目录里的同步脚本安装和校验：
-
-Use the sync script from the repository root to install and verify the skills:
+First run the local transcript demo. Do not start with platform URLs.
 
 ```powershell
+git clone https://github.com/sitabanubanu/codex-knowledge-workflow-skills
+cd codex-knowledge-workflow-skills
+
 .\sync_to_codex_skills.ps1 -DryRun
 .\sync_to_codex_skills.ps1
 .\sync_to_codex_skills.ps1 -VerifyOnly
+
+python .\kw.py demo
 ```
 
-这个脚本只会同步三个正式 skill，不会同步 `subagent-supervisor` 或你的其他个人 skill。
+After the demo finishes, open:
 
-The script syncs only the three release skills. It does not sync `subagent-supervisor` or any other personal skills.
+```text
+outputs/knowledge-workflow/demo-transcript/result_index.md
+```
 
-如果你不用同步脚本，也可以手动复制：
+That file tells you the status, whether full analysis was allowed, where the final report is, and what to inspect next.
 
-If you do not use the sync script, copy these three directories into your Codex skills directory:
+For a slower but stricter acceptance check:
 
 ```powershell
-Copy-Item -Recurse -Force .\skills\knowledge-workflow-console $env:USERPROFILE\.codex\skills\
-Copy-Item -Recurse -Force .\skills\knowledge-video-decomposer $env:USERPROFILE\.codex\skills\
-Copy-Item -Recurse -Force .\skills\knowledge-document-composer $env:USERPROFILE\.codex\skills\
+python .\tests\real_workflow_acceptance.py
 ```
 
-正式发布包只包含这三个 skill：
+## Why The Demo Comes First
 
-The release package contains only these three skills:
-
-- `knowledge-workflow-console`: 总控台，负责判断输入类型、选择路线、调用 runner、记录状态。
-- `knowledge-video-decomposer`: 视频/音频/字幕拆解器，负责来源检查、转写、分段、claims、examples、logic、evidence audit。
-- `knowledge-document-composer`: 文档生成器，负责 commitments、source reconstruction、draft、critique、revision、quality gate、final report。
-
-`subagent-supervisor` 不属于这个项目发布包。
-
-`subagent-supervisor` is not part of this project release.
-
-### 2. 对 Agent 这样说 / Tell the Agent this
-
-最推荐的用法不是“你自己运行某个脚本”，而是直接给 Codex Agent 一个任务：
-
-The recommended usage is not to run a script by hand first, but to ask the Codex Agent to use the workflow:
+Platform URLs can fail because of missing subtitles, login state, bot checks, cookies, region rules, player changes, or network conditions. The demo uses a local transcript, so it proves the core workflow first:
 
 ```text
-请使用 knowledge-workflow-console 处理这个视频链接。
-先跑 doctor 检查环境，再判断是否能拿到一手 transcript、字幕或音频。
-如果能拿到一手材料，就完整拆解并生成 video_analysis_pack。
-然后使用 knowledge-document-composer 生成最终报告。
-如果拿不到一手材料，不要伪装完整分析，只输出降级说明和下一步需要我提供什么。
-
-链接：<video-url>
-报告语言：中文
-目标：给我一份可审计的知识报告，包含核心观点、论证结构、例子、claims 和 Source / Inference / Extension 区分。
-```
-
-English prompt:
-
-```text
-Use knowledge-workflow-console for this video URL.
-Run doctor first, then decide whether primary transcript, subtitles, or audio can be acquired.
-If primary material is available, decompose the source and build a video_analysis_pack.
-Then use knowledge-document-composer to write the final report.
-If primary material is not available, do not fake a full analysis. Produce a degraded acquisition report and tell me what material I need to provide.
-
-URL: <video-url>
-Final language: English
-Goal: Write an auditable knowledge report with thesis, argument structure, examples, claims, and Source / Inference / Extension separation.
-```
-
-### 3. 不同输入怎么给 Agent / What To Give The Agent
-
-你可以给：
-
-You can provide:
-
-- YouTube / X / 小红书 / 抖音 / 网页视频链接
-- 本地 `.mp3`, `.mp4`, `.m4a`, `.webm`
-- 本地 `.txt`, `.md`, `.srt`, `.vtt`, `.jsonl`, `.json`
-- 已经生成的 `10_video/video_analysis_pack.md`
-- 已经生成的 `20_document` planning artifacts
-
-你不需要自己判断路线。Agent 应该先使用 `knowledge-workflow-console` 分类输入，再进入相应阶段。
-
-You do not need to choose the route yourself. The Agent should start from `knowledge-workflow-console`, classify the input, and then run the proper stages.
-
-## 一条完整任务会怎么跑 / What A Full Run Does
-
-```text
-User input
-  -> classify input type
-  -> run doctor when platform/media environment matters
-  -> source acquisition and source-status gate
-  -> transcript/subtitle normalization
-  -> ASR if local or acquired audio/video exists
-  -> subtitle and argument segmentation
-  -> concept / example / claim / analogy extraction
-  -> source logic reconstruction
-  -> evidence audit and gap check
-  -> video_analysis_pack
-  -> document composer intake
-  -> commitments
-  -> source reconstruction
-  -> claim map
-  -> draft report
-  -> critique
-  -> revised report
+local transcript
+  -> source gate
+  -> transcript normalization
+  -> segmentation
+  -> inventory
+  -> source logic
+  -> evidence audit
+  -> video_analysis_pack.md
+  -> document planning
   -> quality_gate.json
   -> final_report.md
+  -> result_index.md
 ```
 
-核心原则：
+## Product Modes
 
-Core principle:
+| Mode | Use When | Primary Requirement | Allowed Output |
+| --- | --- | --- | --- |
+| `quick` | You only need a low-cost first look. | Metadata, visible page context, or secondary context may be enough. | Non-primary triage only. No complete analysis pack. |
+| `standard` | You want the video content decomposed. | Transcript, subtitles, browser-visible transcript, or local media for ASR. | `video_analysis_pack.md` when source gates allow. |
+| `audit` | You want a report, article, brief, or reusable knowledge asset. | Source gate + evidence audit + report quality gate. | `quality_gate.json` and `final_report.md` when approved. |
+
+## Unified CLI
+
+`kw.py` is a thin product wrapper around the existing scripts. It does not replace the three skills; it makes the first-run path easier.
+
+```powershell
+python .\kw.py doctor
+python .\kw.py demo
+python .\kw.py preflight --input .\examples\demo_transcript\input.txt --mode audit
+python .\kw.py run --input .\examples\demo_transcript\input.txt --mode audit --language en --final-language en
+python .\kw.py status --project-root .\outputs\knowledge-workflow\demo-transcript
+python .\kw.py result --project-root .\outputs\knowledge-workflow\demo-transcript
+python .\kw.py export --project-root .\outputs\knowledge-workflow\demo-transcript --format md
+python .\kw.py quality --project-root .\outputs\knowledge-workflow\demo-transcript
+python .\kw.py template --project-root .\outputs\knowledge-workflow\demo-transcript --template research_brief
+python .\kw.py batch --input .\examples\batch_research\batch_links.csv --output-root .\outputs\knowledge-workflow\batch-demo
+```
+
+For Codex usage, you can still ask the agent directly:
 
 ```text
-没有一手 transcript、字幕、浏览器可见 transcript 或可转写音视频时，
-不能写成完整视频分析。
-
-No primary transcript, subtitles, browser-visible transcript, or transcribable media
-means no full video analysis.
+Use knowledge-workflow-console for this input.
+Run preflight first. If first-hand material is available, create the video analysis pack and final report.
+If primary material is unavailable, do not write a complete analysis. Write the degraded status and tell me what material is needed next.
 ```
 
-## 用户需要准备什么 / What The User Must Prepare
+## Supported Inputs
 
-### 必须准备 / Required
+| Input | Stability | Notes |
+| --- | --- | --- |
+| Local transcript (`.txt`, `.md`, `.jsonl`, `.json`) | High | Best first-run path. |
+| Local subtitles (`.srt`, `.vtt`) | High | Preserves timestamped source spans when available. |
+| Local audio/video (`.mp3`, `.mp4`, `.m4a`, `.webm`, `.wav`, `.mov`, `.opus`) | Medium-high | Requires working ASR dependencies for real transcription. |
+| YouTube public URL | Medium-high | Works best when subtitles or downloadable audio are available. Cookies may be needed. |
+| X / Xiaohongshu / Douyin URLs | Low to medium | Often blocked or degraded. Prefer user-provided subtitles, audio, video, or transcript. |
+| Private/paywalled/CAPTCHA/region/account-gated pages | Not a bypass target | The workflow may record blocked status, but it will not circumvent access controls. |
 
-- Codex 本地环境。
-- 本仓库的三个 skill。
-- Python 可运行这些脚本。
-- 对平台视频进行处理时，至少需要 `yt-dlp`。
-- 处理本地音视频或 ASR 时，需要 `ffmpeg` / `ffprobe`。
-- 中文 Markdown/JSON 产物必须走 UTF-8 安全写入路径。
-
-### 按路线需要 / Required For Specific Routes
-
-- `faster-whisper`: 没有字幕但有音频时，本地 ASR 需要。
-- Node.js: YouTube player challenge 或 yt-dlp 只暴露 storyboard/images 时常需要。
-- Chrome plugin: 需要页面状态、可见 transcript、pageAssets、浏览器深探时需要。
-- `cookies.txt`: YouTube bot/sign-in block 或 Chrome cookie 解密失败时，需要用户手动导出。
-
-### 必须由用户手动完成 / Manual User Steps
-
-- 安装或批准浏览器扩展权限。
-- 导出 Netscape-format `cookies.txt` 到本地 ignored 路径，例如 `work/youtube-cookies/`。
-- 不要把 cookie 内容粘贴进聊天。
-- 不要提交 cookie 文件。
-- CAPTCHA、paywall、private video、region lock、账号权限问题，需要用户提供授权访问、文件、字幕或转写稿。
-
-## 为什么需要这些插件和工具 / Why These Tools Are Needed
-
-| 工具 / Tool | 在流程中的作用 / Role |
-| --- | --- |
-| `yt-dlp` | 平台 metadata、字幕、格式、音频获取。Platform metadata, subtitles, formats, and audio acquisition. |
-| `ffmpeg` / `ffprobe` | 音视频处理和 ASR 前置处理。Audio/video handling and ASR preparation. |
-| `faster-whisper` | 本地音视频转写。Local ASR for audio/video. |
-| Node.js | yt-dlp YouTube player challenge 处理。YouTube player challenge support for yt-dlp. |
-| Chrome plugin | 页面状态、可见 transcript、pageAssets、浏览器深探。Page state, visible transcript, pageAssets, browser deep probe. |
-| `cookies.txt` | 用户授权状态下的平台访问恢复。User-authorized platform access recovery. |
-| Firecrawl / Hearsay | 背景材料和辅助检查，不能替代一手 transcript/audio。Background and auxiliary context, not a replacement for primary material. |
-
-## 直接运行脚本的方式 / Direct Script Usage
-
-如果你不想让 Agent 自动编排，也可以手动跑。
-
-You can also run the scripts manually.
-
-### 环境检查 / Doctor
-
-```powershell
-python .\skills\knowledge-video-decomposer\scripts\doctor.py `
-  --output-json .\outputs\doctor_report.json `
-  --output-md .\outputs\doctor_report.md `
-  --overwrite `
-  --pretty
-```
-
-### 开跑前预检 / Preflight
-
-```powershell
-python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py `
-  --input "https://www.youtube.com/watch?v=..." `
-  --mode audit `
-  --output-json .\outputs\knowledge-workflow\youtube-case\logs\preflight.json `
-  --output-md .\outputs\knowledge-workflow\youtube-case\logs\preflight.md `
-  --pretty
-```
-
-Preflight 不获取媒体，也不创建分析包。它只告诉用户预计路线、成功率、可能需要的手动动作，以及只能生成降级报告还是可以尝试完整报告。
-
-Preflight does not acquire media or create analysis artifacts. It explains the likely route, success estimate, likely user actions, and whether a full report can be attempted.
-
-### 本地字幕或文字稿 / Local Transcript Or Subtitle
-
-```powershell
-python .\skills\knowledge-workflow-console\scripts\end_to_end_runner.py `
-  --input-transcript .\sample.srt `
-  --project-root .\outputs\knowledge-workflow\sample `
-  --language zh-CN `
-  --document-goal "写一份可审计的知识报告" `
-  --final-language zh-CN
-```
-
-### 本地音视频 / Local Audio Or Video
-
-```powershell
-python .\skills\knowledge-workflow-console\scripts\end_to_end_runner.py `
-  --input-media .\sample.mp4 `
-  --project-root .\outputs\knowledge-workflow\sample-media `
-  --language zh-CN `
-  --asr-model base `
-  --asr-device cpu `
-  --document-goal "拆解视频论证结构"
-```
-
-### 平台 URL / Platform URL
-
-```powershell
-python .\skills\knowledge-workflow-console\scripts\end_to_end_runner.py `
-  --input-url "https://www.youtube.com/watch?v=..." `
-  --project-root .\outputs\knowledge-workflow\youtube-case `
-  --youtube-cookies .\work\youtube-cookies\youtube.cookies.txt `
-  --use-js-runtime `
-  --language zh-CN `
-  --document-goal "完整拆解这个视频"
-```
-
-### 生成最终报告 / Final Report
-
-```powershell
-python .\skills\knowledge-document-composer\scripts\final_report_writer.py `
-  --document-root .\outputs\knowledge-workflow\sample\20_document `
-  --pretty
-```
-
-`final_report.md` 只会在 `quality_gate.json.approved_for_final_report = true` 时生成。
-
-`final_report.md` is created only when `quality_gate.json.approved_for_final_report = true`.
-
-### 查看统一状态 / Status Summary
-
-```powershell
-python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py `
-  --project-root .\outputs\knowledge-workflow\youtube-case `
-  --output-json .\outputs\knowledge-workflow\youtube-case\logs\status_summary.json `
-  --output-md .\outputs\knowledge-workflow\youtube-case\logs\status_summary.md `
-  --pretty
-```
-
-这个状态摘要回答用户真正关心的问题：现在到哪一步、为什么失败、是否允许完整报告、最终报告在哪里、下一步要补什么。
-
-The status summary answers the practical user questions: current stage, failure reason, whether full analysis is allowed, where the final report is, and what material is needed next.
-
-## 失败时应该怎么办 / What To Do When It Fails
-
-Agent 不应该反复重试同一个失败工具。正确处理方式：
-
-The Agent should not keep retrying the same failed tool. Correct handling:
-
-- 如果是缺工具：先看 `doctor_report.md` 的 `Setup Requirements`。
-- 如果是 YouTube bot/sign-in block：尝试用户导出的 `cookies.txt`。
-- 如果是 Chrome cookie DPAPI/App-Bound 解密失败：不要循环 Chrome profile，改用用户导出的 `cookies.txt`。
-- 如果只有 metadata/title/description/chapters：只能降级，不能写完整分析。
-- 如果有音频但没有字幕：走 ASR。
-- 如果 ASR 失败：输出工具失败说明，请用户提供 transcript、短音频、字幕或允许更长运行。
-
-## 输出目录 / Output Layout
-
-典型项目目录：
-
-Typical project directory:
+## What Success Produces
 
 ```text
-outputs/knowledge-workflow/<project-id>/
+outputs/knowledge-workflow/<project>/
+  result_index.md
+  logs/
+    preflight.json
+    run_state.json
+    status_summary.json
+    result_index.json
   10_video/
-    00_source/
-    01_transcript/
-    02_segments/
-    03_inventory/
-    04_logic/
-    05_gap_check/
+    00_source/source_status.json
+    01_transcript/clean_transcript.jsonl
+    05_gap_check/evidence_audit.json
     video_analysis_pack.md
   20_document/
-    composer_intake.json
-    commitments.md
-    source_reconstruction.md
     claim_map.json
-    draft_report.md
-    critique.md
-    revised_report.md
     quality_gate.json
     final_report.md
-  logs/
-    run_state.json
-    end_to_end_steps.json
-    end_to_end_summary.json
+  30_final/
 ```
 
-如果来源 blocked/degraded，不应该创建完整分析目录外观，也不应该创建 `video_analysis_pack.md` 或普通 `final_report.md`。
+Start with `result_index.md`. It is the user-facing entry point for every run.
 
-If the source is blocked/degraded, the workflow should not create the full analysis directory shape, `video_analysis_pack.md`, or a normal `final_report.md`.
+## What Happens When It Fails
 
-## 相比普通视频总结工具的优势 / Advantages Over Simple Summarizers
+The workflow should not fake a complete report. If it cannot get first-hand material, it writes a degraded or blocked result that explains:
 
-- 不把 metadata 当 transcript。
-- 不把二手网页摘要当一手材料。
-- 不在 YouTube/X/小红书/抖音 blocked 时编造完整内容。
-- 每个 claim 都要求来源证据或明确标注不确定。
-- final report 必须区分 `Source / Inference / Extension`。
-- `quality_gate.json` 是机器可读最终门禁。
-- 长任务可以 resume。
-- 测试覆盖成功、blocked、metadata-only、ASR、final report negative gate。
+- the source status,
+- whether full analysis is allowed,
+- which route failed,
+- what you can provide next: transcript, subtitles, local audio/video, or an authorized cookies file.
 
-English:
+## Skill Package
 
-- Does not treat metadata as transcript.
-- Does not treat secondary summaries as primary material.
-- Does not fabricate full analysis when platforms block access.
-- Requires evidence or uncertainty for claims.
-- Final reports must separate `Source / Inference / Extension`.
-- `quality_gate.json` is the machine-readable final gate.
-- Long tasks support resume.
-- Tests cover success, blocked, metadata-only, ASR, and negative final-report gates.
+The released package contains three skills:
 
-## 测试 / Tests
+- `knowledge-workflow-console`: route selection, preflight, end-to-end runner, status summaries, result index.
+- `knowledge-video-decomposer`: source gates, acquisition checks, transcript normalization, ASR, segmentation, inventory, source logic, evidence audit, video analysis pack.
+- `knowledge-document-composer`: document planning, Source / Inference / Extension separation, final report writer, quality gate.
+
+`subagent-supervisor` is not part of this release package. It may be used locally as an optional coordination layer only when explicitly requested.
+
+## Direct Script Entrypoints
+
+The CLI wraps these scripts, but advanced users can still call them directly:
 
 ```powershell
-$env:PYTHONDONTWRITEBYTECODE='1'
+python .\skills\knowledge-video-decomposer\scripts\doctor.py --self-test
+python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py --self-test
+python .\skills\knowledge-workflow-console\scripts\end_to_end_runner.py --self-test
+python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py --self-test
+python .\skills\knowledge-workflow-console\scripts\result_index_writer.py --self-test
+python .\skills\knowledge-document-composer\scripts\final_report_writer.py --self-test
+```
+
+## Tests
+
+Default tests are offline and fixture-based:
+
+```powershell
 python .\tests\knowledge_workflow_regression.py
 python .\tests\live_platform_smoke.py
 python .\tests\asr_integration.py
 python .\tests\real_workflow_acceptance.py
-python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py --self-test
-python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py --self-test
 ```
 
-可选真实平台 smoke：
-
-Optional live platform smoke:
+Optional live platform and real ASR tests require explicit environment variables and user-provided samples:
 
 ```powershell
 $env:KW_LIVE_PLATFORM_SMOKE='1'
-$env:KW_YOUTUBE_WITH_SUBTITLES_URL='https://www.youtube.com/watch?v=...'
-$env:KW_YOUTUBE_WITHOUT_SUBTITLES_URL='https://www.youtube.com/watch?v=...'
-$env:KW_YOUTUBE_COOKIES_REQUIRED_URL='https://www.youtube.com/watch?v=...'
-$env:KW_X_BLOCKED_URL='https://x.com/...'
-$env:KW_XIAOHONGSHU_BLOCKED_URL='https://www.xiaohongshu.com/explore/...'
-$env:KW_DOUYIN_BLOCKED_URL='https://www.douyin.com/...'
-$env:KW_INVALID_FAILED_URL='https://example.invalid/not-a-video'
-python .\tests\live_platform_smoke.py
-```
-
-真实平台样本定义在 `tests/fixtures/live_cases.json`。每次运行都会在 `test_outputs/live_platform_smoke/<timestamp>/` 下写入 `summary.json` 和 `suite_summary.json`，用于审计每个 URL 的 `source_status`、路线选择、是否生成 transcript、是否错误生成完整 pack。
-
-Live platform cases are defined in `tests/fixtures/live_cases.json`. Each run writes `summary.json` and `suite_summary.json` under `test_outputs/live_platform_smoke/<timestamp>/`, including `source_status`, route choice, transcript presence, and whether a full pack was correctly withheld.
-
-可选真实 ASR smoke：
-
-Optional real ASR smoke:
-
-```powershell
 $env:KW_REAL_ASR_SMOKE='1'
-$env:KW_REAL_ASR_MP3='C:\path\sample.mp3'
-$env:KW_REAL_ASR_MP4='C:\path\sample.mp4'
-python .\tests\asr_integration.py
 ```
 
-ASR smoke writes `test_outputs/asr_integration/<timestamp>/summary.json`.
-The local end-to-end acceptance smoke writes
-`test_outputs/real_workflow_acceptance/<timestamp>/summary.json` and verifies
-that a confirmed local transcript reaches `video_analysis_pack.md`,
-`quality_gate.json`, and `final_report.md`.
+## Current Status
 
-## 当前状态 / Current Status
+Beta. The local transcript/subtitle path is the strongest route. Local media ASR is usable when dependencies are installed. Platform URL handling is intentionally conservative and may stop at degraded status when first-hand material is unavailable.
 
-Beta。规则层、门禁层、产物结构、runner、doctor、真实场景 smoke 已经成型。仍然需要更多真实平台样本、更多长视频 ASR 压测、更多 Chrome 深探自动化和更完整的 UI/CLI 包装。
+Current product entry work includes quickstart, examples, result indexing, unified CLI, security/privacy docs, batch research, output templates, Chrome probe normalization, and validation matrices.
 
-Beta. The rules, gates, artifact schemas, runners, doctor, and smoke tests are in place. More live samples, long-video ASR stress tests, Chrome deep-probe automation, and packaging work are still needed.
+## More Documentation
 
-## 致谢 / Acknowledgements
-
-本项目参考和吸收了以下项目或工具的工作流思想：
-
-This project learns from and builds around the following projects and tools:
-
-- VideoLingo: 启发了“先获取材料，再转写，再切分，再分析，再输出”的工作流思想。
-- yt-dlp: 平台 metadata、字幕、格式和音频获取的核心工具。
-- faster-whisper: 本地 ASR 路径的主要参考实现。
-- FFmpeg: 音视频处理基础设施。
-- Codex Chrome plugin: 浏览器页面状态、可见 transcript、pageAssets 和动态页面检查。
-- Firecrawl / Hearsay: 背景/辅助获取工具，但不能替代一手 transcript 或音频。
-
-感谢这些项目提供的开源工具、工程经验和工作流启发。本项目的重点是在 Codex 内部把这些能力组织成一套可审计、可降级、可恢复的知识工作流。
-
-Thanks to these projects for their tools and workflow inspiration. This project organizes them into an auditable, degradable, resumable Codex knowledge workflow.
+- [Quickstart](QUICKSTART.md)
+- [中文说明](README.zh-CN.md)
+- [User manual](USER_MANUAL.md)
+- [Supported platforms](SUPPORTED_PLATFORMS.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
+- [Security](SECURITY.md)
+- [Privacy](PRIVACY.md)
+- [Architecture](docs/architecture.md)
+- [Chrome probe integration](docs/chrome-probe-integration.md)
+- [Validation matrix](docs/validation.md)
+- [Release notes](RELEASE_NOTES.md)

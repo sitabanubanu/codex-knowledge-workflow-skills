@@ -17,6 +17,7 @@ outputs\knowledge-workflow\<project-id>\
 
 ```text
 outputs\knowledge-workflow\<project-id>\
+  result_index.md
   00_scout\
   10_video\
     00_source\
@@ -37,6 +38,7 @@ Store workflow logs in `logs\`:
 - preflight.md
 - status_summary.json
 - status_summary.md
+- result_index.json
 - run_state.json
 - tool_calls.md
 - decisions.md
@@ -89,3 +91,4 @@ create `video_analysis_pack.md` or `20_document\` planning artifacts.
 - Use .md for human-readable notes.
 - Use .md for final documents first, then optionally export to .docx, .pdf, or .pptx.
 - Store Chrome page state artifacts in `10_video\00_source`.
+- Always treat `result_index.md` as the first user-facing file to open after a run.

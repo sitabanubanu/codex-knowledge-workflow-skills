@@ -147,6 +147,11 @@ def test_workflow_preflight_and_status_self_tests(base: Path) -> None:
         cwd=CONSOLE / "scripts",
     )
     assert_true("status self-test", "self-test passed" in status["stdout"])
+    result_index = run_ok(
+        [sys.executable, str(CONSOLE / "scripts" / "result_index_writer.py"), "--self-test"],
+        cwd=CONSOLE / "scripts",
+    )
+    assert_true("result index self-test", "self-test passed" in result_index["stdout"])
 
 
 def test_asr_resume(base: Path) -> None:

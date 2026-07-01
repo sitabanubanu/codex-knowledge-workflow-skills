@@ -131,7 +131,21 @@ def main() -> int:
         )
         summary["final_report_writer"] = parse_last_json(final_result["stdout"])
 
+        result_index = run_ok(
+            [
+                sys.executable,
+                str(CONSOLE / "scripts" / "result_index_writer.py"),
+                "--project-root",
+                str(project_root),
+                "--pretty",
+            ],
+            cwd=CONSOLE / "scripts",
+            timeout=60,
+        )
+        summary["result_index_writer"] = parse_last_json(result_index["stdout"])
+
         required_files = [
+            project_root / "result_index.md",
             project_root / "10_video" / "00_source" / "source_status.json",
             project_root / "10_video" / "01_transcript" / "clean_transcript.jsonl",
             project_root / "10_video" / "02_segments" / "argument_segments.json",
@@ -153,6 +167,7 @@ def main() -> int:
         assert_true("source confirmed", source_status.get("source_status") == "source_confirmed")
         assert_true("primary material", source_status.get("primary_material_available") is True)
         assert_true("final approved", quality_gate.get("approved_for_final_report") is True)
+        assert_true("result index success", summary["result_index_writer"].get("status") == "success")
         assert_true("source section", "## Source" in final_text)
         assert_true("inference section", "## Inference" in final_text)
         assert_true("extension section", "## Extension" in final_text)

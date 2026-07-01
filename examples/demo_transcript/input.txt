@@ -1,0 +1,7 @@
+Source Gate means confirmed primary material.
+
+For example, metadata alone cannot support speaker logic.
+
+Therefore we must preserve transcript evidence before writing reports.
+
+This creates a workflow where claims remain tied to their source.

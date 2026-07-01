@@ -1,5 +1,33 @@
 # Release Notes
 
+## Unreleased
+
+No unreleased changes recorded yet.
+
+## v0.3-product-entry-alpha
+
+Prepared locally as:
+
+```text
+dist/codex-knowledge-workflow-skills-v0.3-product-entry-alpha.zip
+```
+
+### Added
+
+- Productized `README.md` first screen with a local transcript demo path.
+- `QUICKSTART.md` for a predictable first run that avoids platform URL instability.
+- `examples/demo_transcript/` with input, run script, and compact expected output shapes.
+- `kw.py`, a thin repository CLI for doctor, preflight, run, status, result, demo, and Markdown export.
+- `skills/knowledge-workflow-console/scripts/result_index_writer.py`, which writes `result_index.md` and `logs/result_index.json` as the user-facing entry point for a workflow project.
+- Trust and onboarding files: `LICENSE`, `SECURITY.md`, `PRIVACY.md`, `SUPPORTED_PLATFORMS.md`, `TROUBLESHOOTING.md`, `CONTRIBUTING.md`, `ROADMAP.md`, `CHANGELOG.md`, and `README.zh-CN.md`.
+- Quality, template, batch, Chrome probe, and validation productization artifacts.
+
+### Changed
+
+- Workflow console guidance now finishes runs with both status summary and result index artifacts.
+- Generated `outputs/` are ignored by Git.
+- Product documentation is split into focused entry, security, privacy, platform, troubleshooting, architecture, and release-process pages.
+
 ## v0.2-real-workflow-alpha
 
 This release moves the project from a beta skill package toward a real local

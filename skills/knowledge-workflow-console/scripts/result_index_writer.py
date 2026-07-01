@@ -1,0 +1,303 @@
+#!/usr/bin/env python
+"""Create a user-facing result index for a knowledge workflow project."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import tempfile
+from pathlib import Path
+from typing import Any
+
+
+RUNNER_NAME = "knowledge-workflow-result-index-writer"
+BLOCKING_SOURCE_STATES = {"secondary_only", "source_blocked", "source_failed", "degraded_report_only"}
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
+
+
+def write_json(path: Path, payload: Any) -> None:
+    write_text(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
+def relpath(root: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def file_entry(root: Path, label: str, path: Path) -> dict[str, Any]:
+    return {"label": label, "path": relpath(root, path), "exists": path.is_file()}
+
+
+def choose_status(
+    *,
+    run_state: dict[str, Any],
+    source_state: str,
+    final_report_exists: bool,
+    pack_exists: bool,
+    transcript_exists: bool,
+    quality_approved: bool,
+    preflight_exists: bool,
+) -> str:
+    if final_report_exists and quality_approved:
+        return "success"
+    if run_state.get("status") == "failed":
+        return "failed"
+    if source_state in BLOCKING_SOURCE_STATES or run_state.get("workflow_outcome") == "degraded_acquisition_only":
+        return "degraded"
+    if pack_exists:
+        return "analysis_ready"
+    if transcript_exists:
+        return "transcript_ready"
+    if preflight_exists:
+        return "preflight_ready"
+    return "unknown"
+
+
+def action_items(status: str, user_action: str) -> list[str]:
+    if status == "success":
+        return [
+            "Read 20_document/final_report.md first.",
+            "Use 10_video/video_analysis_pack.md when you need the structured source decomposition.",
+            "Use 20_document/quality_gate.json when you need to inspect final approval details.",
+        ]
+    if status == "analysis_ready":
+        return [
+            "Run the document final writer to create 20_document/final_report.md.",
+            "Inspect 10_video/05_gap_check/evidence_audit.json before treating the report as source-grounded.",
+        ]
+    if status == "transcript_ready":
+        return [
+            "Continue segmentation, inventory extraction, source logic, evidence audit, and pack building.",
+            "Use the resume flag if this project was interrupted mid-run.",
+        ]
+    if status == "degraded":
+        return [
+            "Provide a subtitle or transcript file when available.",
+            "Provide a local audio or video file when ASR is acceptable.",
+            "Provide a user-exported cookies.txt only when you are authorized to access the same page.",
+            "Use quick mode only when a non-primary triage is enough.",
+        ]
+    if status == "failed":
+        return [
+            "Read logs/run_state.json for the failed stage and retry hint.",
+            "Fix the missing input, dependency, or upstream artifact before resuming.",
+            "Run the status command again after the retry.",
+        ]
+    if status == "preflight_ready":
+        return [
+            "Run the workflow if the estimated route and required user actions are acceptable.",
+            "Prefer the local transcript demo before trying unstable platform URLs.",
+        ]
+    if user_action:
+        return [str(user_action)]
+    return ["Run preflight or acquisition to determine the next safe route."]
+
+
+def build_result(project_root: Path) -> dict[str, Any]:
+    project_root = project_root.resolve()
+    logs_root = project_root / "logs"
+    video_root = project_root / "10_video"
+    document_root = project_root / "20_document"
+
+    run_state = read_json(logs_root / "run_state.json")
+    source_status = read_json(video_root / "00_source" / "source_status.json")
+    quality_gate = read_json(document_root / "quality_gate.json")
+    platform_result = read_json(video_root / "00_source" / "platform_media_result.json")
+    preflight = read_json(logs_root / "preflight.json")
+
+    source_state = source_status.get("source_status") or run_state.get("source_status") or "unknown"
+    final_report_exists = (document_root / "final_report.md").is_file()
+    pack_exists = (video_root / "video_analysis_pack.md").is_file()
+    transcript_exists = (video_root / "01_transcript" / "clean_transcript.jsonl").is_file()
+    quality_approved = bool(quality_gate.get("approved_for_final_report"))
+    full_allowed = bool(source_status.get("can_enter_full_decomposition")) and source_state == "source_confirmed"
+    material_decision = platform_result.get("material_decision") if isinstance(platform_result, dict) else {}
+    material_decision = material_decision if isinstance(material_decision, dict) else {}
+
+    status = choose_status(
+        run_state=run_state,
+        source_state=source_state,
+        final_report_exists=final_report_exists,
+        pack_exists=pack_exists,
+        transcript_exists=transcript_exists,
+        quality_approved=quality_approved,
+        preflight_exists=bool(preflight),
+    )
+    reason = (
+        run_state.get("failure_reason")
+        or run_state.get("degraded_reason")
+        or material_decision.get("reason")
+        or source_status.get("status_reason")
+        or ""
+    )
+    user_action = (
+        run_state.get("user_action_required")
+        or source_status.get("next_step")
+        or material_decision.get("next_step")
+        or ""
+    )
+    if status == "success":
+        reason = "Final report exists and the quality gate approved it."
+        user_action = ""
+
+    key_files = [
+        file_entry(project_root, "Result index", project_root / "result_index.md"),
+        file_entry(project_root, "Preflight", logs_root / "preflight.md"),
+        file_entry(project_root, "Run state", logs_root / "run_state.json"),
+        file_entry(project_root, "Source status", video_root / "00_source" / "source_status.json"),
+        file_entry(project_root, "Clean transcript", video_root / "01_transcript" / "clean_transcript.jsonl"),
+        file_entry(project_root, "Evidence audit", video_root / "05_gap_check" / "evidence_audit.json"),
+        file_entry(project_root, "Video analysis pack", video_root / "video_analysis_pack.md"),
+        file_entry(project_root, "Quality gate", document_root / "quality_gate.json"),
+        file_entry(project_root, "Final report", document_root / "final_report.md"),
+    ]
+
+    return {
+        "runner": RUNNER_NAME,
+        "project_root": str(project_root),
+        "status": status,
+        "mode": run_state.get("mode") or preflight.get("requested_mode") or "unknown",
+        "source_status": source_state,
+        "primary_material_available": bool(source_status.get("primary_material_available")),
+        "full_analysis_allowed": full_allowed,
+        "video_analysis_pack_exists": pack_exists,
+        "final_report_exists": final_report_exists,
+        "quality_gate_approved": quality_approved,
+        "reason": reason,
+        "user_action_required": user_action,
+        "next_actions": action_items(status, str(user_action or "")),
+        "key_files": key_files,
+    }
+
+
+def render_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Workflow Result",
+        "",
+        f"- Status: `{payload['status']}`",
+        f"- Mode: `{payload['mode']}`",
+        f"- Source status: `{payload['source_status']}`",
+        f"- Primary material available: `{payload['primary_material_available']}`",
+        f"- Full analysis allowed: `{payload['full_analysis_allowed']}`",
+        f"- Video analysis pack exists: `{payload['video_analysis_pack_exists']}`",
+        f"- Final report exists: `{payload['final_report_exists']}`",
+        f"- Quality gate approved: `{payload['quality_gate_approved']}`",
+        "",
+    ]
+    if payload.get("reason"):
+        lines.extend(["## Why", "", str(payload["reason"]), ""])
+
+    lines.extend(["## Start Here", ""])
+    for index, action in enumerate(payload.get("next_actions") or [], start=1):
+        lines.append(f"{index}. {action}")
+    lines.append("")
+
+    lines.extend(["## Key Files", "", "| File | Path | Exists |", "| --- | --- | --- |"])
+    for item in payload.get("key_files") or []:
+        lines.append(f"| {item['label']} | `{item['path']}` | `{item['exists']}` |")
+    lines.append("")
+
+    if not payload.get("full_analysis_allowed"):
+        lines.extend(
+            [
+                "## Important",
+                "",
+                "A complete video analysis requires first-hand transcript, subtitles, browser-visible transcript, or transcribable local media. Metadata, screenshots, search snippets, and secondary summaries cannot unlock a full report.",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def write_result_index(project_root: Path, *, output_md: Path | None = None, output_json: Path | None = None) -> dict[str, Any]:
+    payload = build_result(project_root)
+    root = Path(payload["project_root"])
+    md_path = output_md or root / "result_index.md"
+    json_path = output_json or root / "logs" / "result_index.json"
+    for item in payload.get("key_files") or []:
+        if item.get("label") == "Result index":
+            item["path"] = relpath(root, md_path)
+            item["exists"] = True
+    write_text(md_path, render_markdown(payload))
+    write_json(json_path, payload)
+    payload["result_index"] = str(md_path)
+    payload["result_index_json"] = str(json_path)
+    return payload
+
+
+def self_test() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "success"
+        write_json(
+            root / "10_video" / "00_source" / "source_status.json",
+            {
+                "source_status": "source_confirmed",
+                "can_enter_full_decomposition": True,
+                "primary_material_available": True,
+                "status_reason": "primary transcript is available",
+            },
+        )
+        write_json(root / "20_document" / "quality_gate.json", {"approved_for_final_report": True})
+        write_text(root / "20_document" / "final_report.md", "# Final Report\n")
+        success = write_result_index(root)
+        assert success["status"] == "success", success
+        assert (root / "result_index.md").is_file()
+
+        degraded = Path(tmp) / "degraded"
+        write_json(
+            degraded / "10_video" / "00_source" / "source_status.json",
+            {
+                "source_status": "secondary_only",
+                "can_enter_full_decomposition": False,
+                "primary_material_available": False,
+                "status_reason": "metadata only",
+                "next_step": "request_primary_material",
+            },
+        )
+        degraded_payload = write_result_index(degraded)
+        assert degraded_payload["status"] == "degraded", degraded_payload
+        assert "metadata only" in (degraded / "result_index.md").read_text(encoding="utf-8")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Create a user-facing result_index.md for a workflow project.")
+    parser.add_argument("--project-root", type=Path)
+    parser.add_argument("--output-md", type=Path)
+    parser.add_argument("--output-json", type=Path)
+    parser.add_argument("--pretty", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+
+    if args.self_test:
+        self_test()
+        print("result_index_writer self-test passed")
+        return 0
+    if args.project_root is None:
+        parser.error("--project-root is required unless --self-test is used")
+
+    payload = write_result_index(args.project_root, output_md=args.output_md, output_json=args.output_json)
+    if args.pretty:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

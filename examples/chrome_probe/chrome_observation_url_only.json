@@ -1,0 +1,16 @@
+{
+  "source_url": "https://example.invalid/video",
+  "visible_transcript_status": "not_visible",
+  "page_state_observed": "opened",
+  "layers": [
+    {
+      "layer": "playwright_evaluate",
+      "executed": true,
+      "result": "success",
+      "public_urls": [
+        "https://cdn.example.invalid/captions.vtt"
+      ],
+      "confirmed_public_downloadable": true
+    }
+  ]
+}

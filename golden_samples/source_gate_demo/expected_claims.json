@@ -1,0 +1,14 @@
+{
+  "sample_id": "source_gate_demo",
+  "expected_source_claims": [
+    "Source Gate means confirmed primary material.",
+    "Metadata alone cannot support speaker logic.",
+    "Transcript evidence should be preserved before reports are written.",
+    "Claims should remain tied to their source."
+  ],
+  "must_not_claim": [
+    "The source evaluated a real video platform.",
+    "The source proved Chrome deep-probe success.",
+    "The source endorsed bypassing platform restrictions."
+  ]
+}

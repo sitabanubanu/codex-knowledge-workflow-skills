@@ -1,0 +1,7 @@
+case_id,media_type,env_var,language,expected_notes
+zh_mp3,mp3,KW_REAL_ASR_MP3,zh,one minute Chinese speech
+en_mp3,mp3,KW_REAL_ASR_EN_MP3,en,one minute English speech
+mp4_video,mp4,KW_REAL_ASR_MP4,auto,video container with speech track
+noisy_audio,mp3,KW_REAL_ASR_NOISY_MP3,auto,noise sample should record lower confidence
+mixed_language,mp3,KW_REAL_ASR_MIXED_MP3,auto,Chinese-English mixed sample
+long_clip,mp4,KW_REAL_ASR_LONG_CLIP,auto,longer clip for timeout and resume behavior
