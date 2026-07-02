@@ -1,0 +1,32 @@
+Source Gate means confirmed primary material.
+
+For example, metadata alone cannot support speaker logic.
+
+Therefore we must preserve transcript evidence before writing reports.
+
+This creates a workflow where claims remain tied to their source.
+
+A long-form lecture can be processed safely only when the workflow keeps source
+material and interpretation separate.
+
+The first part of the lecture defines source confirmation. A transcript,
+subtitle file, or authorized audio transcription can provide primary material.
+Page metadata alone is not enough because it may omit the main argument.
+
+The second part describes decomposition. The transcript should be normalized
+into stable segments, then converted into an evidence inventory. Each important
+claim needs a traceable source span before it can support a final report.
+
+The third part explains quality review. A useful report should contain a Source
+section for what the material says, an Inference section for careful reasoning,
+and an Extension section for possible applications. The reader should be able
+to tell which layer each sentence belongs to.
+
+The fourth part covers failure handling. If a platform page blocks access, if
+cookies are missing, if no transcript is available, or if local ASR is not
+installed, the workflow should stop with a clear degraded status instead of
+pretending that a complete analysis is possible.
+
+The final part recommends batch research only after individual items pass their
+own source and quality gates. Batch-level priority or title fields are useful
+for ordering work, but they are not evidence for content claims.

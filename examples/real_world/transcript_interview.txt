@@ -1,0 +1,12 @@
+The speaker explains that a reliable knowledge workflow starts by confirming
+primary material before analysis.
+
+They warn that metadata, thumbnails, and page titles can help route a task, but
+they cannot prove what a speaker actually said.
+
+The recommended workflow is to preserve the transcript, split it into evidence
+segments, map claims to source text, and only then write a report.
+
+The speaker adds that useful reports should label source facts, cautious
+inferences, and extensions separately so readers can audit the conclusion.
+

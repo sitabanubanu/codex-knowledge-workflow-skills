@@ -4,6 +4,19 @@
 
 No unreleased changes recorded yet.
 
+## v0.5.0-real-world-validation
+
+- Added realistic offline validation examples for transcript, subtitle, long
+  transcript, and batch routes.
+- Added a real-world validation log and output quality standard.
+- Added regression coverage for realistic local samples and batch synthesis.
+- Added actionable failure-path coverage for empty transcripts and missing
+  input files.
+- Improved CLI handling for empty transcript inputs before expensive workflow
+  execution.
+- Reworked the user manual around real user tasks, failure handling, and output
+  quality checks.
+
 ## v0.4.0-cli-synthesis-and-ci
 
 - Added editable `kw` console command installation.

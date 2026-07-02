@@ -1,0 +1,5 @@
+id,input,priority,goal,mode,language,template
+rw-001,transcript_interview.txt,high,Validate transcript workflow on realistic interview notes,audit,en,research_brief
+rw-002,subtitle_talk.srt,high,Validate subtitle workflow on timestamped source material,audit,en,study_notes
+rw-003,long_transcript.txt,medium,Validate long transcript decomposition and report boundaries,audit,en,action_plan
+

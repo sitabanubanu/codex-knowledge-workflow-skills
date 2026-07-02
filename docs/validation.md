@@ -30,6 +30,21 @@ python .\tests\knowledge_workflow_regression.py
 python .\tests\real_workflow_acceptance.py
 ```
 
+The default regression suite also runs realistic offline samples under
+`examples/real_world/` and verifies common failure paths such as empty
+transcripts and missing input files.
+
+For manual v0.5.0 validation:
+
+```powershell
+python .\kw.py batch `
+  --input .\examples\real_world\batch_links.csv `
+  --output-root .\outputs\knowledge-workflow\real-world-batch
+```
+
+Record non-CI live runs in `docs/real-world-validation-log.md` and judge output
+readiness with `docs/output-quality-standard.md`.
+
 Live platform and real ASR checks stay opt-in:
 
 ```powershell

@@ -81,6 +81,17 @@ For a slower but stricter acceptance check:
 python .\tests\real_workflow_acceptance.py
 ```
 
+For v0.5.0-style realistic offline samples:
+
+```powershell
+python .\kw.py batch `
+  --input .\examples\real_world\batch_links.csv `
+  --output-root .\outputs\knowledge-workflow\real-world-batch
+```
+
+Track the result against `docs/real-world-validation-log.md` and
+`docs/output-quality-standard.md`.
+
 ## Why The Demo Comes First
 
 Platform URLs can fail because of missing subtitles, login state, bot checks,
@@ -243,7 +254,8 @@ material is unavailable.
 
 Current product entry work includes quickstart, examples, result indexing,
 unified CLI, security/privacy docs, batch research, output templates,
-Chrome probe normalization, and validation matrices.
+Chrome probe normalization, validation matrices, real-world offline examples,
+failure-path checks, and output quality standards.
 
 ## More Documentation
 
@@ -258,6 +270,8 @@ Chrome probe normalization, and validation matrices.
 - [Architecture](docs/architecture.md)
 - [Chrome probe integration](docs/chrome-probe-integration.md)
 - [Validation matrix](docs/validation.md)
+- [Real-world validation log](docs/real-world-validation-log.md)
+- [Output quality standard](docs/output-quality-standard.md)
 - [Release checklist](docs/release-checklist.md)
 - [Release notes](RELEASE_NOTES.md)
 

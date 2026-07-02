@@ -521,6 +521,112 @@ def test_batch_research_outputs(base: Path) -> None:
     assert_true("batch themes structured", bool(themes and themes[0].get("claims")))
 
 
+def test_real_world_examples(base: Path) -> None:
+    examples = REPO_ROOT / "examples" / "real_world"
+    sample_cases = [
+        ("transcript", examples / "transcript_interview.txt"),
+        ("subtitle", examples / "subtitle_talk.srt"),
+        ("long_transcript", examples / "long_transcript.txt"),
+    ]
+    for name, input_path in sample_cases:
+        project_root = base / "real_world" / name
+        run_ok(
+            [
+                sys.executable,
+                str(REPO_ROOT / "kw.py"),
+                "run",
+                "--input",
+                str(input_path),
+                "--project-root",
+                str(project_root),
+                "--mode",
+                "audit",
+                "--language",
+                "en",
+                "--final-language",
+                "en",
+            ],
+            cwd=REPO_ROOT,
+            timeout=240,
+        )
+        source_status = json.loads(
+            (project_root / "10_video" / "00_source" / "source_status.json").read_text(encoding="utf-8")
+        )
+        quality_gate = json.loads((project_root / "20_document" / "quality_gate.json").read_text(encoding="utf-8"))
+        final_text = (project_root / "20_document" / "final_report.md").read_text(encoding="utf-8")
+        assert_eq(f"{name} source status", source_status.get("source_status"), "source_confirmed")
+        assert_true(f"{name} primary material", source_status.get("primary_material_available") is True)
+        assert_true(f"{name} quality approved", quality_gate.get("approved_for_final_report") is True)
+        assert_true(f"{name} source section", "## Source" in final_text)
+        assert_true(f"{name} inference section", "## Inference" in final_text)
+        assert_true(f"{name} extension section", "## Extension" in final_text)
+
+    batch_root = base / "real_world_batch"
+    run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "batch",
+            "--input",
+            str(examples / "batch_links.csv"),
+            "--output-root",
+            str(batch_root),
+        ],
+        cwd=REPO_ROOT,
+        timeout=300,
+    )
+    assert_true("real-world batch status", (batch_root / "batch_status.csv").is_file())
+    assert_true("real-world cross-source synthesis", (batch_root / "cross_source_synthesis.md").is_file())
+    synthesis_text = (batch_root / "cross_source_synthesis.md").read_text(encoding="utf-8")
+    assert_true("real-world synthesis cites claims", "`rw-001` / `doc_claim_001`" in synthesis_text)
+    assert_true("real-world synthesis boundary", "quality-approved" in synthesis_text)
+
+
+def test_empty_transcript_failure_is_actionable(base: Path) -> None:
+    empty = base / "failure_paths" / "empty.txt"
+    project_root = base / "failure_paths" / "empty_project"
+    write_text(empty, "\n\n")
+    result = run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "run",
+            "--input",
+            str(empty),
+            "--project-root",
+            str(project_root),
+            "--mode",
+            "audit",
+        ],
+        cwd=REPO_ROOT,
+    )
+    assert_true("empty transcript fails", result["returncode"] != 0)
+    assert_true("empty transcript action", "contains no usable text" in result["stderr"])
+    assert_true("empty transcript no final report", not (project_root / "20_document" / "final_report.md").exists())
+
+
+def test_missing_input_failure_is_actionable(base: Path) -> None:
+    missing = base / "failure_paths" / "missing.txt"
+    project_root = base / "failure_paths" / "missing_project"
+    result = run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "run",
+            "--input",
+            str(missing),
+            "--project-root",
+            str(project_root),
+            "--mode",
+            "audit",
+        ],
+        cwd=REPO_ROOT,
+    )
+    assert_true("missing input fails", result["returncode"] != 0)
+    assert_true("missing input explains path", "does not exist" in result["stderr"])
+    assert_true("missing input no final report", not (project_root / "20_document" / "final_report.md").exists())
+
+
 def test_validate_dry_run(base: Path) -> None:
     output_root = base / "validation_plan"
     result = run_ok(
@@ -599,6 +705,9 @@ def main() -> int:
         test_doctor_self_test,
         test_doctor_cli_relative_outputs,
         test_batch_research_outputs,
+        test_real_world_examples,
+        test_empty_transcript_failure_is_actionable,
+        test_missing_input_failure_is_actionable,
         test_validate_dry_run,
         test_document_composer_blocks_bad_primary_flag,
         test_blocked_validator,

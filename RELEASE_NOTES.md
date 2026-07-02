@@ -4,6 +4,45 @@
 
 No unreleased changes recorded yet.
 
+## v0.5.0-real-world-validation
+
+### Added
+
+- `examples/real_world/` with realistic offline transcript, subtitle, long
+  transcript, and batch validation samples.
+- `docs/real-world-validation-log.md` for tracking offline and live validation
+  results.
+- `docs/output-quality-standard.md` defining Source / Inference / Extension,
+  traceability, gate, and failure standards.
+- Regression tests for realistic local samples, real-world batch synthesis,
+  empty transcript failures, and missing input failures.
+
+### Changed
+
+- The CLI now catches empty transcript/subtitle inputs before launching the full
+  workflow and returns a direct next-action message.
+- `USER_MANUAL.md` is reorganized around real user tasks: local transcript,
+  subtitle, URL preflight, batch research, output reading, failure handling, and
+  validation.
+- `README.md` and `docs/validation.md` now point to the realistic offline sample
+  path and the v0.5.0 quality documents.
+
+### Validation
+
+Local validation passed with:
+
+```powershell
+python .\kw.py validate --include-sync --output-root .\test_outputs\v0.5.0-validate
+```
+
+Checks passed:
+
+- compile
+- demo
+- regression
+- real_workflow_acceptance
+- sync_verify
+
 ## v0.4.0-cli-synthesis-and-ci
 
 ### Added

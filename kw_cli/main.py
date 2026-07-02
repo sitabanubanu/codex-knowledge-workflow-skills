@@ -122,6 +122,37 @@ def normalize_input(value: str) -> str:
     return str(Path(value).resolve())
 
 
+def has_usable_transcript_text(path: Path) -> bool:
+    try:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.upper() == "WEBVTT":
+            continue
+        if stripped.isdigit():
+            continue
+        if "-->" in stripped:
+            continue
+        return True
+    return False
+
+
+def validate_local_transcript_input(input_value: str) -> None:
+    path = Path(input_value)
+    if not path.is_file():
+        raise KwError(f"input transcript file does not exist: {path}")
+    if not has_usable_transcript_text(path):
+        raise KwError(
+            "input transcript contains no usable text. Provide a transcript, "
+            "subtitle file, local media for ASR, or an authorized source that "
+            "can produce primary material."
+        )
+
+
 def slugify(value: str) -> str:
     if is_url(value):
         parsed = urlparse(value)
@@ -243,6 +274,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     input_value = normalize_input(args.input)
     exit_code = 0
     try:
+        if input_kind == "transcript":
+            validate_local_transcript_input(input_value)
         run_preflight(input_value, args.mode, project_root, args.pretty)
         if args.mode == "quick":
             write_result(project_root, args.pretty)

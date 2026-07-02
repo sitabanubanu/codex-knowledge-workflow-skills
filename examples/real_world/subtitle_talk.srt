@@ -1,0 +1,19 @@
+1
+00:00:00,000 --> 00:00:04,000
+Source Gate means confirmed primary material.
+
+2
+00:00:04,000 --> 00:00:08,000
+A subtitle file is usable because it contains timestamped speech text.
+
+3
+00:00:08,000 --> 00:00:12,000
+Metadata alone cannot support speaker logic.
+
+4
+00:00:12,000 --> 00:00:16,000
+Therefore reports must preserve transcript evidence.
+
+5
+00:00:16,000 --> 00:00:20,000
+This creates a workflow where claims remain tied to their source.
