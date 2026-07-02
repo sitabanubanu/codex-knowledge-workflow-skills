@@ -141,11 +141,20 @@ Batch outputs:
 - `batch_summary.md`
 - `recommended_watch_order.md`
 - `comparative_report.md`
+- `cross_source_synthesis.md`
+- `theme_clusters.json`
+- `conflict_map.md`
+- `repeated_claims.md`
+- `unique_insights.md`
 - one project directory per item
 
 Use `batch_summary.md` as the human index and `batch_items.json` for structured
 automation. The comparative report compares readiness and source-gate status;
 it does not replace the per-item final reports.
+
+The cross-source synthesis files use only completed, quality-approved item
+claim maps. They are not allowed to synthesize from failed items, metadata-only
+items, or batch priority fields.
 
 ## 8. Templates
 

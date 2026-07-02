@@ -968,6 +968,180 @@ def render_comparative_report(status_rows: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def batch_approved_claims(status_rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    claims: list[dict[str, str]] = []
+    for row in status_rows:
+        if row.get("status") != "completed" or row.get("quality_gate_approved") != "True":
+            continue
+        project = Path(row.get("project") or "")
+        claim_map = read_json(project / "20_document" / "claim_map.json")
+        for claim in claim_map.get("claims", []):
+            if not isinstance(claim, dict) or claim.get("status") != "accepted":
+                continue
+            text = str(claim.get("text") or "").strip()
+            if not text:
+                continue
+            claims.append(
+                {
+                    "item_id": row["id"],
+                    "claim_id": str(claim.get("id") or ""),
+                    "category": str(claim.get("category") or "Unknown"),
+                    "text": text,
+                    "goal": row.get("goal") or "",
+                    "final_report": row.get("final_report") or "",
+                }
+            )
+    return claims
+
+
+def claim_theme(text: str) -> str:
+    words = [
+        word.lower()
+        for word in re.findall(r"[A-Za-z][A-Za-z0-9_-]{3,}", text)
+        if word.lower()
+        not in {
+            "that",
+            "this",
+            "with",
+            "from",
+            "into",
+            "before",
+            "after",
+            "therefore",
+            "means",
+            "must",
+        }
+    ]
+    return words[0] if words else "general"
+
+
+def build_theme_clusters(claims: list[dict[str, str]]) -> list[dict[str, object]]:
+    clusters: dict[str, list[dict[str, str]]] = {}
+    for claim in claims:
+        clusters.setdefault(claim_theme(claim["text"]), []).append(claim)
+    return [
+        {
+            "theme": theme,
+            "items": sorted({claim["item_id"] for claim in grouped}),
+            "claims": grouped,
+        }
+        for theme, grouped in sorted(clusters.items())
+    ]
+
+
+def render_cross_source_synthesis(claims: list[dict[str, str]], clusters: list[dict[str, object]]) -> str:
+    lines = [
+        "# Cross-Source Synthesis",
+        "",
+        "This synthesis uses only accepted claims from completed, quality-approved",
+        "batch items. It does not use batch metadata as source evidence.",
+        "",
+        "## Source Boundary",
+        "",
+        "- Failed, partial, or unapproved items are excluded.",
+        "- Every synthesized point below cites item id and claim id.",
+        "- Open the per-item final report before reusing content claims.",
+        "",
+        "## Theme Clusters",
+        "",
+    ]
+    if not clusters:
+        lines.append("No approved claims were available for synthesis.")
+    for cluster in clusters:
+        claims_in_cluster = cluster["claims"]
+        lines.append(f"### {cluster['theme']}")
+        lines.append("")
+        for claim in claims_in_cluster:  # type: ignore[assignment]
+            lines.append(f"- `{claim['item_id']}` / `{claim['claim_id']}`: {claim['text']}")
+        lines.append("")
+    lines.extend(
+        [
+            "## Reuse Guidance",
+            "",
+            "Use repeated themes for study order and unique claims for deeper review.",
+            "Do not present any synthesized statement without its item and claim IDs.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_repeated_claims(claims: list[dict[str, str]]) -> str:
+    by_text: dict[str, list[dict[str, str]]] = {}
+    for claim in claims:
+        key = " ".join(claim["text"].lower().split())
+        by_text.setdefault(key, []).append(claim)
+    repeated = [group for group in by_text.values() if len({claim["item_id"] for claim in group}) > 1]
+    lines = ["# Repeated Claims", ""]
+    if not repeated:
+        lines.append("No repeated accepted claims were detected across approved batch items.")
+    for group in repeated:
+        lines.append(f"- {group[0]['text']}")
+        lines.append("  - Evidence: " + ", ".join(f"`{claim['item_id']}`/`{claim['claim_id']}`" for claim in group))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_unique_insights(claims: list[dict[str, str]]) -> str:
+    by_text: dict[str, list[dict[str, str]]] = {}
+    for claim in claims:
+        key = " ".join(claim["text"].lower().split())
+        by_text.setdefault(key, []).append(claim)
+    lines = ["# Unique Insights", ""]
+    unique = [group[0] for group in by_text.values() if len({claim["item_id"] for claim in group}) == 1]
+    if not unique:
+        lines.append("No unique accepted claims were detected.")
+    for claim in unique:
+        lines.append(f"- `{claim['item_id']}` / `{claim['claim_id']}`: {claim['text']}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_conflict_map(claims: list[dict[str, str]]) -> str:
+    return "\n".join(
+        [
+            "# Conflict Map",
+            "",
+            "No deterministic conflicts were detected.",
+            "",
+            "This first-pass map does not infer contradiction from wording alone.",
+            "A future reviewer should mark conflicts only when approved claims make",
+            "incompatible assertions over the same subject, scope, and time frame.",
+            "",
+            f"- Approved claims inspected: `{len(claims)}`",
+            "",
+        ]
+    )
+
+
+def render_recommended_research_path(claims: list[dict[str, str]]) -> str:
+    item_ids = []
+    for claim in claims:
+        if claim["item_id"] not in item_ids:
+            item_ids.append(claim["item_id"])
+    lines = ["# Recommended Research Path", ""]
+    if not item_ids:
+        lines.append("No approved items are ready for content-level synthesis.")
+    for idx, item_id in enumerate(item_ids, start=1):
+        item_claims = [claim for claim in claims if claim["item_id"] == item_id]
+        lines.append(f"{idx}. `{item_id}`")
+        lines.append(f"   - Approved claims available: `{len(item_claims)}`")
+        lines.append("   - Start with the item final report, then inspect claim IDs.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_batch_synthesis(output_root: Path, status_rows: list[dict[str, str]]) -> None:
+    claims = batch_approved_claims(status_rows)
+    clusters = build_theme_clusters(claims)
+    write_text(output_root / "theme_clusters.json", json.dumps(clusters, ensure_ascii=False, indent=2))
+    write_text(output_root / "cross_source_synthesis.md", render_cross_source_synthesis(claims, clusters))
+    write_text(output_root / "repeated_claims.md", render_repeated_claims(claims))
+    write_text(output_root / "unique_insights.md", render_unique_insights(claims))
+    write_text(output_root / "conflict_map.md", render_conflict_map(claims))
+    write_text(output_root / "recommended_research_path.md", render_recommended_research_path(claims))
+
+
 def cmd_batch(args: argparse.Namespace) -> int:
     csv_path = args.input.resolve()
     output_root = args.output_root.resolve()
@@ -1070,6 +1244,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
     write_text(output_root / "batch_summary.md", render_batch_summary(status_rows))
     write_text(output_root / "recommended_watch_order.md", render_recommended_order(status_rows))
     write_text(output_root / "comparative_report.md", render_comparative_report(status_rows))
+    write_batch_synthesis(output_root, status_rows)
     print(f"Batch output: {output_root}")
     print(f"Batch status: {status_csv}")
     return 0 if len(completed) == len(status_rows) else 1

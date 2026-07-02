@@ -484,11 +484,21 @@ def test_batch_research_outputs(base: Path) -> None:
     order_md = output_root / "recommended_watch_order.md"
     comparative_md = output_root / "comparative_report.md"
     items_json = output_root / "batch_items.json"
+    synthesis_md = output_root / "cross_source_synthesis.md"
+    themes_json = output_root / "theme_clusters.json"
+    repeated_md = output_root / "repeated_claims.md"
+    unique_md = output_root / "unique_insights.md"
+    conflicts_md = output_root / "conflict_map.md"
     assert_true("batch status csv", status_csv.is_file())
     assert_true("batch summary", summary_md.is_file())
     assert_true("batch order", order_md.is_file())
     assert_true("batch comparative", comparative_md.is_file())
     assert_true("batch items json", items_json.is_file())
+    assert_true("batch synthesis", synthesis_md.is_file())
+    assert_true("batch themes", themes_json.is_file())
+    assert_true("batch repeated claims", repeated_md.is_file())
+    assert_true("batch unique insights", unique_md.is_file())
+    assert_true("batch conflict map", conflicts_md.is_file())
     status_text = status_csv.read_text(encoding="utf-8")
     assert_true("batch status source field", "source_status" in status_text)
     assert_true("batch status quality field", "quality_gate_approved" in status_text)
@@ -504,6 +514,11 @@ def test_batch_research_outputs(base: Path) -> None:
         "batch synthesis boundary",
         "Batch-level metadata is not" in comparative_md.read_text(encoding="utf-8"),
     )
+    synthesis_text = synthesis_md.read_text(encoding="utf-8")
+    assert_true("batch synthesis approved boundary", "quality-approved" in synthesis_text)
+    assert_true("batch synthesis cites item claim", "`001` / `doc_claim_001`" in synthesis_text)
+    themes = json.loads(themes_json.read_text(encoding="utf-8"))
+    assert_true("batch themes structured", bool(themes and themes[0].get("claims")))
 
 
 def test_validate_dry_run(base: Path) -> None:
