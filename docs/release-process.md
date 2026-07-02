@@ -3,6 +3,8 @@
 This process is for local release preparation. Do not publish a GitHub release
 until tests pass and the repository owner approves the tag.
 
+For the detailed checklist, see `docs/release-checklist.md`.
+
 ## Preflight
 
 ```powershell

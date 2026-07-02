@@ -258,6 +258,7 @@ Chrome probe normalization, and validation matrices.
 - [Architecture](docs/architecture.md)
 - [Chrome probe integration](docs/chrome-probe-integration.md)
 - [Validation matrix](docs/validation.md)
+- [Release checklist](docs/release-checklist.md)
 - [Release notes](RELEASE_NOTES.md)
 
 [offline-validation-badge]: https://github.com/sitabanubanu/codex-knowledge-workflow-skills/actions/workflows/offline-validation.yml/badge.svg
