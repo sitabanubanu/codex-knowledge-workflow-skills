@@ -37,6 +37,7 @@ test URLs are available.
 | pending | YouTube with subtitles | platform subtitles | maintainer-provided URL | pending | Set `KW_YOUTUBE_WITH_SUBTITLES_URL` and run `tests/live_platform_smoke.py`. |
 | pending | YouTube without subtitles | platform audio or ASR | maintainer-provided URL | pending | Confirm ASR availability or record degraded status. |
 | pending | cookies-required page | authorized cookies | maintainer-provided cookies | pending | Use only user-exported cookies; never commit cookies. |
+| 2026-07-03 | Marxism / alienated labor / subjectivity-loss video candidates | YouTube, Bilibili, Chrome page observation, Hearsay fallback | Windows, Asia/Shanghai; no exported cookies; no committed primary media | blocked/degraded | See `docs/live-marx-alienation-validation-2026-07-03.md`. Provide an official transcript/subtitle, local media for ASR, browser-derived transcript export, or authorized cookies before expecting a full report. |
 
 ## Issue Triage
 
@@ -48,4 +49,3 @@ Classify every finding before fixing it:
   action.
 - `defer`: live platform access, account, region, CAPTCHA, paywall, or local
   dependency condition outside the offline product contract.
-
