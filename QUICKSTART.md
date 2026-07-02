@@ -1,10 +1,14 @@
 # Quickstart
 
-This quickstart proves the core workflow with a local transcript. It avoids platform URLs, cookies, ASR setup, and browser state so the first run is predictable.
+This quickstart proves the core workflow with a local transcript. It avoids
+platform URLs, cookies, ASR setup, and browser state so the first run is
+predictable.
 
 ## 1. Install The Skills
 
 From the repository root:
+
+Windows:
 
 ```powershell
 .\sync_to_codex_skills.ps1 -DryRun
@@ -12,7 +16,17 @@ From the repository root:
 .\sync_to_codex_skills.ps1 -VerifyOnly
 ```
 
+macOS / Linux:
+
+```bash
+./sync_to_codex_skills.sh --dry-run
+./sync_to_codex_skills.sh
+./sync_to_codex_skills.sh --verify-only
+```
+
 `VERIFY OK` means the installed Codex skills match the repository copy.
+
+For environment setup beyond the local transcript demo, read `INSTALL.md`.
 
 ## 2. Run The Demo
 
@@ -73,10 +87,13 @@ python .\kw.py run `
 Use preflight before running a platform URL:
 
 ```powershell
-python .\kw.py preflight --input "https://www.youtube.com/watch?v=..." --mode audit
+python .\kw.py preflight `
+  --input "https://www.youtube.com/watch?v=..." `
+  --mode audit
 ```
 
-Platform URLs may need subtitles, local media, authorized cookies, or may stop at degraded status. That is expected behavior, not a fake-success failure.
+Platform URLs may need subtitles, local media, authorized cookies, or may stop
+at degraded status. That is expected behavior, not a fake-success failure.
 
 ## 6. Useful Commands
 
@@ -86,6 +103,9 @@ python .\kw.py status --project-root .\outputs\knowledge-workflow\demo-transcrip
 python .\kw.py result --project-root .\outputs\knowledge-workflow\demo-transcript
 python .\kw.py export --project-root .\outputs\knowledge-workflow\demo-transcript --format md
 ```
+
+`doctor` prints a short route-readiness summary by default. Add `--pretty` for
+full JSON or `--output-md doctor.md` for a Markdown diagnostic report.
 
 ## What To Check
 

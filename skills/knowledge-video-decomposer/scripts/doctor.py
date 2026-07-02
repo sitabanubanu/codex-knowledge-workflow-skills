@@ -554,6 +554,83 @@ def setup_requirements(report: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def route_readiness(report: dict[str, Any]) -> list[dict[str, str]]:
+    capabilities = report.get("capabilities", {})
+
+    def ready(key: str) -> bool:
+        return bool(capabilities.get(key))
+
+    local_asr = ready("local_audio_video_asr_prerequisites")
+    youtube_public = ready("youtube_public_metadata_prerequisites")
+    youtube_advanced = ready("youtube_cookies_js_subtitle_audio_prerequisites")
+    chrome = ready("chrome_page_probe_prerequisites")
+    utf8 = ready("safe_utf8_artifact_writes")
+    return [
+        {
+            "route": "Minimal local transcript demo",
+            "status": "ready",
+            "what_it_means": "No platform URL, cookies, browser state, or ASR required.",
+            "next_step": "Run `python .\\kw.py demo` and open `result_index.md`.",
+        },
+        {
+            "route": "Local transcript or subtitle file",
+            "status": "ready",
+            "what_it_means": "User-provided transcript/subtitle can enter source-gated analysis.",
+            "next_step": "Run `kw.py run --input <file> --mode audit`.",
+        },
+        {
+            "route": "Local audio/video with ASR",
+            "status": "ready" if local_asr else "needs_setup",
+            "what_it_means": (
+                "ffmpeg/ffprobe and faster-whisper are available."
+                if local_asr
+                else "Install ffmpeg/ffprobe and faster-whisper, or provide transcript/subtitle."
+            ),
+            "next_step": "Run local media only after ASR prerequisites are ready.",
+        },
+        {
+            "route": "Platform URL preflight",
+            "status": "ready" if youtube_public else "needs_setup",
+            "what_it_means": (
+                "yt-dlp is available for bounded metadata/subtitle checks."
+                if youtube_public
+                else "Install or expose yt-dlp before platform URL preflight."
+            ),
+            "next_step": "Use `kw.py preflight` first; platform success is still best effort.",
+        },
+        {
+            "route": "YouTube cookies + JavaScript route",
+            "status": "ready" if youtube_advanced else "needs_user_or_setup",
+            "what_it_means": (
+                "yt-dlp, Node.js, and fixed cookies handoff are ready."
+                if youtube_advanced
+                else "May need Node.js and an authorized user-exported Netscape cookies file."
+            ),
+            "next_step": "Use only for authorized pages; never paste or commit cookie values.",
+        },
+        {
+            "route": "Chrome page observation",
+            "status": "ready" if chrome else "needs_setup",
+            "what_it_means": (
+                "Chrome plugin files are present."
+                if chrome
+                else "Install or repair the Codex Chrome plugin before Chrome deep-probe tasks."
+            ),
+            "next_step": "Use Chrome only for visible page state or exported primary material.",
+        },
+        {
+            "route": "Chinese Markdown/JSON artifact writing",
+            "status": "ready" if utf8 else "warn",
+            "what_it_means": (
+                "UTF-8 writing and Python encoding checks are ready."
+                if utf8
+                else "Use artifact writers, `apply_patch`, or `PYTHONUTF8=1` for Chinese artifacts."
+            ),
+            "next_step": "Avoid shell redirection for long Chinese Markdown or JSON.",
+        },
+    ]
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [
         "# Knowledge Video Decomposer Doctor Report",
@@ -568,6 +645,19 @@ def render_markdown(report: dict[str, Any]) -> str:
     ]
     for key, value in report["capabilities"].items():
         lines.append(f"- `{key}`: `{value}`")
+    lines.extend(
+        [
+            "",
+            "## What You Can Try Now",
+            "",
+            "| Route | Status | What it means | Next step |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    for row in report.get("route_readiness", []):
+        lines.append(
+            f"| {row['route']} | `{row['status']}` | {row['what_it_means']} | {row['next_step']} |"
+        )
     lines.extend(
         [
             "",
@@ -605,6 +695,42 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(json.dumps(check["details"], ensure_ascii=False, indent=2, sort_keys=True))
         lines.append("```")
         lines.append("")
+    return "\n".join(lines)
+
+
+def render_stdout_summary(report: dict[str, Any]) -> str:
+    lines = [
+        "Knowledge Workflow Doctor",
+        f"Overall status: {report['overall_status']}",
+        "",
+        "What you can try now:",
+    ]
+    for row in report.get("route_readiness", []):
+        lines.append(f"- {row['route']}: {row['status']} - {row['next_step']}")
+
+    setup_rows = [
+        row
+        for row in report.get("setup_requirements", [])
+        if row.get("status") in {"warn", "fail"}
+    ]
+    if setup_rows:
+        lines.extend(["", "Needs attention:"])
+        for row in setup_rows:
+            lines.append(f"- {row['item']}: {row['status']} - {row['user_action']}")
+
+    privacy = report.get("privacy", {})
+    lines.extend(
+        [
+            "",
+            "Privacy:",
+            f"- Cookie values reported: {privacy.get('cookie_values_reported')}",
+            f"- Network probe performed: {privacy.get('network_probe_performed')}",
+            f"- Media download performed: {privacy.get('media_download_performed')}",
+            f"- Browser launched: {privacy.get('browser_launched')}",
+            "",
+            "Use --pretty for full JSON, or --output-md doctor.md for the full Markdown report.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -682,6 +808,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         },
     }
     report["setup_requirements"] = setup_requirements(report)
+    report["route_readiness"] = route_readiness(report)
     return report
 
 
@@ -706,7 +833,8 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-json", default=None, help="Write full doctor report JSON to this path.")
     parser.add_argument("--output-md", default=None, help="Write Markdown doctor report to this path.")
     parser.add_argument("--overwrite", action="store_true", help="Replace existing output report files.")
-    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON to stdout.")
+    parser.add_argument("--json", action="store_true", help="Print full compact JSON to stdout.")
+    parser.add_argument("--pretty", action="store_true", help="Pretty-print full JSON to stdout.")
     parser.add_argument("--self-test", action="store_true", help="Run built-in doctor tests.")
     return parser
 
@@ -761,9 +889,56 @@ def run_self_test() -> int:
                     "user_action": "No action.",
                 }
             ],
+            "route_readiness": [
+                {
+                    "route": "Minimal local transcript demo",
+                    "status": "ready",
+                    "what_it_means": "Demo can run.",
+                    "next_step": "Run demo.",
+                }
+            ],
         }
     )
-    assert_true("markdown render", "Overall status" in md and "ok_check" in md and "Setup Requirements" in md, failures)
+    assert_true(
+        "markdown render",
+        "Overall status" in md
+        and "ok_check" in md
+        and "Setup Requirements" in md
+        and "What You Can Try Now" in md,
+        failures,
+    )
+    summary = render_stdout_summary(
+        {
+            "overall_status": "warn",
+            "route_readiness": [
+                {
+                    "route": "Minimal local transcript demo",
+                    "status": "ready",
+                    "next_step": "Run demo.",
+                }
+            ],
+            "setup_requirements": [
+                {
+                    "item": "Python UTF-8 encoding",
+                    "status": "warn",
+                    "user_action": "Set PYTHONUTF8=1.",
+                }
+            ],
+            "privacy": {
+                "cookie_values_reported": False,
+                "network_probe_performed": False,
+                "media_download_performed": False,
+                "browser_launched": False,
+            },
+        }
+    )
+    assert_true(
+        "stdout summary render",
+        "What you can try now" in summary
+        and "Needs attention" in summary
+        and "Cookie values reported: False" in summary,
+        failures,
+    )
     with tempfile.TemporaryDirectory(prefix="kw-doctor-output-") as tmp:
         out = Path(tmp) / "doctor.json"
         args_no_overwrite = argparse.Namespace(output_json=str(out), output_md=None, overwrite=False)
@@ -776,6 +951,7 @@ def run_self_test() -> int:
             "capabilities": {},
             "privacy": {},
             "setup_requirements": [],
+            "route_readiness": [],
         }
         write_outputs(report, args_no_overwrite)
         no_overwrite_failed = False
@@ -814,7 +990,17 @@ def main() -> int:
         sys.stderr.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         return 1
 
-    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2 if args.pretty else None, sort_keys=args.pretty))
+    if args.pretty or args.json:
+        sys.stdout.write(
+            json.dumps(
+                report,
+                ensure_ascii=False,
+                indent=2 if args.pretty else None,
+                sort_keys=args.pretty,
+            )
+        )
+    else:
+        sys.stdout.write(render_stdout_summary(report))
     sys.stdout.write("\n")
     return 0 if report["overall_status"] in {"ok", "warn"} else 1
 

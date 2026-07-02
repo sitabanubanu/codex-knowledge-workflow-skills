@@ -27,6 +27,23 @@ TRANSCRIPT_EXTENSIONS = {".txt", ".md", ".srt", ".vtt", ".jsonl", ".json"}
 MEDIA_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".webm", ".wav", ".mov", ".opus"}
 TEMPLATE_NAMES = {"study_notes", "research_brief", "creator_script", "prompt_pack", "action_plan"}
 
+RUN_OPTION_DEFAULTS = {
+    "ytdlp": None,
+    "node": None,
+    "platform_timeout_seconds": 90,
+    "subtitle_languages": "all,-live_chat",
+    "use_js_runtime": False,
+    "use_remote_components": False,
+    "ytdlp_extractor_args": (),
+    "ytdlp_player_clients": "default,mweb,web,android_vr",
+    "youtube_visitor_data": None,
+    "youtube_po_token": (),
+    "ytdlp_proxy": None,
+    "ytdlp_impersonate": None,
+    "ytdlp_sleep_requests": None,
+    "ytdlp_retry_sleep": (),
+}
+
 
 class KwError(Exception):
     """User-facing CLI failure."""
@@ -68,6 +85,17 @@ def youtube_cookies_cli_value(value: object | None) -> str | None:
     if not text:
         return None
     return text
+
+
+def apply_run_option_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    for key, value in RUN_OPTION_DEFAULTS.items():
+        if not hasattr(args, key):
+            setattr(args, key, value)
+    return args
+
+
+def timestamp_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def is_url(value: str) -> bool:
@@ -114,6 +142,18 @@ def ensure_project_root(args: argparse.Namespace) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     (root / "logs").mkdir(parents=True, exist_ok=True)
     return root
+
+
+def contained_child_path(parent: Path, child: Path, label: str) -> Path:
+    resolved_parent = parent.resolve()
+    resolved_child = child.resolve()
+    if resolved_child == resolved_parent:
+        raise KwError(f"refusing to use {label} as the output root itself: {resolved_child}")
+    try:
+        resolved_child.relative_to(resolved_parent)
+    except ValueError as exc:
+        raise KwError(f"refusing to use {label} outside output root: {resolved_child}") from exc
+    return resolved_child
 
 
 def run_preflight(input_value: str, mode: str, project_root: Path, pretty: bool) -> None:
@@ -170,11 +210,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if args.asr_python:
         command.extend(["--asr-python", args.asr_python])
     if args.output_json:
-        command.extend(["--output-json", str(args.output_json)])
+        command.extend(["--output-json", str(args.output_json.resolve())])
     if args.output_md:
-        command.extend(["--output-md", str(args.output_md)])
+        command.extend(["--output-md", str(args.output_md.resolve())])
     if args.overwrite:
         command.append("--overwrite")
+    if args.json:
+        command.append("--json")
     if args.pretty:
         command.append("--pretty")
     return run_command(command, cwd=VIDEO / "scripts")
@@ -195,6 +237,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    args = apply_run_option_defaults(args)
     project_root = ensure_project_root(args)
     input_kind = classify_input(args.input)
     input_value = normalize_input(args.input)
@@ -382,49 +425,267 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
 
 
-def cmd_quality(args: argparse.Namespace) -> int:
-    project_root = args.project_root.resolve()
+def quality_check(name: str, passed: bool, evidence: str, required_action: str = "") -> dict[str, object]:
+    return {
+        "check": name,
+        "passed": bool(passed),
+        "evidence": evidence,
+        "required_action": required_action,
+    }
+
+
+def build_quality_review(project_root: Path) -> dict[str, object]:
     source_status = read_json(project_root / "10_video" / "00_source" / "source_status.json")
     quality_gate = read_json(project_root / "20_document" / "quality_gate.json")
+    claim_map = read_json(project_root / "20_document" / "claim_map.json")
     final_report = project_root / "20_document" / "final_report.md"
     final_text = final_report.read_text(encoding="utf-8") if final_report.is_file() else ""
-    checks = [
-        ("source_status_known", bool(source_status.get("source_status"))),
-        ("primary_material_labeled", "primary_material_available" in source_status),
-        ("full_report_gate_approved", bool(quality_gate.get("approved_for_final_report"))),
-        ("source_section_present", "## Source" in final_text),
-        ("inference_section_present", "## Inference" in final_text),
-        ("extension_section_present", "## Extension" in final_text),
-        ("no_cookie_literal", "cookie" not in final_text.lower() or "cookies" not in final_text.lower()),
+    gate_names = {item.get("gate"): item for item in quality_gate.get("gates", []) if isinstance(item, dict)}
+    claims = claim_map.get("claims") if isinstance(claim_map.get("claims"), list) else []
+    accepted_source_claims = [
+        claim
+        for claim in claims
+        if isinstance(claim, dict)
+        and claim.get("category") == "Source"
+        and claim.get("status") == "accepted"
     ]
-    passed = all(value for _, value in checks)
+    checks = [
+        quality_check(
+            "source_status_known",
+            bool(source_status.get("source_status")),
+            str(source_status.get("source_status") or "missing"),
+            "Run preflight/acquisition before quality review.",
+        ),
+        quality_check(
+            "primary_material_labeled",
+            "primary_material_available" in source_status,
+            f"primary_material_available={source_status.get('primary_material_available')}",
+            "Regenerate source_status.json with primary material labeling.",
+        ),
+        quality_check(
+            "full_report_gate_approved",
+            bool(quality_gate.get("approved_for_final_report")),
+            f"approved_for_final_report={quality_gate.get('approved_for_final_report')}",
+            "Inspect quality_gate.json and revise the final report.",
+        ),
+        quality_check("source_section_present", "## Source" in final_text, "Final report Source heading."),
+        quality_check("inference_section_present", "## Inference" in final_text, "Final report Inference heading."),
+        quality_check("extension_section_present", "## Extension" in final_text, "Final report Extension heading."),
+        quality_check(
+            "accepted_source_claims_present",
+            bool(accepted_source_claims),
+            f"accepted Source claims={len(accepted_source_claims)}",
+            "Inspect claim_map.json and upstream evidence inventory.",
+        ),
+        quality_check(
+            "claim_ids_visible",
+            "doc_claim_" in final_text,
+            "Final report contains registered claim ids.",
+            "Keep source claim ids visible in the report.",
+        ),
+        quality_check(
+            "language_match_gate_present",
+            "Language Match" in gate_names,
+            "Quality gate contains Language Match.",
+            "Regenerate final report audit with language matching enabled.",
+        ),
+        quality_check(
+            "gap_or_limits_present",
+            "Evidence And Limits" in final_text or "gap" in final_text.lower(),
+            "Final report names evidence limits or gaps.",
+            "Add an Evidence And Limits section before final use.",
+        ),
+        quality_check(
+            "no_cookie_literal",
+            "cookie" not in final_text.lower() or "cookie values" not in final_text.lower(),
+            "No obvious cookie-value disclosure marker found.",
+            "Remove cookies, tokens, and private account data from outputs.",
+        ),
+    ]
+    dimensions = [
+        {
+            "dimension": "Source faithfulness",
+            "passed": all(item["passed"] for item in checks if item["check"] in {"accepted_source_claims_present", "claim_ids_visible"}),
+        },
+        {
+            "dimension": "Source / Inference / Extension separation",
+            "passed": all(item["passed"] for item in checks if item["check"].endswith("_section_present")),
+        },
+        {
+            "dimension": "Claim quality",
+            "passed": bool(quality_gate.get("approved_for_final_report")),
+        },
+        {
+            "dimension": "Uncertainty",
+            "passed": any(item["check"] == "gap_or_limits_present" and item["passed"] for item in checks),
+        },
+        {
+            "dimension": "Safety and privacy",
+            "passed": any(item["check"] == "no_cookie_literal" and item["passed"] for item in checks),
+        },
+    ]
+    passed = all(bool(item["passed"]) for item in checks)
+    return {
+        "runner": "kw-quality-review",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "project_root": str(project_root),
+        "overall": "pass" if passed else "needs_review",
+        "source_status": source_status.get("source_status", "unknown"),
+        "approved_for_final_report": bool(quality_gate.get("approved_for_final_report")),
+        "checks": checks,
+        "dimensions": dimensions,
+    }
+
+
+def render_quality_review(review: dict[str, object]) -> str:
     lines = [
         "# Quality Review",
         "",
-        f"- Project: `{project_root}`",
-        f"- Overall: `{'pass' if passed else 'needs_review'}`",
-        f"- Source status: `{source_status.get('source_status', 'unknown')}`",
+        f"- Project: `{review['project_root']}`",
+        f"- Overall: `{review['overall']}`",
+        f"- Source status: `{review['source_status']}`",
+        f"- Approved final report: `{review['approved_for_final_report']}`",
         "",
-        "## Checks",
+        "## Rubric Dimensions",
         "",
-        "| Check | Pass |",
+        "| Dimension | Pass |",
         "| --- | --- |",
     ]
-    for name, value in checks:
-        lines.append(f"| {name} | `{bool(value)}` |")
-    lines.extend(
-        [
-            "",
-            "## Rubric",
-            "",
-            "See `quality_rubric.md` for the human review dimensions: source faithfulness, Source / Inference / Extension separation, claim quality, uncertainty, reusability, and safety.",
-            "",
-        ]
-    )
+    for item in review["dimensions"]:  # type: ignore[index]
+        lines.append(f"| {item['dimension']} | `{item['passed']}` |")
+    lines.extend(["", "## Checks", "", "| Check | Pass | Evidence | Required Action |", "| --- | --- | --- | --- |"])
+    for item in review["checks"]:  # type: ignore[index]
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    md_cell(item["check"]),
+                    f"`{item['passed']}`",
+                    md_cell(item["evidence"]),
+                    md_cell(item["required_action"]),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(["", "## Rubric", "", "See `quality_rubric.md` for the human review dimensions.", ""])
+    return "\n".join(lines)
+
+
+def cmd_quality(args: argparse.Namespace) -> int:
+    project_root = args.project_root.resolve()
+    review = build_quality_review(project_root)
     output = args.output or (project_root / "30_final" / "quality_review.md")
-    write_text(output, "\n".join(lines))
+    json_output = args.output_json or output.with_suffix(".json")
+    write_text(output, render_quality_review(review))
+    write_text(json_output, json.dumps(review, ensure_ascii=False, indent=2))
     print(f"Quality review: {output}")
-    return 0 if passed or args.allow_needs_review else 1
+    print(f"Quality review JSON: {json_output}")
+    return 0 if review["overall"] == "pass" or args.allow_needs_review else 1
+
+
+def markdown_sections(text: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current = "Preamble"
+    sections[current] = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            current = line[3:].strip()
+            sections.setdefault(current, [])
+            continue
+        sections.setdefault(current, []).append(line)
+    return {key: "\n".join(value).strip() for key, value in sections.items()}
+
+
+def compact_excerpt(text: str, *, limit: int = 1200) -> str:
+    cleaned = "\n".join(line.rstrip() for line in text.splitlines()).strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rstrip() + "\n\n[Excerpt truncated; open the source artifact for the full text.]"
+
+
+def accepted_claim_bullets(claim_map: dict) -> list[str]:
+    claims = claim_map.get("claims")
+    if not isinstance(claims, list):
+        return []
+    bullets: list[str] = []
+    for claim in claims:
+        if not isinstance(claim, dict) or claim.get("status") != "accepted":
+            continue
+        claim_id = claim.get("id") or "claim"
+        category = claim.get("category") or "Unknown"
+        text = str(claim.get("text") or "").strip()
+        if text:
+            bullets.append(f"- `{claim_id}` `{category}`: {text}")
+    return bullets
+
+
+def template_section(name: str, body: str) -> list[str]:
+    return [f"## {name}", "", body.strip() or "No approved material available for this section.", ""]
+
+
+def render_structured_template(
+    template_name: str,
+    sections: dict[str, str],
+    claim_bullets: list[str],
+    source_status: dict,
+    quality_gate: dict,
+) -> str:
+    source = compact_excerpt(sections.get("Source", ""), limit=1400)
+    inference = compact_excerpt(sections.get("Inference", ""), limit=900)
+    extension = compact_excerpt(sections.get("Extension", ""), limit=900)
+    examples = compact_excerpt(sections.get("Concrete Examples", ""), limit=900)
+    limits = compact_excerpt(sections.get("Evidence And Limits", ""), limit=900)
+    synthesis = compact_excerpt(sections.get("Final Synthesis", ""), limit=900)
+    claims = "\n".join(claim_bullets) or "No accepted claims were available."
+    source_line = (
+        f"Source status: `{source_status.get('source_status', 'unknown')}`; "
+        f"quality approved: `{bool(quality_gate.get('approved_for_final_report'))}`."
+    )
+
+    if template_name == "study_notes":
+        parts = [
+            template_section("Core Ideas", claims),
+            template_section("Key Examples", examples),
+            template_section("Important Distinctions", limits),
+            template_section("Questions For Review", "- Which claims are Source, and which are Extension?\n- What gaps remain?"),
+            template_section("Source / Inference / Extension Notes", f"{source_line}\n\n### Source\n{source}\n\n### Inference\n{inference}\n\n### Extension\n{extension}"),
+        ]
+    elif template_name == "research_brief":
+        parts = [
+            template_section("Research Question", "What does the approved source material establish, and how reusable is it?"),
+            template_section("Main Thesis", synthesis),
+            template_section("Evidence-Backed Claims", claims),
+            template_section("Uncertainties And Gaps", limits),
+            template_section("Relevance And Recommended Next Step", extension),
+        ]
+    elif template_name == "creator_script":
+        parts = [
+            template_section("Hook", "Start from the source-backed tension, not an invented anecdote."),
+            template_section("Narrative Spine", synthesis),
+            template_section("Source-Backed Talking Points", claims),
+            template_section("Transitions", sections.get("Language Logic", "")),
+            template_section("Ending", extension),
+            template_section("Extension Notes", "Any application beyond the source must be labeled as Extension."),
+        ]
+    elif template_name == "prompt_pack":
+        parts = [
+            template_section("Source Method Summary", source),
+            template_section("Reusable Prompt Patterns", "- Ask for Source / Inference / Extension separation.\n- Ask for evidence anchors before synthesis."),
+            template_section("Example Prompts", "- Turn the accepted Source claims into study notes without adding external facts.\n- List gaps before proposing extensions."),
+            template_section("Boundaries And Failure Modes", limits),
+            template_section("Source / Extension Labels", f"### Source\n{claims}\n\n### Extension\n{extension}"),
+        ]
+    elif template_name == "action_plan":
+        parts = [
+            template_section("Objective", sections.get("Source Status", "")),
+            template_section("Constraints From The Source", claims),
+            template_section("Step-By-Step Plan", extension or synthesis),
+            template_section("Risks", limits),
+            template_section("Validation Checks", "- Confirm source status before execution.\n- Confirm quality gate before reuse.\n- Keep extensions labeled."),
+        ]
+    else:
+        parts = [template_section("Approved Material", source or synthesis)]
+    return "\n".join(line for part in parts for line in part).strip()
 
 
 def render_template_output(project_root: Path, template_name: str) -> str:
@@ -434,9 +695,17 @@ def render_template_output(project_root: Path, template_name: str) -> str:
     pack = project_root / "10_video" / "video_analysis_pack.md"
     source_status = read_json(project_root / "10_video" / "00_source" / "source_status.json")
     quality_gate = read_json(project_root / "20_document" / "quality_gate.json")
+    claim_map = read_json(project_root / "20_document" / "claim_map.json")
     source_text = final_report.read_text(encoding="utf-8") if final_report.is_file() else ""
     pack_text = pack.read_text(encoding="utf-8") if pack.is_file() else ""
-    excerpt = (source_text or pack_text)[:3500].strip()
+    sections = markdown_sections(source_text or pack_text)
+    draft = render_structured_template(
+        template_name,
+        sections,
+        accepted_claim_bullets(claim_map),
+        source_status,
+        quality_gate,
+    )
     return "\n".join(
         [
             f"# {template_name.replace('_', ' ').title()}",
@@ -452,9 +721,10 @@ def render_template_output(project_root: Path, template_name: str) -> str:
             "",
             "## Generated Draft",
             "",
-            "This is a deterministic template projection from existing workflow artifacts. It does not add new source claims.",
+            "This is a deterministic template projection from existing workflow artifacts.",
+            "It reorganizes approved material and does not add new source claims.",
             "",
-            excerpt or "No final report or video analysis pack was available.",
+            draft,
             "",
         ]
     )
@@ -496,6 +766,208 @@ def resolve_batch_input(csv_path: Path, value: str) -> str:
     return str(path)
 
 
+def md_cell(value: object) -> str:
+    text = "" if value is None else str(value)
+    return text.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def batch_priority_rank(value: str) -> int:
+    return {"high": 0, "medium": 1, "low": 2}.get(value.strip().lower(), 3)
+
+
+def batch_readiness_rank(row: dict[str, str]) -> int:
+    if row.get("status") != "completed":
+        return 3
+    if row.get("quality_gate_approved") == "True":
+        return 0
+    if row.get("source_status") in {"source_confirmed", "source_partial"}:
+        return 1
+    return 2
+
+
+def collect_batch_item_status(
+    row: dict[str, str],
+    item_project: Path,
+    result_index: Path,
+    template_name: str,
+    status: str,
+    message: str,
+) -> dict[str, str]:
+    source_status = read_json(item_project / "10_video" / "00_source" / "source_status.json")
+    quality_gate = read_json(item_project / "20_document" / "quality_gate.json")
+    final_report = item_project / "20_document" / "final_report.md"
+    video_pack = item_project / "10_video" / "video_analysis_pack.md"
+    template_output = item_project / "30_final" / f"{template_name}.md" if template_name else None
+    return {
+        "id": row["id"],
+        "priority": row.get("priority") or "",
+        "goal": row.get("goal") or "",
+        "mode": row["mode"],
+        "language": row["language"],
+        "template": template_name,
+        "status": status,
+        "source_status": str(source_status.get("source_status") or "unknown"),
+        "full_analysis_allowed": str(bool(source_status.get("can_enter_full_decomposition"))),
+        "quality_gate_approved": str(bool(quality_gate.get("approved_for_final_report"))),
+        "final_report_exists": str(final_report.is_file()),
+        "template_output_exists": str(bool(template_output and template_output.is_file())),
+        "project": str(item_project),
+        "result_index": str(result_index),
+        "final_report": str(final_report),
+        "template_output": str(template_output or ""),
+        "message": message,
+    }
+
+
+def render_batch_summary(status_rows: list[dict[str, str]]) -> str:
+    completed = [row for row in status_rows if row["status"] == "completed"]
+    approved = [row for row in status_rows if row["quality_gate_approved"] == "True"]
+    source_counts: dict[str, int] = {}
+    for row in status_rows:
+        source_counts[row["source_status"]] = source_counts.get(row["source_status"], 0) + 1
+    lines = [
+        "# Batch Summary",
+        "",
+        f"- Items: `{len(status_rows)}`",
+        f"- Completed: `{len(completed)}`",
+        f"- Failed or partial: `{len(status_rows) - len(completed)}`",
+        f"- Quality-approved final reports: `{len(approved)}`",
+        "",
+        "## Source Status Counts",
+        "",
+    ]
+    for key in sorted(source_counts):
+        lines.append(f"- `{key}`: `{source_counts[key]}`")
+    lines.extend(
+        [
+            "",
+            "## Item Index",
+            "",
+            "| ID | Priority | Status | Source | Quality | Result | Final | Template |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for row in status_rows:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    md_cell(row["id"]),
+                    md_cell(row["priority"]),
+                    md_cell(row["status"]),
+                    md_cell(row["source_status"]),
+                    md_cell(row["quality_gate_approved"]),
+                    md_cell(row["result_index"]),
+                    md_cell(row["final_report"]),
+                    md_cell(row["template_output"]),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "Start with `batch_status.csv` for machine-readable status, then use",
+            "`recommended_watch_order.md` to read approved items first.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_recommended_order(status_rows: list[dict[str, str]]) -> str:
+    ordered = sorted(
+        status_rows,
+        key=lambda row: (batch_priority_rank(row["priority"]), batch_readiness_rank(row), row["id"]),
+    )
+    lines = [
+        "# Recommended Watch / Read Order",
+        "",
+        "Order is deterministic: priority first, then source/quality readiness, then ID.",
+        "",
+    ]
+    for idx, row in enumerate(ordered, start=1):
+        rationale = []
+        if row["priority"]:
+            rationale.append(f"priority={row['priority']}")
+        rationale.append(f"source={row['source_status']}")
+        rationale.append(f"quality={row['quality_gate_approved']}")
+        lines.append(f"{idx}. `{row['id']}` - {row['goal'] or row['result_index']}")
+        lines.append(f"   - Rationale: {', '.join(rationale)}.")
+        lines.append(f"   - Start: `{row['result_index']}`")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_comparative_report(status_rows: list[dict[str, str]]) -> str:
+    lines = [
+        "# Comparative Report",
+        "",
+        "This deterministic batch report compares workflow readiness, not source",
+        "claims. Use each item final report for content-level synthesis.",
+        "",
+        "## Reliability Tiers",
+        "",
+    ]
+    tiers = [
+        ("Ready for synthesis", lambda row: row["quality_gate_approved"] == "True"),
+        (
+            "Needs review before synthesis",
+            lambda row: row["status"] == "completed" and row["quality_gate_approved"] != "True",
+        ),
+        ("Not ready", lambda row: row["status"] != "completed"),
+    ]
+    for title, predicate in tiers:
+        matching = [row for row in status_rows if predicate(row)]
+        ids = ", ".join(f"`{row['id']}`" for row in matching) or "None"
+        lines.append(f"- {title}: {ids}")
+    lines.extend(
+        [
+            "",
+            "## Item Matrix",
+            "",
+            "| ID | Goal | Priority | Source | Quality | Template | Next Action |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for row in status_rows:
+        if row["status"] != "completed":
+            next_action = row["message"] or "Inspect item result and logs."
+        elif row["quality_gate_approved"] != "True":
+            next_action = "Inspect quality gate before using this item in synthesis."
+        elif row["template_output_exists"] == "True":
+            next_action = "Use final report and template output."
+        else:
+            next_action = "Use final report."
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    md_cell(row["id"]),
+                    md_cell(row["goal"]),
+                    md_cell(row["priority"]),
+                    md_cell(row["source_status"]),
+                    md_cell(row["quality_gate_approved"]),
+                    md_cell(row["template"]),
+                    md_cell(next_action),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Synthesis Boundary",
+            "",
+            "Only compare claims after opening the per-item final reports and checking",
+            "their Source / Inference / Extension sections. Batch-level metadata is not",
+            "evidence for source claims.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def cmd_batch(args: argparse.Namespace) -> int:
     csv_path = args.input.resolve()
     output_root = args.output_root.resolve()
@@ -512,11 +984,20 @@ def cmd_batch(args: argparse.Namespace) -> int:
         item_mode = row.get("mode") or args.mode
         item_language = row.get("language") or args.language
         template_name = row.get("template") or ""
-        item_project = output_root / item_id
+        batch_row = {
+            "id": item_id,
+            "priority": row.get("priority") or "",
+            "goal": row.get("goal") or "",
+            "mode": item_mode,
+            "language": item_language,
+        }
+        item_project = contained_child_path(output_root, output_root / item_id, "batch item output")
         status = "failed"
         result_index = item_project / "result_index.md"
         message = ""
         try:
+            if item_project.exists():
+                shutil.rmtree(item_project)
             resolved_input = resolve_batch_input(csv_path, item_input)
             run_args = argparse.Namespace(
                 input=resolved_input,
@@ -549,51 +1030,46 @@ def cmd_batch(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 - batch should continue across items
             message = str(exc)
         status_rows.append(
-            {
-                "id": item_id,
-                "priority": row.get("priority") or "",
-                "goal": row.get("goal") or "",
-                "mode": item_mode,
-                "language": item_language,
-                "template": template_name,
-                "status": status,
-                "project": str(item_project),
-                "result_index": str(result_index),
-                "message": message,
-            }
+            collect_batch_item_status(
+                batch_row,
+                item_project,
+                result_index,
+                template_name,
+                status,
+                message,
+            )
         )
 
     status_csv = output_root / "batch_status.csv"
     with status_csv.open("w", encoding="utf-8", newline="") as handle:
-        fieldnames = ["id", "priority", "goal", "mode", "language", "template", "status", "project", "result_index", "message"]
+        fieldnames = [
+            "id",
+            "priority",
+            "goal",
+            "mode",
+            "language",
+            "template",
+            "status",
+            "source_status",
+            "full_analysis_allowed",
+            "quality_gate_approved",
+            "final_report_exists",
+            "template_output_exists",
+            "project",
+            "result_index",
+            "final_report",
+            "template_output",
+            "message",
+        ]
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(status_rows)
+    write_text(output_root / "batch_items.json", json.dumps(status_rows, ensure_ascii=False, indent=2))
 
     completed = [row for row in status_rows if row["status"] == "completed"]
-    write_text(
-        output_root / "batch_summary.md",
-        "# Batch Summary\n\n"
-        + f"- Items: `{len(status_rows)}`\n"
-        + f"- Completed: `{len(completed)}`\n"
-        + f"- Failed or partial: `{len(status_rows) - len(completed)}`\n\n"
-        + "Start with `batch_status.csv`, then open each item `result_index.md`.\n",
-    )
-    ordered = sorted(status_rows, key=lambda row: {"high": 0, "medium": 1, "low": 2}.get(row["priority"], 3))
-    write_text(
-        output_root / "recommended_watch_order.md",
-        "# Recommended Order\n\n"
-        + "\n".join(f"{idx}. `{row['id']}` - {row['goal'] or row['result_index']}" for idx, row in enumerate(ordered, start=1))
-        + "\n",
-    )
-    write_text(
-        output_root / "comparative_report.md",
-        "# Comparative Report\n\n"
-        "This deterministic batch report records item status and priority. Use the per-item final reports and template outputs for detailed synthesis.\n\n"
-        + "| ID | Priority | Status | Goal |\n| --- | --- | --- | --- |\n"
-        + "\n".join(f"| {row['id']} | {row['priority']} | {row['status']} | {row['goal']} |" for row in status_rows)
-        + "\n",
-    )
+    write_text(output_root / "batch_summary.md", render_batch_summary(status_rows))
+    write_text(output_root / "recommended_watch_order.md", render_recommended_order(status_rows))
+    write_text(output_root / "comparative_report.md", render_comparative_report(status_rows))
     print(f"Batch output: {output_root}")
     print(f"Batch status: {status_csv}")
     return 0 if len(completed) == len(status_rows) else 1
@@ -623,6 +1099,103 @@ def cmd_chrome_probe(args: argparse.Namespace) -> int:
     return code
 
 
+def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    commands: list[tuple[str, list[str]]] = [
+        (
+            "compile",
+            [
+                sys.executable,
+                "-m",
+                "py_compile",
+                "kw.py",
+                str(VIDEO / "scripts" / "doctor.py"),
+                str(VIDEO / "scripts" / "chrome_media_probe.py"),
+                "tests/knowledge_workflow_regression.py",
+            ],
+        ),
+        ("demo", [sys.executable, "kw.py", "demo"]),
+        ("regression", [sys.executable, "tests/knowledge_workflow_regression.py"]),
+        ("real_workflow_acceptance", [sys.executable, "tests/real_workflow_acceptance.py"]),
+    ]
+    if args.include_live_platform:
+        commands.append(("live_platform_smoke", [sys.executable, "tests/live_platform_smoke.py"]))
+    if args.include_real_asr:
+        commands.append(("asr_integration", [sys.executable, "tests/asr_integration.py"]))
+    if args.include_sync:
+        if os.name == "nt":
+            commands.append(("sync_verify", ["powershell", "-NoProfile", "-File", "sync_to_codex_skills.ps1", "-VerifyOnly"]))
+        else:
+            commands.append(("sync_verify", ["sh", "sync_to_codex_skills.sh", "--verify-only"]))
+    return commands
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    commands = validation_command_list(args)
+    output_root = (args.output_root or (REPO_ROOT / "test_outputs" / "validation" / timestamp_id())).resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    records: list[dict[str, object]] = []
+    for name, command in commands:
+        record: dict[str, object] = {
+            "name": name,
+            "command": command,
+            "status": "planned" if args.dry_run else "pending",
+            "returncode": None,
+        }
+        if args.dry_run:
+            records.append(record)
+            continue
+        started = datetime.now(timezone.utc)
+        completed = subprocess.run(
+            command,
+            cwd=str(REPO_ROOT),
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+        )
+        stdout_path = output_root / f"{name}.stdout.txt"
+        stderr_path = output_root / f"{name}.stderr.txt"
+        write_text(stdout_path, completed.stdout)
+        write_text(stderr_path, completed.stderr)
+        record.update(
+            {
+                "status": "pass" if completed.returncode == 0 else "fail",
+                "returncode": completed.returncode,
+                "started_at": started.isoformat(),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "stdout": str(stdout_path),
+                "stderr": str(stderr_path),
+            }
+        )
+        records.append(record)
+    passed = all(record["status"] in {"planned", "pass"} for record in records)
+    summary = {
+        "runner": "kw-validate",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dry_run": bool(args.dry_run),
+        "passed": passed,
+        "output_root": str(output_root),
+        "commands": records,
+    }
+    write_text(output_root / "validation_summary.json", json.dumps(summary, ensure_ascii=False, indent=2))
+    lines = [
+        "# Validation Summary",
+        "",
+        f"- Dry run: `{bool(args.dry_run)}`",
+        f"- Passed: `{passed}`",
+        "",
+        "| Check | Status | Return Code |",
+        "| --- | --- | --- |",
+    ]
+    for record in records:
+        lines.append(f"| {record['name']} | `{record['status']}` | `{record['returncode']}` |")
+    lines.append("")
+    write_text(output_root / "validation_summary.md", "\n".join(lines))
+    print(f"Validation summary: {output_root / 'validation_summary.md'}")
+    return 0 if passed else 1
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Knowledge Workflow product CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -633,6 +1206,7 @@ def make_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--output-json", type=Path)
     doctor.add_argument("--output-md", type=Path)
     doctor.add_argument("--overwrite", action="store_true")
+    doctor.add_argument("--json", action="store_true", help="Print full compact JSON to stdout.")
     doctor.add_argument("--pretty", action="store_true")
     doctor.set_defaults(func=cmd_doctor)
 
@@ -697,6 +1271,7 @@ def make_parser() -> argparse.ArgumentParser:
     quality = subparsers.add_parser("quality", help="Write a source-gate aligned quality review.")
     quality.add_argument("--project-root", type=Path, required=True)
     quality.add_argument("--output", type=Path)
+    quality.add_argument("--output-json", type=Path)
     quality.add_argument("--allow-needs-review", action="store_true")
     quality.set_defaults(func=cmd_quality)
 
@@ -721,6 +1296,14 @@ def make_parser() -> argparse.ArgumentParser:
     chrome_probe.add_argument("--project-root", type=Path, required=True)
     chrome_probe.add_argument("--pretty", action="store_true")
     chrome_probe.set_defaults(func=cmd_chrome_probe)
+
+    validate = subparsers.add_parser("validate", help="Run or plan repository validation checks.")
+    validate.add_argument("--output-root", type=Path)
+    validate.add_argument("--include-live-platform", action="store_true")
+    validate.add_argument("--include-real-asr", action="store_true")
+    validate.add_argument("--include-sync", action="store_true")
+    validate.add_argument("--dry-run", action="store_true")
+    validate.set_defaults(func=cmd_validate)
     return parser
 
 

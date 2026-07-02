@@ -9,11 +9,24 @@ The repository script does not control Chrome by itself.
 
 ## CLI
 
+URL-only candidate example:
+
 ```powershell
 python .\kw.py chrome-probe `
   --input-json .\examples\chrome_probe\chrome_observation_url_only.json `
   --project-root .\outputs\knowledge-workflow\chrome-probe-demo
 ```
+
+Local exported subtitle example:
+
+```powershell
+python .\kw.py chrome-probe `
+  --input-json .\examples\chrome_probe\chrome_observation_exported_subtitle.json `
+  --project-root .\outputs\knowledge-workflow\chrome-probe-exported-subtitle
+```
+
+Relative local file paths in the observation JSON are resolved relative to the
+JSON file itself. This makes browser-agent handoff folders portable.
 
 ## Important Boundary
 

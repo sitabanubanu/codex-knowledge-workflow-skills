@@ -2,7 +2,43 @@
 
 ## Unreleased
 
-No unreleased changes recorded yet.
+### Added
+
+- Chinese final-report rendering and a Language Match quality gate for
+  requested Chinese output.
+- Route-readiness diagnostics in `kw.py doctor`, including concise default
+  output plus full JSON and Markdown diagnostic reports.
+- `kw.py validate`, an aggregate offline validation runner that writes JSON,
+  Markdown, and per-command logs.
+- `batch_items.json` and richer batch summary, recommended order, and
+  comparative reports.
+- Structured template outputs for study notes, research brief, creator script,
+  prompt pack, and action plan.
+- Chrome probe exported-subtitle example and relative local-file handoff
+  support.
+- Cross-platform installation docs, `requirements.txt`, and
+  `sync_to_codex_skills.sh`.
+
+### Changed
+
+- `kw.py quality` now writes both Markdown and JSON quality reviews mapped to
+  rubric dimensions.
+- `kw.py doctor --output-json/--output-md` resolves relative output paths from
+  the caller's working directory.
+- Batch status now records source status, full-analysis permission, quality
+  approval, final report path, and template output path.
+- Release and validation docs now point to `kw.py validate --include-sync` for
+  local release checks.
+
+### Validation
+
+Latest local validation:
+
+```powershell
+python .\kw.py validate --include-sync --output-root .\test_outputs\phase8-validate-full
+```
+
+Result: all default offline checks and sync verification passed.
 
 ## v0.3-product-entry-alpha
 
@@ -18,15 +54,20 @@ dist/codex-knowledge-workflow-skills-v0.3-product-entry-alpha.zip
 - `QUICKSTART.md` for a predictable first run that avoids platform URL instability.
 - `examples/demo_transcript/` with input, run script, and compact expected output shapes.
 - `kw.py`, a thin repository CLI for doctor, preflight, run, status, result, demo, and Markdown export.
-- `skills/knowledge-workflow-console/scripts/result_index_writer.py`, which writes `result_index.md` and `logs/result_index.json` as the user-facing entry point for a workflow project.
-- Trust and onboarding files: `LICENSE`, `SECURITY.md`, `PRIVACY.md`, `SUPPORTED_PLATFORMS.md`, `TROUBLESHOOTING.md`, `CONTRIBUTING.md`, `ROADMAP.md`, `CHANGELOG.md`, and `README.zh-CN.md`.
+- `skills/knowledge-workflow-console/scripts/result_index_writer.py`, which
+  writes `result_index.md` and `logs/result_index.json` as the user-facing entry
+  point for a workflow project.
+- Trust and onboarding files: `LICENSE`, `SECURITY.md`, `PRIVACY.md`,
+  `SUPPORTED_PLATFORMS.md`, `TROUBLESHOOTING.md`, `CONTRIBUTING.md`,
+  `ROADMAP.md`, `CHANGELOG.md`, and `README.zh-CN.md`.
 - Quality, template, batch, Chrome probe, and validation productization artifacts.
 
 ### Changed
 
 - Workflow console guidance now finishes runs with both status summary and result index artifacts.
 - Generated `outputs/` are ignored by Git.
-- Product documentation is split into focused entry, security, privacy, platform, troubleshooting, architecture, and release-process pages.
+- Product documentation is split into focused entry, security, privacy,
+  platform, troubleshooting, architecture, and release-process pages.
 
 ## v0.2-real-workflow-alpha
 

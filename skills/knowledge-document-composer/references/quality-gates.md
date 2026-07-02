@@ -22,9 +22,15 @@ creates `final_report.md`.
 Pass criteria:
 
 - Key Source claims have timestamps, transcript ids, segment ids, quotes, or artifact references when available.
-- Claims derived from `source_logic.md`, `logic_graph.json`, `claims.json`, or `video_analysis_pack.md` name the artifact.
-- Every Source claim in `draft_report.md` or `final_report.md` is either present in `20_document/claim_map.json` or has been added there with Source / Inference / Extension category, evidence anchors, confidence, and status before final delivery.
-- For audited video workflows, Source claims in `claim_map.json` trace back to `10_video/05_gap_check/claim_source_audit.json` with non-blocking evidence status.
+- Claims derived from `source_logic.md`, `logic_graph.json`,
+  `claims.json`, or `video_analysis_pack.md` name the artifact.
+- Every Source claim in `draft_report.md` or `final_report.md` is either
+  present in `20_document/claim_map.json` or has been added there with
+  Source / Inference / Extension category, evidence anchors, confidence, and
+  status before final delivery.
+- For audited video workflows, Source claims in `claim_map.json` trace back to
+  `10_video/05_gap_check/claim_source_audit.json` with non-blocking evidence
+  status.
 - Inference claims have evidence anchors where possible and include a reasoning bridge.
 - Extension claims name their origin, such as user request, outside framework, critique, or application.
 
@@ -46,7 +52,8 @@ Blocking rule:
 Pass criteria:
 
 - Every important example is described concretely before abstraction.
-- For each important example, the report explains what it is, why it is introduced, how it works, and what conclusion it supports.
+- For each important example, the report explains what it is, why it is
+  introduced, how it works, and what conclusion it supports.
 - The report distinguishes foundational examples from illustrative examples.
 - Limits of examples are stated when relevant.
 
@@ -64,14 +71,16 @@ Blocking rule:
 
 Pass criteria:
 
-- The report shows how the speaker's wording, sequence, contrasts, questions, and transitions help produce the conclusion.
+- The report shows how the speaker's wording, sequence, contrasts, questions,
+  and transitions help produce the conclusion.
 - Concept transitions are explained, not merely named.
 - The draft preserves the source's rhetorical progression before adding critique or extensions.
 - Unusual source terms are explained in the source's own logic before outside terms are introduced.
 
 Fail patterns:
 
-- The report says the speaker "shifts", "reframes", or "moves beyond" something without showing the wording or sequence that creates the shift.
+- The report says the speaker "shifts", "reframes", or "moves beyond"
+  something without showing the wording or sequence that creates the shift.
 - The report replaces source language with the composer's framework too early.
 - The final synthesis ignores how the speaker built the conclusion.
 
@@ -83,7 +92,8 @@ Blocking rule:
 
 Pass criteria:
 
-- The report makes the path visible: setup -> tension/problem -> example -> concept shift -> claim -> implication -> conclusion.
+- The report makes the path visible: setup -> tension/problem -> example ->
+  concept shift -> claim -> implication -> conclusion.
 - Each major claim follows from a prior example, concept, or source move.
 - Reasoning bridges are explicit where the source compresses an argument.
 - The final synthesis follows from the reconstructed chain.
@@ -123,7 +133,6 @@ Blocking rule:
 Pass criteria:
 
 - The report answers the user's actual request, document type, and depth requirement.
-- The final language follows the user's requested language. If no language was requested, it follows the current conversation language recorded in `commitments.md`.
 - The output preserves the user's requested focus while maintaining source faithfulness.
 - If the user asked for expansion, critique, script, briefing, or essay form, the structure reflects that request.
 
@@ -136,7 +145,32 @@ Fail patterns:
 
 Blocking rule:
 
-- Block final delivery when the report does not answer the user's requested output, or when final language conflicts with the requested/default language.
+- Block final delivery when the report does not answer the user's requested output.
+
+## Gate 6A: Language Match Gate
+
+Pass criteria:
+
+- The final language follows the user's requested language.
+- If no language was requested, it follows the current conversation language
+  recorded in `commitments.md`.
+- For `zh-CN`, the report body is substantially Chinese while still preserving
+  machine-readable headings, claim ids, and source quotes when needed.
+- Source quotes, transcript previews, claim ids, file paths, and section labels
+  may remain in their original language when they are evidence or workflow
+  anchors.
+
+Fail patterns:
+
+- `final_language` is `zh-CN`, but the report body is effectively English.
+- The report only mentions `zh-CN` in metadata while the actual explanation is
+  not Chinese.
+- The report switches language by section without a source or evidence reason.
+
+Blocking rule:
+
+- Block final delivery when final language conflicts with the requested/default
+  language.
 
 ## Gate 7: Gap Gate
 
@@ -162,7 +196,9 @@ Blocking rule:
 Pass criteria:
 
 - Abstract labels are paired with concrete explanation.
-- Terms such as "agency", "tool use", "rationality", "modernity", "cognitive shift", "language logic", or "paradigm" are defined through source material before being used.
+- Terms such as "agency", "tool use", "rationality", "modernity",
+  "cognitive shift", "language logic", or "paradigm" are defined through
+  source material before being used.
 - The draft replaces vague summaries with source-grounded reasoning.
 
 Fail patterns:
@@ -180,7 +216,9 @@ Blocking rule:
 Pass criteria:
 
 - The draft includes the required functions from `report-template.md`, adapted to the requested output type.
-- Concrete examples, argument chain, concept map, and Source / Inference / Extension separation are present unless explicitly unnecessary for the user's format.
+- Concrete examples, argument chain, concept map, and Source / Inference /
+  Extension separation are present unless explicitly unnecessary for the
+  user's format.
 - Any omitted template section has a reason recorded in `quality_check.md`.
 
 Fail patterns:
@@ -223,6 +261,7 @@ The exact `source_status` may be `source_partial` only when `report_scope` is
 | Argument continuity |  |  |  |
 | Source / Inference / Extension |  |  |  |
 | User fit |  |  |  |
+| Language match |  |  |  |
 | Gap |  |  |  |
 | No-empty-abstraction |  |  |  |
 | Template coverage |  |  |  |

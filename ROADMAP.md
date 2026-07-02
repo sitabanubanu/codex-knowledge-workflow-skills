@@ -14,6 +14,7 @@
 - Batch status table.
 - Comparative report.
 - Recommended watch/read order.
+- Structured batch item JSON.
 
 ## v0.5 - Templates And Examples
 
@@ -21,7 +22,8 @@
 - Research brief.
 - Creator script.
 - Prompt pack.
-- More golden samples.
+- Action plan.
+- Structured deterministic template rendering.
 
 ## v0.6 - Chrome Probe Integration
 
@@ -34,4 +36,5 @@
 - Real platform sample matrix.
 - Real ASR sample matrix.
 - Longer-term regression recording.
-- GitHub Actions for fixture-based tests.
+- Aggregate local validation command.
+- Future: GitHub Actions for fixture-based tests.

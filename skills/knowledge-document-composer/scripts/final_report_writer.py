@@ -105,11 +105,26 @@ def bullet_claim(claim: dict[str, Any], label: str) -> str:
     return f"- {label} claim `{claim_id}`: {text} Evidence: {evidence_text(claim)}. Confidence: `{confidence}`. Status: `{status}`."
 
 
+def wants_zh_cn(value: Any) -> bool:
+    text = str(value or "").lower()
+    return "zh" in text or "chinese" in text or "中文" in text
+
+
+def bullet_claim_zh(claim: dict[str, Any], label: str) -> str:
+    claim_id = str(claim.get("id") or "unregistered")
+    text = compact(claim.get("text"), 500)
+    confidence = claim.get("confidence") or "not recorded"
+    status = claim.get("status") or "not recorded"
+    return f"- {label} 声明 `{claim_id}`：{text}。证据：{evidence_text(claim)}。置信度：`{confidence}`。状态：`{status}`。"
+
+
 def render_report(state: dict[str, Any], *, stage: str) -> str:
     intake = state["intake"]
     claims = state["claims"]
     source_status = str(intake.get("source_status"))
     partial = source_status == "source_partial"
+    if wants_zh_cn(intake.get("final_language")):
+        return render_report_zh(state, stage=stage)
     scope_label = " (Partial Scope)" if partial else ""
     source_claim_rows = accepted_source_claims(claims)
     inference_rows = inference_claims(claims)
@@ -218,6 +233,124 @@ def render_report(state: dict[str, Any], *, stage: str) -> str:
             "## Final Synthesis",
             "",
             "The source-backed result is that the report should preserve evidence before interpretation. The inference layer can explain why this matters for downstream quality, while the extension layer can propose machine-readable gates and reusable workflow checks. These layers stay separate so a reader can audit what came from the source, what was derived, and what was added for the user's workflow.",
+            "",
+        ]
+    )
+
+
+def render_report_zh(state: dict[str, Any], *, stage: str) -> str:
+    intake = state["intake"]
+    claims = state["claims"]
+    source_status = str(intake.get("source_status"))
+    partial = source_status == "source_partial"
+    scope_label = "（Partial Scope / 部分范围）" if partial else ""
+    source_claim_rows = accepted_source_claims(claims)
+    inference_rows = inference_claims(claims)
+    extension_rows = extension_claims(claims)
+    if not source_claim_rows:
+        raise FinalReportWriterError("cannot draft a final report without at least one accepted Source claim")
+    title_name = "草稿报告" if stage == "draft" else "修订报告"
+    title = f"# {title_name}{scope_label}"
+    source_status_lines = [
+        f"- 来源状态：`{source_status}`",
+        f"- Composer decision：`{intake.get('composer_decision')}`",
+        f"- 报告范围：`{'partial' if partial else 'full'}`",
+        f"- Document goal：{intake.get('document_goal') or 'not recorded'}",
+        f"- Final language：{intake.get('final_language') or 'not recorded'}",
+        f"- Audience：{intake.get('audience') or 'not recorded'}",
+    ]
+    if partial:
+        source_status_lines.append("- Partial Scope：本报告只覆盖已经取得的一手材料范围，不能用二手材料补齐缺失片段。")
+    source_claim_lines = [bullet_claim_zh(claim, "Source") for claim in source_claim_rows]
+    inference_lines = [bullet_claim_zh(claim, "Inference") for claim in inference_rows] or [
+        "- 当前没有登记可用的 Inference 声明。解释层应保持克制，不扩展为新的 Source 内容。"
+    ]
+    extension_lines = [bullet_claim_zh(claim, "Extension") for claim in extension_rows] or [
+        "- 当前没有独立登记的 Extension 声明。任何面向行动、应用或批判的内容都必须明确标注为延伸建议。"
+    ]
+    revision_note = []
+    if stage == "revised":
+        revision_note = [
+            "## Revision Note",
+            "",
+            "- 本修订版保留 Source / Inference / Extension 三层结构，保留声明编号，并在最终审计前重复范围限制。",
+            "",
+        ]
+    return "\n".join(
+        [
+            title,
+            "",
+            "## Source Status",
+            "",
+            *source_status_lines,
+            "",
+            *revision_note,
+            "## Source",
+            "",
+            "本节只重建已经通过 document composer intake 的来源内容。它不把平台 metadata、第三方总结、用户目标或外部解释当作 Source。",
+            "",
+            "### Source Reconstruction Preview",
+            "",
+            compact(state["source_reconstruction"], 900),
+            "",
+            "### Registered Source Claims",
+            "",
+            *source_claim_lines,
+            "",
+            "## Concrete Examples",
+            "",
+            "具体例子必须先服务于证据链，而不是服务于漂亮总结。报告先说明例子对应的 Source claim，再说明它支持什么推断或延伸。",
+            "",
+            "- 例子的作用：让读者看到声明从哪一段一手材料来，而不是只看到抽象结论。",
+            "- 它能支持什么：例如 `doc_claim_001` 这样的已登记 Source claim。",
+            "- 它不能证明什么：它不能补齐缺失 transcript，不能把 metadata 或第三方摘要升级成 Source。",
+            "",
+            "## Language Logic",
+            "",
+            "语言逻辑通过可审计的顺序保留下来：先给出来源声明，再给出证据标记，然后说明推理桥梁，最后才进入推断或延伸。",
+            "",
+            "- 措辞规则：Source 只描述来源已经支持的内容。",
+            "- 转折规则：从来源到解释必须展示推理桥梁。",
+            "- 归因规则：延伸建议必须标注为 downstream application、critique 或 synthesis，不能说成原作者观点。",
+            "",
+            "## Argument Chain",
+            "",
+            "setup -> tension/problem -> example -> concept shift -> claim -> implication -> conclusion",
+            "",
+            "- Setup：工作流从 source gate 允许的一手材料开始。",
+            "- Tension/problem：报告可以写得很完整，但证据链可能并不完整。",
+            "- Example：已登记的 Source claim 让证据链可检查。",
+            "- Concept shift：报告先完成来源重建，再进入明确标注的推断。",
+            "- Claim：最终交付必须保留 Source / Inference / Extension 的边界。",
+            "- Implication：如果材料不足、审计失败或只有二手资料，就必须阻止普通 final report。",
+            "- Conclusion：只有 `quality_gate.json` 批准后，`final_report.md` 才能存在。",
+            "",
+            "## Inference",
+            "",
+            "Inference 是从来源重建中推出的解释层。它可以帮助读者理解含义，但不能伪装成原材料直接说过的话。",
+            "",
+            *inference_lines,
+            "",
+            "## Extension",
+            "",
+            "Extension 是面向用户目标的应用、批判、行动建议或工作流延伸。除非另有证据，它不能归因给原始来源。",
+            "",
+            *extension_lines,
+            "",
+            "### Expansion Boundary",
+            "",
+            compact(state["expansion_plan"], 700),
+            "",
+            "## Evidence And Limits",
+            "",
+            "- 上文所有 Source claim 都必须出现在 `claim_map.json` 中，并且 category 为 `Source`、status 为 `accepted`。",
+            "- `needs_verification`、`uncertain` 或 `excluded` 状态的声明不能当作已确认 Source。",
+            "- 已知缺口、ASR 不确定性和上游审计状态继续以 `composer_intake.json` 与 `10_video/05_gap_check` 为准。",
+            "- 只有当 `quality_gate.json` 记录 `approved_for_final_report: true` 时，最终报告才允许交付。",
+            "",
+            "## Final Synthesis",
+            "",
+            "这个来源支持的核心结果是：报告必须先保留证据，再进入解释。推断层可以说明为什么这种证据链对质量重要；延伸层可以提出机器可读质量门、复用模板或后续工作流建议。三层分开后，读者才能判断哪些内容来自来源，哪些内容是合理推断，哪些内容是面向用户目标的延伸。",
             "",
         ]
     )
@@ -337,6 +470,27 @@ def run_self_test() -> int:
         assert_true("extension section", "## Extension" in final_text, failures)
         gate = read_json(full_doc / "quality_gate.json")
         assert_true("machine gate bool", gate.get("approved_for_final_report") is True, failures)
+        assert_true("language match gate", "Language Match" in {item.get("gate") for item in gate.get("gates", [])}, failures)
+
+        zh_video = base / "zh" / "10_video"
+        zh_doc = base / "zh" / "20_document"
+        write_video_fixture(zh_video)
+        run_document_composer(
+            argparse.Namespace(
+                video_root=zh_video,
+                document_root=zh_doc,
+                document_goal="写一份中文可审计报告",
+                final_language="zh-CN",
+                audience="中文研究型用户",
+            )
+        )
+        zh_result = run_final_report_writer(argparse.Namespace(document_root=zh_doc))
+        zh_text = read_text(zh_doc / "final_report.md")
+        zh_gate = read_json(zh_doc / "quality_gate.json")
+        assert_true("zh final written", zh_result["final_report_written"] is True, failures)
+        assert_true("zh approved", zh_gate.get("approved_for_final_report") is True, failures)
+        assert_true("zh body", "来源状态" in zh_text and "推断" in zh_text and "延伸" in zh_text, failures)
+        assert_true("zh goal preserved", "写一份中文可审计报告" in zh_text, failures)
 
         partial_video = base / "partial" / "10_video"
         partial_doc = base / "partial" / "20_document"

@@ -20,6 +20,45 @@ outputs/knowledge-workflow/demo-transcript/result_index.md
 outputs/knowledge-workflow/demo-transcript/logs/run_state.json
 ```
 
+## Doctor Says Warn Or Fail
+
+Run:
+
+```powershell
+python .\kw.py doctor --youtube-cookies auto
+```
+
+Read the default route summary first. It tells you which paths are ready, which
+paths need setup, and which warning still matters.
+
+For a full diagnostic record, run:
+
+```powershell
+python .\kw.py doctor `
+  --youtube-cookies auto `
+  --output-md .\test_outputs\doctor.md `
+  --output-json .\test_outputs\doctor.json `
+  --overwrite
+```
+
+In the full Markdown or JSON report, read these sections first:
+
+- `route_readiness`: what you can try now.
+- `setup_requirements`: which route-specific setup is missing.
+- `privacy`: confirms doctor did not fetch media, launch Chrome, or report
+  cookie values.
+
+Interpretation:
+
+- Minimal local transcript demo should be available even when platform URL
+  prerequisites are missing.
+- Local audio/video requires ffmpeg, ffprobe, and faster-whisper.
+- Platform URL preflight requires yt-dlp, but success is still best effort.
+- YouTube cookies + JavaScript routes may require Node.js and a user-exported
+  Netscape cookies file.
+- Chinese Markdown/JSON should use UTF-8-safe artifact writers, `apply_patch`,
+  or `PYTHONUTF8=1` when the environment reports non-UTF-8 console encodings.
+
 ## Only Metadata Was Found
 
 Metadata cannot support a complete video analysis. Provide one of:

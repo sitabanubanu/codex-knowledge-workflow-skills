@@ -127,6 +127,151 @@ def test_local_transcript_e2e(base: Path) -> None:
     assert_true("final report not written", not (project_root / "20_document" / "final_report.md").exists())
 
 
+def test_zh_cn_final_report(base: Path) -> None:
+    transcript = base / "zh_cn_report" / "fixture.txt"
+    project_root = base / "zh_cn_report" / "project"
+    write_text(
+        transcript,
+        "\n\n".join(
+            [
+                "Source Gate means confirmed primary material.",
+                "For example, metadata alone cannot support speaker logic.",
+                "Therefore we must preserve transcript evidence before writing reports.",
+                "This creates a workflow where claims remain tied to their source.",
+            ]
+        )
+        + "\n",
+    )
+    run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "run",
+            "--input",
+            str(transcript),
+            "--project-root",
+            str(project_root),
+            "--mode",
+            "audit",
+            "--language",
+            "en",
+            "--final-language",
+            "zh-CN",
+            "--document-goal",
+            "写一份中文可审计知识报告",
+            "--audience",
+            "中文研究型用户",
+        ],
+        cwd=REPO_ROOT,
+        timeout=240,
+    )
+    final_report = project_root / "20_document" / "final_report.md"
+    quality_gate = project_root / "20_document" / "quality_gate.json"
+    composer_intake = project_root / "20_document" / "composer_intake.json"
+    assert_true("zh final exists", final_report.is_file())
+    text = final_report.read_text(encoding="utf-8")
+    assert_true("zh goal preserved", "写一份中文可审计知识报告" in text)
+    assert_true("zh audience preserved", "中文研究型用户" in text)
+    assert_true("zh body present", "来源状态" in text and "推断" in text and "延伸" in text)
+    gate = json.loads(quality_gate.read_text(encoding="utf-8"))
+    assert_true("zh final approved", gate.get("approved_for_final_report") is True)
+    gate_names = {item.get("gate") for item in gate.get("gates", [])}
+    assert_true("language match gate present", "Language Match" in gate_names)
+    intake = json.loads(composer_intake.read_text(encoding="utf-8"))
+    assert_eq("zh final language intake", intake.get("final_language"), "zh-CN")
+    assert_eq("zh audience intake", intake.get("audience"), "中文研究型用户")
+
+
+def test_template_outputs_are_structured(base: Path) -> None:
+    transcript = base / "template_outputs" / "fixture.txt"
+    project_root = base / "template_outputs" / "project"
+    write_text(
+        transcript,
+        "\n\n".join(
+            [
+                "Source Gate means confirmed primary material.",
+                "For example, metadata alone cannot support speaker logic.",
+                "Therefore we must preserve transcript evidence before writing reports.",
+                "This creates a workflow where claims remain tied to their source.",
+            ]
+        )
+        + "\n",
+    )
+    run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "run",
+            "--input",
+            str(transcript),
+            "--project-root",
+            str(project_root),
+            "--mode",
+            "audit",
+            "--language",
+            "en",
+            "--final-language",
+            "en",
+            "--document-goal",
+            "Create reusable template outputs",
+        ],
+        cwd=REPO_ROOT,
+        timeout=240,
+    )
+    listed = run_ok([sys.executable, str(REPO_ROOT / "kw.py"), "template", "--list"], cwd=REPO_ROOT)
+    templates = [line.strip() for line in listed["stdout"].splitlines() if line.strip()]
+    assert_true("template list includes action_plan", "action_plan" in templates)
+    quality_md = project_root / "30_final" / "quality_review.md"
+    quality_json = project_root / "30_final" / "quality_review.json"
+    run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "quality",
+            "--project-root",
+            str(project_root),
+            "--output",
+            str(quality_md),
+            "--output-json",
+            str(quality_json),
+        ],
+        cwd=REPO_ROOT,
+    )
+    assert_true("quality md exists", quality_md.is_file())
+    assert_true("quality json exists", quality_json.is_file())
+    quality = json.loads(quality_json.read_text(encoding="utf-8"))
+    assert_eq("quality overall", quality.get("overall"), "pass")
+    dimensions = {item.get("dimension") for item in quality.get("dimensions", [])}
+    assert_true("quality source dimension", "Source faithfulness" in dimensions)
+    assert_true("quality checks recorded", len(quality.get("checks", [])) >= 8)
+    required_markers = {
+        "study_notes": "## Core Ideas",
+        "research_brief": "## Evidence-Backed Claims",
+        "creator_script": "## Source-Backed Talking Points",
+        "prompt_pack": "## Reusable Prompt Patterns",
+        "action_plan": "## Step-By-Step Plan",
+    }
+    for name, marker in required_markers.items():
+        run_ok(
+            [
+                sys.executable,
+                str(REPO_ROOT / "kw.py"),
+                "template",
+                "--project-root",
+                str(project_root),
+                "--template",
+                name,
+            ],
+            cwd=REPO_ROOT,
+        )
+        output = project_root / "30_final" / f"{name}.md"
+        assert_true(f"{name} output exists", output.is_file())
+        text = output.read_text(encoding="utf-8")
+        assert_true(f"{name} marker", marker in text)
+        assert_true(f"{name} no-new-claims boundary", "does not add new source claims" in text)
+        assert_true(f"{name} source gate", "Source status: `source_confirmed`" in text)
+
+
 def test_end_to_end_runner_self_test(base: Path) -> None:
     result = run_ok(
         [sys.executable, str(CONSOLE / "scripts" / "end_to_end_runner.py"), "--self-test"],
@@ -226,6 +371,32 @@ def test_chrome_url_only_gate(base: Path) -> None:
     assert_true("url-only not exported", payload["browser_derived_media_exported"] is False)
 
 
+def test_chrome_probe_relative_exported_subtitle(base: Path) -> None:
+    project_root = base / "chrome_exported_subtitle"
+    result = run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "chrome-probe",
+            "--input-json",
+            str(REPO_ROOT / "examples" / "chrome_probe" / "chrome_observation_exported_subtitle.json"),
+            "--project-root",
+            str(project_root),
+        ],
+        cwd=REPO_ROOT,
+    )
+    assert_true("chrome wrapper result index", "Result index:" in result["stdout"])
+    probe_json = project_root / "10_video" / "00_source" / "chrome_media_probe.json"
+    probe_md = project_root / "10_video" / "00_source" / "chrome_media_probe.md"
+    assert_true("chrome probe json", probe_json.is_file())
+    assert_true("chrome probe markdown", probe_md.is_file())
+    payload = json.loads(probe_json.read_text(encoding="utf-8"))
+    decision = payload.get("decision", {})
+    assert_true("chrome relative exported", decision.get("browser_derived_media_exported") is True)
+    assert_true("chrome local file resolved", bool(decision.get("local_media_files")))
+    assert_true("chrome result index", (project_root / "result_index.md").is_file())
+
+
 def test_platform_media_runner_gate(base: Path) -> None:
     result = run_ok(
         [sys.executable, str(VIDEO / "scripts" / "platform_media_runner.py"), "--self-test"],
@@ -240,6 +411,100 @@ def test_doctor_self_test(base: Path) -> None:
         cwd=VIDEO / "scripts",
     )
     assert_true("doctor self-test", "self-test passed" in result["stdout"])
+
+
+def test_doctor_cli_relative_outputs(base: Path) -> None:
+    work = base / "doctor_cli"
+    work.mkdir(parents=True, exist_ok=True)
+    result = run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "doctor",
+            "--output-json",
+            "doctor.json",
+            "--output-md",
+            "doctor.md",
+            "--overwrite",
+        ],
+        cwd=work,
+        timeout=240,
+    )
+    assert_true("doctor default summary", result["stdout"].startswith("Knowledge Workflow Doctor"))
+    json_path = work / "doctor.json"
+    md_path = work / "doctor.md"
+    assert_true("doctor json written relative to caller", json_path.is_file())
+    assert_true("doctor markdown written relative to caller", md_path.is_file())
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert_true("doctor route readiness exists", len(payload.get("route_readiness", [])) >= 3)
+    assert_true("doctor markdown route table", "What You Can Try Now" in md_path.read_text(encoding="utf-8"))
+
+
+def test_batch_research_outputs(base: Path) -> None:
+    output_root = base / "batch_research"
+    run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "batch",
+            "--input",
+            str(REPO_ROOT / "examples" / "batch_research" / "batch_links.csv"),
+            "--output-root",
+            str(output_root),
+        ],
+        cwd=REPO_ROOT,
+        timeout=240,
+    )
+    status_csv = output_root / "batch_status.csv"
+    summary_md = output_root / "batch_summary.md"
+    order_md = output_root / "recommended_watch_order.md"
+    comparative_md = output_root / "comparative_report.md"
+    items_json = output_root / "batch_items.json"
+    assert_true("batch status csv", status_csv.is_file())
+    assert_true("batch summary", summary_md.is_file())
+    assert_true("batch order", order_md.is_file())
+    assert_true("batch comparative", comparative_md.is_file())
+    assert_true("batch items json", items_json.is_file())
+    status_text = status_csv.read_text(encoding="utf-8")
+    assert_true("batch status source field", "source_status" in status_text)
+    assert_true("batch status quality field", "quality_gate_approved" in status_text)
+    items = json.loads(items_json.read_text(encoding="utf-8"))
+    assert_true("batch items count", len(items) == 2)
+    assert_true("batch items approved", all(item["quality_gate_approved"] == "True" for item in items))
+    assert_true("batch summary item index", "## Item Index" in summary_md.read_text(encoding="utf-8"))
+    assert_true(
+        "batch recommended rationale",
+        "Rationale:" in order_md.read_text(encoding="utf-8"),
+    )
+    assert_true(
+        "batch synthesis boundary",
+        "Batch-level metadata is not" in comparative_md.read_text(encoding="utf-8"),
+    )
+
+
+def test_validate_dry_run(base: Path) -> None:
+    output_root = base / "validation_plan"
+    result = run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "validate",
+            "--dry-run",
+            "--output-root",
+            str(output_root),
+        ],
+        cwd=REPO_ROOT,
+    )
+    assert_true("validate summary path", "Validation summary:" in result["stdout"])
+    summary_json = output_root / "validation_summary.json"
+    summary_md = output_root / "validation_summary.md"
+    assert_true("validate summary json", summary_json.is_file())
+    assert_true("validate summary markdown", summary_md.is_file())
+    payload = json.loads(summary_json.read_text(encoding="utf-8"))
+    names = {item["name"] for item in payload.get("commands", [])}
+    assert_true("validate default regression", "regression" in names)
+    assert_true("validate default no live", "live_platform_smoke" not in names)
+    assert_true("validate default no real asr", "asr_integration" not in names)
 
 
 def test_document_composer_blocks_bad_primary_flag(base: Path) -> None:
@@ -283,12 +548,18 @@ def test_blocked_validator(base: Path) -> None:
 def main() -> int:
     tests = [
         test_local_transcript_e2e,
+        test_zh_cn_final_report,
+        test_template_outputs_are_structured,
         test_end_to_end_runner_self_test,
         test_workflow_preflight_and_status_self_tests,
         test_asr_resume,
         test_chrome_url_only_gate,
+        test_chrome_probe_relative_exported_subtitle,
         test_platform_media_runner_gate,
         test_doctor_self_test,
+        test_doctor_cli_relative_outputs,
+        test_batch_research_outputs,
+        test_validate_dry_run,
         test_document_composer_blocks_bad_primary_flag,
         test_blocked_validator,
     ]

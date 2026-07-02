@@ -6,12 +6,34 @@ and user authorization.
 
 ## Default Validation
 
+Use the aggregate validator for local release checks:
+
+```powershell
+python .\kw.py validate --include-sync
+```
+
+For a command plan without running checks:
+
+```powershell
+python .\kw.py validate --dry-run
+```
+
+The validator writes `validation_summary.json`, `validation_summary.md`, and
+per-command logs under `test_outputs/validation/<timestamp>/` unless
+`--output-root` is provided.
+
+Equivalent individual commands:
+
 ```powershell
 python .\kw.py demo
 python .\tests\knowledge_workflow_regression.py
-python .\tests\live_platform_smoke.py
-python .\tests\asr_integration.py
 python .\tests\real_workflow_acceptance.py
+```
+
+Live platform and real ASR checks stay opt-in:
+
+```powershell
+python .\kw.py validate --include-live-platform --include-real-asr
 ```
 
 ## Live Platform Matrix

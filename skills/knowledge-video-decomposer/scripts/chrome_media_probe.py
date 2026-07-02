@@ -94,7 +94,14 @@ def suffix_for(path_or_url: str) -> str:
     return Path(clean).suffix.lower()
 
 
-def normalize_layer(raw: dict[str, Any], index: int) -> dict[str, Any]:
+def resolve_observed_file(path_text: str, base_dir: Path) -> Path:
+    path = Path(path_text).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    return path.resolve()
+
+
+def normalize_layer(raw: dict[str, Any], index: int, base_dir: Path) -> dict[str, Any]:
     layer = str(raw.get("layer") or raw.get("name") or "").strip()
     if layer not in LAYER_ORDER:
         raise ChromeMediaProbeError(f"layer {index} has unknown layer name {layer!r}; allowed: {', '.join(LAYER_ORDER)}")
@@ -102,8 +109,9 @@ def normalize_layer(raw: dict[str, Any], index: int) -> dict[str, Any]:
     public_urls = [str(item) for item in as_list(raw.get("public_urls")) if str(item).strip()]
     asset_kinds = [str(item) for item in as_list(raw.get("asset_kinds")) if str(item).strip()]
     executed = as_bool(raw.get("executed"), default=bool(raw.get("result") or local_files or public_urls or asset_kinds))
-    existing_local_files = [item for item in local_files if Path(item).expanduser().is_file()]
-    missing_local_files = [item for item in local_files if item not in existing_local_files]
+    resolved_local_files = [str(resolve_observed_file(item, base_dir)) for item in local_files]
+    existing_local_files = [item for item in resolved_local_files if Path(item).is_file()]
+    missing_local_files = [item for item in resolved_local_files if item not in existing_local_files]
     media_like_files = [item for item in existing_local_files if suffix_for(item) in MEDIA_SUFFIXES]
     subtitle_files = [item for item in existing_local_files if suffix_for(item) in SUBTITLE_SUFFIXES]
     media_like_urls = [item for item in public_urls if suffix_for(item) in MEDIA_SUFFIXES]
@@ -126,9 +134,13 @@ def normalize_layer(raw: dict[str, Any], index: int) -> dict[str, Any]:
     }
 
 
-def normalize_layers(input_payload: dict[str, Any]) -> list[dict[str, Any]]:
+def normalize_layers(input_payload: dict[str, Any], base_dir: Path) -> list[dict[str, Any]]:
     raw_layers = as_list(input_payload.get("layers") or input_payload.get("deep_probe_layers"))
-    layers = [normalize_layer(item, index) for index, item in enumerate(raw_layers, start=1) if isinstance(item, dict)]
+    layers = [
+        normalize_layer(item, index, base_dir)
+        for index, item in enumerate(raw_layers, start=1)
+        if isinstance(item, dict)
+    ]
     seen = {layer["layer"] for layer in layers}
     for layer in LAYER_ORDER:
         if layer not in seen:
@@ -278,8 +290,9 @@ def render_report(probe: dict[str, Any]) -> str:
 
 def run_chrome_media_probe(args: argparse.Namespace) -> dict[str, Any]:
     output_root = args.output_root.expanduser().resolve()
-    payload = read_json(args.input_json)
-    layers = normalize_layers(payload)
+    input_json = args.input_json.expanduser().resolve()
+    payload = read_json(input_json)
+    layers = normalize_layers(payload, input_json.parent)
     decision = derive_decision(payload, layers)
     probe = {
         "runner": RUNNER_NAME,
@@ -380,6 +393,31 @@ def run_self_test() -> int:
         )
         assert_true("exported media", exported["browser_derived_media_exported"] is True, failures)
         assert_true("exported signal", exported["suggested_acquisition_signal"] == "browser_derived_media_acquired", failures)
+
+        relative_dir = base / "relative-input"
+        relative_dir.mkdir(parents=True, exist_ok=True)
+        relative_subtitle = relative_dir / "relative-captions.vtt"
+        write_text(relative_subtitle, "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n")
+        relative_input = relative_dir / "observation.json"
+        write_json(
+            relative_input,
+            {
+                "visible_transcript_status": "not_visible",
+                "page_state_observed": "opened",
+                "layers": [
+                    {
+                        "layer": "pageAssets_bundle",
+                        "executed": True,
+                        "result": "success",
+                        "local_files": ["relative-captions.vtt"],
+                    }
+                ],
+            },
+        )
+        relative = run_chrome_media_probe(
+            argparse.Namespace(input_json=relative_input, output_root=base / "relative-output" / "10_video")
+        )
+        assert_true("relative file exported", relative["browser_derived_media_exported"] is True, failures)
 
         url_only = run_fixture(
             base,

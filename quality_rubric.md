@@ -5,13 +5,13 @@ source-gate aligned: a polished report is not good if it is unsupported.
 
 | Dimension | Pass Criteria |
 | --- | --- |
-| Source faithfulness | Major claims are tied to transcript spans, source logic, or approved pack artifacts. |
-| Source / Inference / Extension separation | The report visibly separates what the source says, what the workflow infers, and what it extends. |
-| Claim quality | Claims are concrete, non-duplicative, and not upgraded from metadata or secondary context. |
-| Examples and analogies | Examples and analogies preserve their source context and are not invented as source facts. |
-| Uncertainty | Gaps, partial coverage, ASR uncertainty, and degraded routes are explicitly labeled. |
-| Reusability | Output can be reused as notes, a brief, a script, a prompt pack, or knowledge-base material. |
-| Safety and privacy | No cookies, tokens, private account data, or unsupported access claims appear in outputs. |
+| Source faithfulness | Major claims are tied to transcript spans or approved artifacts. |
+| Source / Inference / Extension | The report visibly separates source, inference, and extension. |
+| Claim quality | Claims are concrete and not upgraded from metadata or secondary context. |
+| Examples and analogies | Examples preserve source context and are not invented as source facts. |
+| Uncertainty | Gaps, partial coverage, ASR uncertainty, and degraded routes are labeled. |
+| Reusability | Output can be reused as notes, a brief, a script, or knowledge-base material. |
+| Safety and privacy | No cookies, tokens, private account data, or unsupported access claims appear. |
 
 ## Scoring
 

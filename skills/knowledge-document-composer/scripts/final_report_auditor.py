@@ -73,6 +73,35 @@ def contains_any(text: str, needles: list[str]) -> bool:
     return any(needle.lower() in lowered for needle in needles)
 
 
+def wants_zh_cn(value: Any) -> bool:
+    text = str(value or "").lower()
+    return "zh" in text or "chinese" in text or "中文" in text
+
+
+def wants_english(value: Any) -> bool:
+    text = str(value or "").lower().strip()
+    return text in {"en", "en-us", "en-gb", "english"}
+
+
+def language_counts(text: str) -> dict[str, int]:
+    cjk = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
+    latin = sum(1 for char in text if ("a" <= char.lower() <= "z"))
+    return {"cjk": cjk, "latin": latin}
+
+
+def report_matches_language(report: str, final_language: str) -> tuple[bool, str]:
+    counts = language_counts(report)
+    if wants_zh_cn(final_language):
+        if counts["cjk"] >= 80 and counts["cjk"] >= int(counts["latin"] * 0.25):
+            return True, f"zh-CN requested; cjk={counts['cjk']}; latin={counts['latin']}."
+        return False, f"zh-CN requested but report body is not substantially Chinese; cjk={counts['cjk']}; latin={counts['latin']}."
+    if wants_english(final_language):
+        if counts["latin"] >= 200 and counts["latin"] >= counts["cjk"]:
+            return True, f"English requested; latin={counts['latin']}; cjk={counts['cjk']}."
+        return False, f"English requested but report body does not look English-dominant; latin={counts['latin']}; cjk={counts['cjk']}."
+    return True, f"No strict language heuristic for final_language={final_language!r}; skipped."
+
+
 def nonempty_file(path: Path) -> bool:
     return path.is_file() and path.stat().st_size > 0
 
@@ -151,7 +180,11 @@ def audit_report(document_root: Path, report_path: Path) -> dict[str, Any]:
     final_language = str(intake.get("final_language") or "").strip()
     report_mentions_goal = bool(document_goal and document_goal in report)
     report_mentions_language = bool(final_language and final_language in report)
-    no_empty_abstraction_present = bool(source_ids) and contains_any(report, ["Evidence:", "Reasoning bridge", "claim `doc_claim_"])
+    language_ok, language_evidence = report_matches_language(report, final_language)
+    no_empty_abstraction_present = bool(source_ids) and contains_any(
+        report,
+        ["Evidence:", "Reasoning bridge", "claim `doc_claim_", "证据：", "声明 `doc_claim_"],
+    )
     template_sections = ["Source Status", "Source", "Inference", "Extension", "Evidence And Limits", "Final Synthesis"]
     template_missing = [name for name in template_sections if not has_section(report, name)]
     gates: list[dict[str, str]] = []
@@ -278,6 +311,17 @@ def audit_report(document_root: Path, report_path: Path) -> dict[str, Any]:
                 "block",
                 f"document_goal_present={report_mentions_goal}; final_language_present={report_mentions_language}.",
                 "State the recorded document goal and final language in the report before finalizing.",
+            )
+        )
+    if language_ok:
+        gates.append(gate("Language Match", "pass", language_evidence))
+    else:
+        gates.append(
+            gate(
+                "Language Match",
+                "block",
+                language_evidence,
+                "Rewrite the report body in the requested final language before finalizing.",
             )
         )
     if evidence_limits_present and contains_any(extract_section(report, "Evidence And Limits"), ["gap", "limit", "uncertain", "partial", "evidence"]):
@@ -477,6 +521,91 @@ def run_self_test() -> int:
         write_audit_outputs(doc, audit)
         assert_true("good approved", audit["approved_for_final_report"] is True, failures)
         assert_true("quality gate written", (doc / "quality_gate.json").is_file(), failures)
+
+        zh_doc = base / "zh-mismatch" / "20_document"
+        zh_doc.mkdir(parents=True)
+        write_text(
+            zh_doc / "composer_intake.json",
+            json.dumps(
+                {
+                    "document_root": str(zh_doc.resolve()),
+                    "source_status": "source_confirmed",
+                    "composer_decision": "full",
+                    "document_goal": "写一份中文报告",
+                    "final_language": "zh-CN",
+                    "audience": "中文读者",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+        )
+        write_text(
+            zh_doc / "claim_map.json",
+            json.dumps(
+                {
+                    "claims": [
+                        {
+                            "id": "doc_claim_001",
+                            "category": "Source",
+                            "status": "accepted",
+                            "text": "Reports should preserve transcript evidence.",
+                        }
+                    ]
+                },
+                indent=2,
+            )
+            + "\n",
+        )
+        zh_mismatch = zh_doc / "revised_report.md"
+        write_text(
+            zh_mismatch,
+            "\n".join(
+                [
+                    "# Final Report",
+                    "",
+                    "## Source Status",
+                    "",
+                    "- Document goal: 写一份中文报告",
+                    "- Final language: zh-CN",
+                    "",
+                    "## Source",
+                    "",
+                    "- Source claim `doc_claim_001`: Reports should preserve transcript evidence.",
+                    "",
+                    "## Concrete Examples",
+                    "",
+                    "- Example: the transcript fixture is used as evidence.",
+                    "",
+                    "## Language Logic",
+                    "",
+                    "- The transition and rhetorical progression are explicit.",
+                    "",
+                    "## Argument Chain",
+                    "",
+                    "setup -> tension/problem -> example -> concept shift -> claim -> implication -> conclusion",
+                    "",
+                    "## Inference",
+                    "",
+                    "- None.",
+                    "",
+                    "## Extension",
+                    "",
+                    "- None.",
+                    "",
+                    "## Evidence And Limits",
+                    "",
+                    "- Evidence is limited to audited source claims.",
+                    "",
+                    "## Final Synthesis",
+                    "",
+                    "This report is intentionally English even though Chinese was requested. " * 10,
+                ]
+            ),
+        )
+        mismatch_audit = audit_report(zh_doc, zh_mismatch)
+        assert_true("zh mismatch blocked", mismatch_audit["approved_for_final_report"] is False, failures)
+        assert_true("zh mismatch language gate", "Language Match" in mismatch_audit["blocking_gates"], failures)
 
         bad_report = doc / "bad_report.md"
         write_text(

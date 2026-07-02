@@ -6,15 +6,37 @@ support is intentionally conservative.
 
 | Input | Stability | Full Report | Notes |
 | --- | --- | --- | --- |
-| Local transcript (`.txt`, `.md`, `.jsonl`, `.json`) | High | Yes | Best first-run and demo path. |
-| Local subtitles (`.srt`, `.vtt`) | High | Yes | Timestamped evidence can be preserved. |
-| Local audio/video (`.mp3`, `.mp4`, `.m4a`, `.webm`, `.wav`, `.mov`, `.opus`) | Medium-high | Yes, after ASR | Depends on ASR dependencies, language, audio quality, and run time. |
-| YouTube public video | Medium-high | Yes, when subtitles/audio are acquired | May require cookies, Node.js support for yt-dlp, or local ASR. |
-| X video | Low-medium | Unstable | Often blocked or metadata-only. Prefer user-provided media/transcript. |
-| Xiaohongshu | Low | Usually no from URL alone | Prefer user-provided subtitle, recording, audio, or transcript. |
-| Douyin | Low | Usually no from URL alone | Prefer user-provided primary material. |
-| Generic web video page | Medium | Depends on exposed transcript/media | Chrome probe may help record page state. |
-| Private/paywalled/CAPTCHA/region/account-gated page | Not a bypass target | No, unless user provides allowed primary material | The workflow records blocked/degraded status. |
+| Local transcript | High | Yes | Best first-run and demo path. |
+| Local subtitles | High | Yes | Timestamped evidence can be preserved. |
+| Local audio/video | Medium-high | Yes, after ASR | Depends on ASR setup and audio quality. |
+| YouTube public video | Medium-high | Yes, when material is acquired. | May require cookies or ASR. |
+| X video | Low-medium | Unstable | Often blocked or metadata-only. |
+| Xiaohongshu | Low | Usually no from URL alone. | Prefer user-provided material. |
+| Douyin | Low | Usually no from URL alone. | Prefer user-provided material. |
+| Generic web video page | Medium | Depends on exposed material. | Chrome probe may help. |
+| Private or gated page | Not a bypass target. | No, unless material is provided. | Records blocked/degraded status. |
+
+Local transcript extensions:
+
+- `.txt`
+- `.md`
+- `.jsonl`
+- `.json`
+
+Local subtitle extensions:
+
+- `.srt`
+- `.vtt`
+
+Local audio/video extensions:
+
+- `.mp3`
+- `.mp4`
+- `.m4a`
+- `.webm`
+- `.wav`
+- `.mov`
+- `.opus`
 
 ## Source Status Rules
 

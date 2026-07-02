@@ -7,10 +7,20 @@ This manual explains how to use the workflow after the quickstart. Start with
 
 From the repository root:
 
+Windows:
+
 ```powershell
 .\sync_to_codex_skills.ps1 -DryRun
 .\sync_to_codex_skills.ps1
 .\sync_to_codex_skills.ps1 -VerifyOnly
+```
+
+macOS / Linux:
+
+```bash
+./sync_to_codex_skills.sh --dry-run
+./sync_to_codex_skills.sh
+./sync_to_codex_skills.sh --verify-only
 ```
 
 The sync script installs only:
@@ -20,6 +30,9 @@ The sync script installs only:
 - `knowledge-document-composer`
 
 It does not install or publish `subagent-supervisor`.
+
+For Python environments, ASR setup, and platform URL prerequisites, read
+`INSTALL.md`.
 
 ## 2. First Run
 
@@ -47,8 +60,17 @@ python .\kw.py status --project-root <project-root>
 python .\kw.py result --project-root <project-root>
 python .\kw.py quality --project-root <project-root>
 python .\kw.py template --project-root <project-root> --template research_brief
-python .\kw.py batch --input .\examples\batch_research\batch_links.csv --output-root .\outputs\knowledge-workflow\batch-demo
+python .\kw.py batch `
+  --input .\examples\batch_research\batch_links.csv `
+  --output-root .\outputs\knowledge-workflow\batch-demo
 ```
+
+`doctor` is the first diagnostic command when a route fails. The default output
+is a concise route-readiness summary. Use `--pretty` for full JSON or
+`--output-md doctor.md` for a Markdown report.
+
+`quality` writes a human Markdown review and a sibling JSON file by default.
+Use `--output-json` when another tool needs a specific JSON path.
 
 ## 4. Modes
 
@@ -115,10 +137,15 @@ python .\kw.py batch --input batch_links.csv --output-root .\outputs\knowledge-w
 Batch outputs:
 
 - `batch_status.csv`
+- `batch_items.json`
 - `batch_summary.md`
 - `recommended_watch_order.md`
 - `comparative_report.md`
 - one project directory per item
+
+Use `batch_summary.md` as the human index and `batch_items.json` for structured
+automation. The comparative report compares readiness and source-gate status;
+it does not replace the per-item final reports.
 
 ## 8. Templates
 
@@ -135,6 +162,10 @@ Current templates:
 - `creator_script`
 - `prompt_pack`
 - `action_plan`
+
+Templates are deterministic projections from approved workflow artifacts. They
+reorganize the final report and claim map for a specific use case, but they do
+not add new source claims.
 
 Templates are deterministic projections from existing approved artifacts. They
 do not add new source claims.
