@@ -25,6 +25,14 @@ python .\kw.py chrome-probe `
   --project-root .\outputs\knowledge-workflow\chrome-probe-exported-subtitle
 ```
 
+Visible transcript example:
+
+```powershell
+python .\kw.py chrome-probe `
+  --input-json .\examples\chrome_probe\chrome_observation_visible_transcript.json `
+  --project-root .\outputs\knowledge-workflow\chrome-probe-visible-transcript
+```
+
 Relative local file paths in the observation JSON are resolved relative to the
 JSON file itself. This makes browser-agent handoff folders portable.
 
@@ -39,3 +47,7 @@ JSON file itself. This makes browser-agent handoff folders portable.
 
 URL-only observations remain blocked or failed until the material is actually
 acquired and processed.
+
+A visible transcript observation is useful only after the transcript text is
+saved as a local, citeable artifact and then normalized through the transcript
+route.

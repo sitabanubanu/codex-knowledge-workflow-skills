@@ -24,3 +24,15 @@ python .\kw.py chrome-probe `
 Expected behavior: the relative `exported_subtitle.vtt` path is resolved
 relative to the observation JSON file, then recorded as browser-derived local
 material. It still must be parsed or normalized before a full report is written.
+
+Visible transcript example:
+
+```powershell
+python .\kw.py chrome-probe `
+  --input-json .\examples\chrome_probe\chrome_observation_visible_transcript.json `
+  --project-root .\outputs\knowledge-workflow\chrome-probe-visible-transcript
+```
+
+Expected behavior: the browser-visible transcript is useful only because it has
+been saved as `visible_transcript.txt`. Seeing text in the browser is not enough;
+the workflow needs a local, citeable transcript artifact before source analysis.

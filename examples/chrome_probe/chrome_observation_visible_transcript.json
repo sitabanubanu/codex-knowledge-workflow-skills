@@ -1,0 +1,18 @@
+{
+  "source_url": "https://example.invalid/video",
+  "visible_transcript_status": "available",
+  "page_state_observed": "opened",
+  "visible_transcript_checked": true,
+  "transcript_available": true,
+  "layers": [
+    {
+      "layer": "visible_transcript",
+      "executed": true,
+      "result": "success",
+      "local_files": [
+        "visible_transcript.txt"
+      ],
+      "notes": "Example of browser-visible transcript text saved as a citeable local file."
+    }
+  ]
+}

@@ -397,6 +397,29 @@ def test_chrome_probe_relative_exported_subtitle(base: Path) -> None:
     assert_true("chrome result index", (project_root / "result_index.md").is_file())
 
 
+def test_chrome_probe_visible_transcript_example(base: Path) -> None:
+    project_root = base / "chrome_visible_transcript"
+    run_ok(
+        [
+            sys.executable,
+            str(REPO_ROOT / "kw.py"),
+            "chrome-probe",
+            "--input-json",
+            str(REPO_ROOT / "examples" / "chrome_probe" / "chrome_observation_visible_transcript.json"),
+            "--project-root",
+            str(project_root),
+        ],
+        cwd=REPO_ROOT,
+    )
+    probe_json = project_root / "10_video" / "00_source" / "chrome_media_probe.json"
+    payload = json.loads(probe_json.read_text(encoding="utf-8"))
+    decision = payload.get("decision", {})
+    assert_eq("visible transcript signal", decision.get("suggested_acquisition_signal"), "chrome_visible_transcript")
+    assert_eq("visible transcript source hint", decision.get("suggested_source_status"), "source_confirmed")
+    visible_layer = next(item for item in payload.get("layers", []) if item.get("layer") == "visible_transcript")
+    assert_true("visible transcript local file", bool(visible_layer.get("existing_local_files")))
+
+
 def test_platform_media_runner_gate(base: Path) -> None:
     result = run_ok(
         [sys.executable, str(VIDEO / "scripts" / "platform_media_runner.py"), "--self-test"],
@@ -556,6 +579,7 @@ def main() -> int:
         test_asr_resume,
         test_chrome_url_only_gate,
         test_chrome_probe_relative_exported_subtitle,
+        test_chrome_probe_visible_transcript_example,
         test_platform_media_runner_gate,
         test_doctor_self_test,
         test_doctor_cli_relative_outputs,
