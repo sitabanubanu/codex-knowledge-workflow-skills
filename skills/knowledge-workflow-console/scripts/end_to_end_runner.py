@@ -873,6 +873,22 @@ def run_workflow(args: argparse.Namespace) -> dict[str, Any]:
             platform_command.append("--use-js-runtime")
         if args.use_remote_components:
             platform_command.append("--use-remote-components")
+        for extractor_arg in args.ytdlp_extractor_args or []:
+            platform_command.extend(["--ytdlp-extractor-args", extractor_arg])
+        if args.ytdlp_player_clients:
+            platform_command.extend(["--ytdlp-player-clients", args.ytdlp_player_clients])
+        if args.youtube_visitor_data:
+            platform_command.extend(["--youtube-visitor-data", args.youtube_visitor_data])
+        for po_token in args.youtube_po_token or []:
+            platform_command.extend(["--youtube-po-token", po_token])
+        if args.ytdlp_proxy:
+            platform_command.extend(["--ytdlp-proxy", args.ytdlp_proxy])
+        if args.ytdlp_impersonate:
+            platform_command.extend(["--ytdlp-impersonate", args.ytdlp_impersonate])
+        if args.ytdlp_sleep_requests is not None:
+            platform_command.extend(["--ytdlp-sleep-requests", str(args.ytdlp_sleep_requests)])
+        for retry_sleep in args.ytdlp_retry_sleep or []:
+            platform_command.extend(["--ytdlp-retry-sleep", retry_sleep])
         run_stage("platform_media_runner", platform_command, video_scripts)
         platform_result = read_json(video_root / "00_source" / "platform_media_result.json")
         subtitle_file = first_existing_file(list(platform_result.get("acquired_subtitle_files") or []))
@@ -1103,6 +1119,14 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use-js-runtime", action="store_true", help="Pass Node.js to yt-dlp through platform media runner.")
     parser.add_argument("--use-remote-components", action="store_true", help="Allow yt-dlp remote solver components through platform media runner.")
     parser.add_argument("--subtitle-languages", default="all,-live_chat", help="Subtitle language selector for platform media runner.")
+    parser.add_argument("--ytdlp-extractor-args", action="append", default=[], help="Raw yt-dlp --extractor-args value.")
+    parser.add_argument("--ytdlp-player-clients", default="default,mweb,web,android_vr", help="Comma-separated YouTube player_client probe matrix. Use an empty string to disable.")
+    parser.add_argument("--youtube-visitor-data", default=None, help="Visitor Data passed to yt-dlp without logging the value.")
+    parser.add_argument("--youtube-po-token", action="append", default=[], help="PO Token passed to yt-dlp without logging the value.")
+    parser.add_argument("--ytdlp-proxy", default=None, help="Proxy URL passed to yt-dlp --proxy.")
+    parser.add_argument("--ytdlp-impersonate", default=None, help="Client passed to yt-dlp --impersonate.")
+    parser.add_argument("--ytdlp-sleep-requests", type=float, default=None, help="Seconds passed to yt-dlp --sleep-requests.")
+    parser.add_argument("--ytdlp-retry-sleep", action="append", default=[], help="Repeatable yt-dlp --retry-sleep expression.")
     parser.add_argument("--asr-jsonl", type=Path, default=None, help="Existing ASR JSONL to normalize instead of running ASR.")
     parser.add_argument("--asr-python", default=None, help="Python runtime for faster-whisper.")
     parser.add_argument("--asr-model", default="base", help="faster-whisper model name or local path.")
@@ -1208,6 +1232,14 @@ p.add_argument("--node", default=None)
 p.add_argument("--no-doctor", action="store_true")
 p.add_argument("--use-js-runtime", action="store_true")
 p.add_argument("--use-remote-components", action="store_true")
+p.add_argument("--ytdlp-extractor-args", action="append", default=[])
+p.add_argument("--ytdlp-player-clients", default="default,mweb,web,android_vr")
+p.add_argument("--youtube-visitor-data", default=None)
+p.add_argument("--youtube-po-token", action="append", default=[])
+p.add_argument("--ytdlp-proxy", default=None)
+p.add_argument("--ytdlp-impersonate", default=None)
+p.add_argument("--ytdlp-sleep-requests", default=None)
+p.add_argument("--ytdlp-retry-sleep", action="append", default=[])
 args = p.parse_args()
 root = args.output_root
 source_status = {
@@ -1603,6 +1635,14 @@ def run_self_test() -> int:
                 "use_js_runtime": False,
                 "use_remote_components": False,
                 "subtitle_languages": "all,-live_chat",
+                "ytdlp_extractor_args": [],
+                "ytdlp_player_clients": "default,mweb,web,android_vr",
+                "youtube_visitor_data": None,
+                "youtube_po_token": [],
+                "ytdlp_proxy": None,
+                "ytdlp_impersonate": None,
+                "ytdlp_sleep_requests": None,
+                "ytdlp_retry_sleep": [],
                 "asr_jsonl": None,
                 "asr_python": None,
                 "asr_model": "base",

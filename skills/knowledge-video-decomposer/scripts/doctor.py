@@ -188,6 +188,40 @@ def check_python_module(module: str, *, python_exe: Path | None = None, required
     )
 
 
+def check_ytdlp_impersonation(ytdlp_path: Path | None) -> Check:
+    if ytdlp_path is None or not ytdlp_path.is_file():
+        return Check(
+            name="yt_dlp_impersonation_targets",
+            status="warn",
+            summary="yt-dlp impersonation targets were not checked because yt-dlp was not found.",
+            details={"yt_dlp": str(ytdlp_path) if ytdlp_path else None},
+            next_step="Install or expose yt-dlp before checking browser impersonation support.",
+        )
+    result = run_command([str(ytdlp_path), "--list-impersonate-targets"], timeout=20)
+    stdout = str(result.get("stdout") or "")
+    usable_targets = [
+        line.strip()
+        for line in stdout.splitlines()
+        if line.strip()
+        and not line.lower().startswith(("[info]", "client", "---"))
+        and "unavailable" not in line.lower()
+    ]
+    if result.get("ok") and usable_targets:
+        return Check(
+            name="yt_dlp_impersonation_targets",
+            status="ok",
+            summary="yt-dlp browser impersonation targets are available.",
+            details={"yt_dlp": str(ytdlp_path), "usable_targets": usable_targets, "result": result},
+        )
+    return Check(
+        name="yt_dlp_impersonation_targets",
+        status="warn",
+        summary="yt-dlp browser impersonation targets are unavailable.",
+        details={"yt_dlp": str(ytdlp_path), "usable_targets": usable_targets, "result": result},
+        next_step="Install curl_cffi in the yt-dlp runtime if browser request impersonation is needed.",
+    )
+
+
 def check_youtube_cookies(path: Path | None) -> Check:
     if path is None:
         path = Path("work") / "youtube-cookies" / "youtube.cookies.txt"
@@ -409,6 +443,8 @@ def capability_matrix(checks: list[Check]) -> dict[str, Any]:
     yt = is_ok("yt_dlp")
     ffmpeg = is_ok("ffmpeg") and is_ok("ffprobe")
     node = is_ok("node_js")
+    ejs = is_ok("python_module:yt_dlp_ejs")
+    impersonation = is_ok("yt_dlp_impersonation_targets")
     cookies_status = by_name.get("youtube_cookies_file")
     cookies = cookies_status is not None and cookies_status.status == "ok"
     asr = by_name.get("python_module:faster_whisper")
@@ -418,6 +454,8 @@ def capability_matrix(checks: list[Check]) -> dict[str, Any]:
     return {
         "youtube_public_metadata_prerequisites": yt,
         "youtube_cookies_js_subtitle_audio_prerequisites": yt and node and cookies,
+        "youtube_ejs_solver_prerequisites": yt and node and ejs,
+        "youtube_browser_impersonation_prerequisites": yt and impersonation,
         "local_audio_video_asr_prerequisites": ffmpeg and asr_ok,
         "x_video_metadata_download_prerequisites": yt,
         "xiaohongshu_metadata_download_prerequisites": yt,
@@ -456,6 +494,18 @@ def setup_requirements(report: dict[str, Any]) -> list[dict[str, str]]:
             "level": "recommended for current YouTube player challenge solving",
             "status": status("node_js"),
             "user_action": "Install Node.js or use the bundled runtime when yt-dlp reports player challenge problems.",
+        },
+        {
+            "item": "yt-dlp EJS helper",
+            "level": "recommended for current YouTube JavaScript challenge solving",
+            "status": status("python_module:yt_dlp_ejs"),
+            "user_action": "Install in the yt-dlp runtime, e.g. `...\\hearsay-venv\\Scripts\\python.exe -m pip install yt-dlp-ejs`, when remote EJS components are not desired or unavailable.",
+        },
+        {
+            "item": "curl_cffi / impersonation targets",
+            "level": "optional for browser request impersonation",
+            "status": "ok" if status("python_module:curl_cffi") == "ok" and status("yt_dlp_impersonation_targets") == "ok" else "warn",
+            "user_action": "Install in the yt-dlp runtime, e.g. `...\\hearsay-venv\\Scripts\\python.exe -m pip install curl_cffi`, if --impersonate chrome should be available.",
         },
         {
             "item": "Chrome plugin",
@@ -545,6 +595,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "bin",
         "node.exe",
     )
+    resolved_ytdlp = resolve_executable("yt-dlp", [hearsay_ytdlp, videolingo_ytdlp])
 
     checks = [
         Check(
@@ -574,6 +625,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             extra_candidates=[bundled_node],
             required=False,
         ),
+        check_python_module("yt_dlp_ejs", python_exe=hearsay_python, required=False),
+        check_python_module("curl_cffi", python_exe=hearsay_python, required=False),
+        check_ytdlp_impersonation(resolved_ytdlp),
         check_python_module("faster_whisper", python_exe=Path(args.asr_python) if args.asr_python else hearsay_python),
         check_youtube_cookies(Path(args.youtube_cookies) if args.youtube_cookies else None),
         check_chromium_app_bound_state(),

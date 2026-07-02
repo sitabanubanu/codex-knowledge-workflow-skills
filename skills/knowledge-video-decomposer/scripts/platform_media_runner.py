@@ -78,6 +78,14 @@ def make_acquisition_args(args: argparse.Namespace, *, download_subtitles: bool)
         list_formats=True,
         use_js_runtime=args.use_js_runtime,
         use_remote_components=args.use_remote_components,
+        ytdlp_extractor_args=args.ytdlp_extractor_args,
+        ytdlp_player_clients=args.ytdlp_player_clients,
+        youtube_visitor_data=args.youtube_visitor_data,
+        youtube_po_token=args.youtube_po_token,
+        ytdlp_proxy=args.ytdlp_proxy,
+        ytdlp_impersonate=args.ytdlp_impersonate,
+        ytdlp_sleep_requests=args.ytdlp_sleep_requests,
+        ytdlp_retry_sleep=args.ytdlp_retry_sleep,
         download_subtitles=download_subtitles,
         subtitle_languages=args.subtitle_languages,
         pretty=False,
@@ -117,6 +125,20 @@ def new_audio_files(audio_dir: Path, before: dict[Path, tuple[int, float]]) -> l
     return sorted(files)
 
 
+def preferred_audio_player_client(report: dict[str, Any]) -> str | None:
+    for item in report.get("probe_results", []):
+        if not isinstance(item, dict) or item.get("returncode") != 0:
+            continue
+        if "list-formats" not in str(item.get("command_kind", "")):
+            continue
+        name = str(item.get("name", ""))
+        prefix = "yt_dlp_player_client_"
+        suffix = "_list_formats"
+        if name.startswith(prefix) and name.endswith(suffix):
+            return name[len(prefix) : -len(suffix)]
+    return None
+
+
 def build_audio_command(args: argparse.Namespace, audio_dir: Path) -> tuple[list[str], bool, bool, bool]:
     ytdlp = acquisition_runner.resolve_ytdlp(args.ytdlp)
     if ytdlp is None:
@@ -154,6 +176,14 @@ def build_audio_command(args: argparse.Namespace, audio_dir: Path) -> tuple[list
         command.extend(["--remote-components", "ejs:github"])
         remote_used = True
 
+    command.extend(
+        acquisition_runner.extra_ytdlp_options(
+            args,
+            player_client=getattr(args, "ytdlp_audio_player_client", None),
+            include_sensitive=True,
+        )
+    )
+
     command.append(args.input)
     return command, cookies_used, js_used, remote_used
 
@@ -167,15 +197,21 @@ def should_try_audio(args: argparse.Namespace, acquisition_summary: dict[str, An
     status = str(acquisition_summary.get("source_status") or "")
     if status == "source_confirmed":
         return False, "subtitle_or_transcript_already_acquired"
-    if status == "source_blocked":
-        return False, "source_blocked_requires_chrome_or_user_material"
 
     metadata = report.get("metadata_summary") if isinstance(report.get("metadata_summary"), dict) else {}
     media_formats_listed = bool(metadata.get("media_formats_listed"))
+    if not media_formats_listed:
+        media_formats_listed = any(
+            item.get("returncode") == 0 and "list-formats" in str(item.get("command_kind", ""))
+            for item in report.get("probe_results", [])
+            if isinstance(item, dict)
+        )
     if args.mode == "audio":
         return True, "audio_mode_requested"
     if media_formats_listed:
         return True, "media_formats_listed"
+    if status == "source_blocked":
+        return False, "source_blocked_requires_chrome_or_user_material"
     return False, "no_media_formats_listed"
 
 
@@ -300,6 +336,7 @@ def run_platform_media(args: argparse.Namespace) -> dict[str, Any]:
     audio_download: dict[str, Any] | None = None
     try_audio, audio_reason = should_try_audio(args, acquisition_summary, report)
     if try_audio:
+        args.ytdlp_audio_player_client = preferred_audio_player_client(report)
         audio_download, acquired_audio = download_audio(args, output_root)
 
     status = read_json(output_root / "00_source" / "source_status.json")
@@ -319,6 +356,7 @@ def run_platform_media(args: argparse.Namespace) -> dict[str, Any]:
         "acquired_subtitle_files": acquired_subtitles,
         "acquired_audio_files": acquired_audio_strings,
         "audio_attempt_reason": audio_reason,
+        "audio_player_client": getattr(args, "ytdlp_audio_player_client", None),
         "audio_download": audio_download,
         "decision": decision,
         "privacy": {
@@ -359,6 +397,14 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-doctor", action="store_true", help="Skip local doctor report.")
     parser.add_argument("--use-js-runtime", action="store_true", help="Pass Node.js to yt-dlp for player challenge solving.")
     parser.add_argument("--use-remote-components", action="store_true", help="Allow yt-dlp remote ejs solver component.")
+    parser.add_argument("--ytdlp-extractor-args", action="append", default=[], help="Raw yt-dlp --extractor-args value.")
+    parser.add_argument("--ytdlp-player-clients", default="default,mweb,web,android_vr", help="Comma-separated YouTube player_client probe matrix. Use an empty string to disable.")
+    parser.add_argument("--youtube-visitor-data", default=None, help="Visitor Data passed to yt-dlp without logging the value.")
+    parser.add_argument("--youtube-po-token", action="append", default=[], help="PO Token passed to yt-dlp without logging the value.")
+    parser.add_argument("--ytdlp-proxy", default=None, help="Proxy URL passed to yt-dlp --proxy.")
+    parser.add_argument("--ytdlp-impersonate", default=None, help="Client passed to yt-dlp --impersonate.")
+    parser.add_argument("--ytdlp-sleep-requests", type=float, default=None, help="Seconds passed to yt-dlp --sleep-requests.")
+    parser.add_argument("--ytdlp-retry-sleep", action="append", default=[], help="Repeatable yt-dlp --retry-sleep expression.")
     parser.add_argument("--subtitle-languages", default="all,-live_chat")
     parser.add_argument("--audio-format-selector", default=DEFAULT_AUDIO_FORMAT_SELECTOR)
     parser.add_argument("--audio-format", default=DEFAULT_AUDIO_FORMAT)

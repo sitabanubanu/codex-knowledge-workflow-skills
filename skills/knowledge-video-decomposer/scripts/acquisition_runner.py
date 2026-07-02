@@ -42,6 +42,10 @@ BLOCK_PATTERNS: list[tuple[str, str]] = [
 FAILURE_PATTERNS: list[tuple[str, str]] = [
     ("dpapi_or_app_bound_cookie_failure", r"dpapi|app-bound|app bound|could not copy chrome cookie|decrypt"),
     ("n_challenge_failed", r"n challenge|nsig|only images are available"),
+    ("js_runtime_missing", r"no supported javascript runtime|javascript runtime.*not found|js runtime"),
+    ("po_token_required", r"po token|potoken|proof of origin"),
+    ("impersonation_unavailable", r"impersonate target .* is not available|curl_cffi.*unavailable"),
+    ("ejs_solver_missing", r"ejs|remote components|yt-dlp-ejs"),
     ("unsupported_url", r"unsupported url|no suitable extractor"),
 ]
 
@@ -270,7 +274,7 @@ def detect_signals(results: list[CommandResult], metadata: dict[str, Any] | None
         for signal, pattern in FAILURE_PATTERNS:
             if re.search(pattern, text, flags=re.IGNORECASE):
                 signals.add(signal)
-    if not signals:
+    if not signals and any(result.returncode not in {0, None} or result.timeout for result in results):
         signals.add("tool_failed")
     return signals
 
@@ -291,6 +295,24 @@ def has_media_formats(metadata: dict[str, Any] | None) -> bool:
         return False
     formats = metadata.get("formats")
     return isinstance(formats, list) and any(isinstance(item, dict) and item.get("url") for item in formats)
+
+
+def listed_media_formats(results: list[CommandResult]) -> bool:
+    return any(
+        result.returncode == 0
+        and "list-formats" in result.command_kind
+        and ("[info] available formats" in result.stdout.lower() or "format code" in result.stdout.lower())
+        for result in results
+    )
+
+
+def listed_subtitles(results: list[CommandResult]) -> bool:
+    return any(
+        result.returncode == 0
+        and "list-subs" in result.command_kind
+        and ("available subtitles" in result.stdout.lower() or "language" in result.stdout.lower())
+        for result in results
+    )
 
 
 def build_ytdlp_base(
@@ -314,6 +336,238 @@ def build_ytdlp_base(
         remote_used = True
     args.append(url)
     return args, js_used, remote_used
+
+
+def split_csv(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def extra_ytdlp_options(
+    args: argparse.Namespace,
+    *,
+    player_client: str | None = None,
+    include_sensitive: bool = True,
+) -> list[str]:
+    options: list[str] = []
+    proxy = getattr(args, "ytdlp_proxy", None)
+    if proxy:
+        options.extend(["--proxy", str(proxy)])
+    impersonate = getattr(args, "ytdlp_impersonate", None)
+    if impersonate:
+        options.extend(["--impersonate", str(impersonate)])
+    sleep_requests = getattr(args, "ytdlp_sleep_requests", None)
+    if sleep_requests is not None:
+        options.extend(["--sleep-requests", str(sleep_requests)])
+    for retry_sleep in getattr(args, "ytdlp_retry_sleep", []) or []:
+        options.extend(["--retry-sleep", str(retry_sleep)])
+
+    youtube_parts: list[str] = []
+    passthrough_extractor_args: list[str] = []
+    for raw in getattr(args, "ytdlp_extractor_args", []) or []:
+        raw_text = str(raw).strip()
+        if not raw_text:
+            continue
+        if raw_text.lower().startswith("youtube:"):
+            youtube_parts.append(raw_text.split(":", 1)[1])
+        else:
+            passthrough_extractor_args.append(raw_text)
+    if player_client:
+        youtube_parts.append(f"player_client={player_client}")
+    visitor_data = getattr(args, "youtube_visitor_data", None)
+    if visitor_data and include_sensitive:
+        youtube_parts.append(f"visitor_data={visitor_data}")
+    for po_token in getattr(args, "youtube_po_token", []) or []:
+        if po_token and include_sensitive:
+            youtube_parts.append(f"po_token={po_token}")
+
+    if youtube_parts:
+        options.extend(["--extractor-args", f"youtube:{';'.join(youtube_parts)}"])
+    for extractor_arg in passthrough_extractor_args:
+        options.extend(["--extractor-args", extractor_arg])
+    return options
+
+
+def build_ytdlp_command(
+    *,
+    ytdlp: Path,
+    url: str,
+    cookies_path: Path | None,
+    node_path: Path | None,
+    use_js_runtime: bool,
+    use_remote_components: bool,
+    command_args: list[str],
+    options_args: argparse.Namespace | None = None,
+    player_client: str | None = None,
+) -> tuple[list[str], bool, bool, bool]:
+    base, js_used, remote_used = build_ytdlp_base(
+        ytdlp=ytdlp,
+        url=url,
+        cookies_path=cookies_path,
+        node_path=node_path if use_js_runtime else None,
+        use_remote_components=use_remote_components,
+    )
+    extra_options = extra_ytdlp_options(options_args, player_client=player_client) if options_args else []
+    return [*base[:-1], *extra_options, *command_args, base[-1]], cookies_path is not None, js_used, remote_used
+
+
+def classify_primary_failure(signals: set[str], results: list[CommandResult]) -> str:
+    priority = [
+        "bot_check",
+        "login_required",
+        "http_429",
+        "request_blocked",
+        "po_token_required",
+        "js_runtime_missing",
+        "n_challenge_failed",
+        "ejs_solver_missing",
+        "dpapi_or_app_bound_cookie_failure",
+        "impersonation_unavailable",
+        "permission_required",
+        "captcha",
+        "unsupported_url",
+        "tool_failed",
+        "timeout",
+    ]
+    for item in priority:
+        if item in signals:
+            return item
+    if any(result.returncode not in {0, None} for result in results):
+        return "tool_failed"
+    return "unknown"
+
+
+def ytdlp_diagnostics(
+    *,
+    source: dict[str, str],
+    results: list[CommandResult],
+    metadata: dict[str, Any] | None,
+    acquired_subtitles: list[Path],
+    signals: set[str],
+    available_routes: list[str],
+    ytdlp: Path,
+    node_path: Path | None,
+    cookies_path: Path | None,
+    use_js_runtime: bool,
+    use_remote_components: bool,
+    options_args: argparse.Namespace | None = None,
+) -> dict[str, Any]:
+    attempts = []
+    for result in results:
+        attempts.append(
+            {
+                "name": result.name,
+                "command_kind": result.command_kind,
+                "returncode": result.returncode,
+                "timeout": result.timeout,
+                "duration_seconds": round(result.duration_seconds, 3),
+                "cookies_used": result.cookies_used,
+                "js_runtime_used": result.js_runtime_used,
+                "remote_components_used": result.remote_components_used,
+                "stdout_path": result.output_path,
+                "stderr_path": result.output_path.replace(".stdout.txt", ".stderr.txt") if result.output_path else None,
+                "signals": sorted(detect_signals([result], metadata, acquired_subtitles)),
+            }
+        )
+    block_reason = classify_primary_failure(signals, results)
+    if acquired_subtitles:
+        next_step = "normalize_acquired_subtitle"
+    elif "subtitles_or_automatic_captions_listed" in available_routes:
+        next_step = "download_subtitles_then_normalize"
+    elif "media_formats_listed" in available_routes:
+        next_step = "download_audio_then_run_local_asr"
+    elif block_reason in {"bot_check", "login_required", "request_blocked", "http_429"}:
+        next_step = "refresh_or_re_export_youtube_cookies_or_use_browser_visible_transcript"
+    elif block_reason == "po_token_required":
+        next_step = "provide_po_token_or_use_browser_visible_transcript_or_local_media"
+    elif block_reason in {"js_runtime_missing", "ejs_solver_missing", "n_challenge_failed"}:
+        next_step = "enable_node_js_runtime_and_remote_ejs_components"
+    else:
+        next_step = "provide_primary_material_or_run_chrome_deep_probe"
+    return {
+        "runner": RUNNER_NAME,
+        "generated_at": now_iso(),
+        "source": source,
+        "yt_dlp": {
+            "path": str(ytdlp.resolve()),
+            "cookies_configured": cookies_path is not None,
+            "cookie_values_reported": False,
+            "node_path": str(node_path.resolve()) if node_path and node_path.is_file() else None,
+            "js_runtime_requested": use_js_runtime,
+            "remote_components_requested": use_remote_components,
+            "raw_extractor_args_count": len(getattr(options_args, "ytdlp_extractor_args", []) or []) if options_args else 0,
+            "player_client_probes": split_csv(getattr(options_args, "ytdlp_player_clients", "")) if options_args else [],
+            "visitor_data_configured": bool(getattr(options_args, "youtube_visitor_data", None)) if options_args else False,
+            "po_token_count": len(getattr(options_args, "youtube_po_token", []) or []) if options_args else 0,
+            "sensitive_extractor_values_reported": False,
+            "proxy_configured": bool(getattr(options_args, "ytdlp_proxy", None)) if options_args else False,
+            "proxy_value_reported": False,
+            "impersonate": getattr(options_args, "ytdlp_impersonate", None) if options_args else None,
+            "sleep_requests": getattr(options_args, "ytdlp_sleep_requests", None) if options_args else None,
+            "retry_sleep_count": len(getattr(options_args, "ytdlp_retry_sleep", []) or []) if options_args else 0,
+        },
+        "summary": {
+            "metadata_available": metadata is not None,
+            "acquired_subtitle_files": [str(path.resolve()) for path in acquired_subtitles],
+            "available_primary_routes_not_yet_acquired": available_routes,
+            "signals": sorted(signals),
+            "block_reason": block_reason,
+            "next_step": next_step,
+        },
+        "attempts": attempts,
+    }
+
+
+def render_ytdlp_diagnostics_md(payload: dict[str, Any]) -> str:
+    summary = payload.get("summary", {})
+    tool = payload.get("yt_dlp", {})
+    lines = [
+        "# yt-dlp Diagnostics",
+        "",
+        f"- yt-dlp: `{tool.get('path')}`",
+        f"- Cookies configured: `{tool.get('cookies_configured')}`",
+        f"- JavaScript runtime requested: `{tool.get('js_runtime_requested')}`",
+        f"- Node path: `{tool.get('node_path')}`",
+        f"- Remote components requested: `{tool.get('remote_components_requested')}`",
+        f"- Raw extractor args count: `{tool.get('raw_extractor_args_count')}`",
+        f"- Player client probes: `{', '.join(tool.get('player_client_probes') or [])}`",
+        f"- Visitor Data configured: `{tool.get('visitor_data_configured')}`",
+        f"- PO Token count: `{tool.get('po_token_count')}`",
+        f"- Sensitive extractor values reported: `{tool.get('sensitive_extractor_values_reported')}`",
+        f"- Proxy configured: `{tool.get('proxy_configured')}`",
+        f"- Proxy value reported: `{tool.get('proxy_value_reported')}`",
+        f"- Impersonate: `{tool.get('impersonate')}`",
+        f"- Sleep requests: `{tool.get('sleep_requests')}`",
+        f"- Retry sleep count: `{tool.get('retry_sleep_count')}`",
+        f"- Metadata available: `{summary.get('metadata_available')}`",
+        f"- Block reason: `{summary.get('block_reason')}`",
+        f"- Next step: `{summary.get('next_step')}`",
+        "",
+        "## Available Routes",
+        "",
+    ]
+    routes = summary.get("available_primary_routes_not_yet_acquired") or []
+    lines.extend(f"- `{route}`" for route in routes) if routes else lines.append("- None")
+    lines.extend(["", "## Attempts", ""])
+    for attempt in payload.get("attempts", []):
+        lines.extend(
+            [
+                f"### {attempt.get('name')}",
+                "",
+                f"- Kind: `{attempt.get('command_kind')}`",
+                f"- Return code: `{attempt.get('returncode')}`",
+                f"- Timeout: `{attempt.get('timeout')}`",
+                f"- Cookies used: `{attempt.get('cookies_used')}`",
+                f"- JavaScript runtime used: `{attempt.get('js_runtime_used')}`",
+                f"- Remote components used: `{attempt.get('remote_components_used')}`",
+                f"- Signals: `{', '.join(attempt.get('signals') or [])}`",
+                f"- stdout: `{attempt.get('stdout_path')}`",
+                f"- stderr: `{attempt.get('stderr_path')}`",
+                "",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, str]) -> tuple[list[CommandResult], dict[str, Any] | None, list[Path]]:
@@ -352,27 +606,23 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
     bare_blocked = bool(detect_signals([bare_result], metadata, set()) & acquisition_probe.BLOCKED_SIGNALS)
     should_try_cookies = cookies_path is not None and (bare_blocked or source["platform"] == "youtube" or metadata is None)
     if should_try_cookies:
-        cookie_base, js_used, remote_used = build_ytdlp_base(
+        cookie_metadata, cookies_used, js_used, remote_used = build_ytdlp_command(
             ytdlp=ytdlp,
             url=args.input,
             cookies_path=cookies_path,
-            node_path=node_path if use_js else None,
+            node_path=node_path,
+            use_js_runtime=use_js,
             use_remote_components=use_remote,
+            command_args=["--no-warnings", "--dump-single-json", "--skip-download"],
+            options_args=args,
         )
-        cookie_metadata = [
-            *cookie_base[:-1],
-            "--no-warnings",
-            "--dump-single-json",
-            "--skip-download",
-            cookie_base[-1],
-        ]
         cookie_result = run_command(
             name="yt_dlp_cookies_metadata",
             command_kind="yt-dlp:cookies:dump-single-json",
             args=cookie_metadata,
             timeout_seconds=args.timeout_seconds,
             raw_dir=raw_dir,
-            cookies_used=True,
+            cookies_used=cookies_used,
             js_runtime_used=js_used,
             remote_components_used=remote_used,
         )
@@ -382,32 +632,100 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
             metadata = cookie_json
 
     if args.list_subtitles:
-        list_subs = [str(ytdlp), "--list-subs", args.input]
-        if cookies_path is not None:
-            list_subs = [str(ytdlp), "--cookies", str(cookies_path), "--list-subs", args.input]
+        list_subs, cookies_used, js_used, remote_used = build_ytdlp_command(
+            ytdlp=ytdlp,
+            url=args.input,
+            cookies_path=cookies_path,
+            node_path=node_path,
+            use_js_runtime=use_js,
+            use_remote_components=use_remote,
+            command_args=["--list-subs"],
+            options_args=args,
+        )
         list_result = run_command(
             name="yt_dlp_list_subtitles",
             command_kind="yt-dlp:list-subs",
             args=list_subs,
             timeout_seconds=args.timeout_seconds,
             raw_dir=raw_dir,
-            cookies_used=cookies_path is not None,
+            cookies_used=cookies_used,
+            js_runtime_used=js_used,
+            remote_components_used=remote_used,
         )
         results.append(list_result)
 
     if args.list_formats:
-        list_formats = [str(ytdlp), "--list-formats", args.input]
-        if cookies_path is not None:
-            list_formats = [str(ytdlp), "--cookies", str(cookies_path), "--list-formats", args.input]
+        list_formats, cookies_used, js_used, remote_used = build_ytdlp_command(
+            ytdlp=ytdlp,
+            url=args.input,
+            cookies_path=cookies_path,
+            node_path=node_path,
+            use_js_runtime=use_js,
+            use_remote_components=use_remote,
+            command_args=["--list-formats"],
+            options_args=args,
+        )
         format_result = run_command(
             name="yt_dlp_list_formats",
             command_kind="yt-dlp:list-formats",
             args=list_formats,
             timeout_seconds=args.timeout_seconds,
             raw_dir=raw_dir,
-            cookies_used=cookies_path is not None,
+            cookies_used=cookies_used,
+            js_runtime_used=js_used,
+            remote_components_used=remote_used,
         )
         results.append(format_result)
+
+    player_clients = split_csv(getattr(args, "ytdlp_player_clients", "")) if source["platform"] == "youtube" else []
+    for player_client in player_clients:
+        safe_client = re.sub(r"[^A-Za-z0-9_.-]+", "_", player_client).strip("_") or "client"
+        if args.list_subtitles:
+            client_list_subs, cookies_used, js_used, remote_used = build_ytdlp_command(
+                ytdlp=ytdlp,
+                url=args.input,
+                cookies_path=cookies_path,
+                node_path=node_path,
+                use_js_runtime=use_js,
+                use_remote_components=use_remote,
+                command_args=["--list-subs"],
+                options_args=args,
+                player_client=player_client,
+            )
+            client_subs_result = run_command(
+                name=f"yt_dlp_player_client_{safe_client}_list_subtitles",
+                command_kind="yt-dlp:player-client:list-subs",
+                args=client_list_subs,
+                timeout_seconds=args.timeout_seconds,
+                raw_dir=raw_dir,
+                cookies_used=cookies_used,
+                js_runtime_used=js_used,
+                remote_components_used=remote_used,
+            )
+            results.append(client_subs_result)
+        if args.list_formats:
+            client_list_formats, cookies_used, js_used, remote_used = build_ytdlp_command(
+                ytdlp=ytdlp,
+                url=args.input,
+                cookies_path=cookies_path,
+                node_path=node_path,
+                use_js_runtime=use_js,
+                use_remote_components=use_remote,
+                command_args=["--list-formats"],
+                options_args=args,
+                player_client=player_client,
+            )
+            client_formats_result = run_command(
+                name=f"yt_dlp_player_client_{safe_client}_list_formats",
+                command_kind="yt-dlp:player-client:list-formats",
+                args=client_list_formats,
+                timeout_seconds=args.timeout_seconds,
+                raw_dir=raw_dir,
+                cookies_used=cookies_used,
+                js_runtime_used=js_used,
+                remote_components_used=remote_used,
+            )
+            results.append(client_formats_result)
 
     acquired_subtitles: list[Path] = []
     if args.download_subtitles:
@@ -418,28 +736,35 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
             for path in subtitles_dir.rglob("*")
             if path.is_file()
         }
-        dl_args = [
-            str(ytdlp),
-            "--skip-download",
-            "--write-subs",
-            "--write-auto-subs",
-            "--sub-langs",
-            args.subtitle_languages,
-            "--convert-subs",
-            "srt",
-            "-o",
-            str(subtitles_dir / "%(id)s.%(ext)s"),
-        ]
-        if cookies_path is not None:
-            dl_args.extend(["--cookies", str(cookies_path)])
-        dl_args.append(args.input)
+        dl_args, cookies_used, js_used, remote_used = build_ytdlp_command(
+            ytdlp=ytdlp,
+            url=args.input,
+            cookies_path=cookies_path,
+            node_path=node_path,
+            use_js_runtime=use_js,
+            use_remote_components=use_remote,
+            command_args=[
+                "--skip-download",
+                "--write-subs",
+                "--write-auto-subs",
+                "--sub-langs",
+                args.subtitle_languages,
+                "--convert-subs",
+                "srt",
+                "-o",
+                str(subtitles_dir / "%(id)s.%(ext)s"),
+            ],
+            options_args=args,
+        )
         dl_result = run_command(
             name="yt_dlp_download_subtitles",
             command_kind="yt-dlp:download-subtitles",
             args=dl_args,
             timeout_seconds=args.timeout_seconds,
             raw_dir=raw_dir,
-            cookies_used=cookies_path is not None,
+            cookies_used=cookies_used,
+            js_runtime_used=js_used,
+            remote_components_used=remote_used,
         )
         results.append(dl_result)
         if dl_result.returncode == 0:
@@ -484,12 +809,12 @@ def source_status_from_probe(
 
     available = []
     langs = subtitle_languages(metadata)
-    if langs["subtitles"] or langs["automatic_captions"]:
+    if langs["subtitles"] or langs["automatic_captions"] or listed_subtitles(results):
         available.append("subtitles_or_automatic_captions_listed")
-    if has_media_formats(metadata):
+    if has_media_formats(metadata) or listed_media_formats(results):
         available.append("media_formats_listed")
 
-    if status["source_status"] == "secondary_only" and available:
+    if available and status["source_status"] in {"secondary_only", "source_blocked"}:
         status["next_step"] = (
             "download_subtitles_or_audio_then_parse_or_run_asr"
             if "subtitles_or_automatic_captions_listed" in available
@@ -638,6 +963,11 @@ def run_acquisition(args: argparse.Namespace) -> dict[str, Any]:
             acquired_subtitles=acquired_subtitles,
             timeout_seconds=args.timeout_seconds,
         )
+        signals = detect_signals(results, metadata, acquired_subtitles)
+        status["block_reason"] = classify_primary_failure(signals, results)
+        failed_stage = next((result.name for result in reversed(results) if result.returncode not in {0, None} or result.timeout), None)
+        if failed_stage:
+            status["yt_dlp_stage_failed"] = failed_stage
 
     status.update(
         {
@@ -686,9 +1016,48 @@ def run_acquisition(args: argparse.Namespace) -> dict[str, Any]:
         },
     }
 
+    if source["input_kind"] == "url":
+        ytdlp = resolve_ytdlp(args.ytdlp)
+        if ytdlp is not None:
+            node_path = resolve_node(args.node)
+            diagnostics = ytdlp_diagnostics(
+                source=source,
+                results=results,
+                metadata=metadata,
+                acquired_subtitles=acquired_subtitles,
+                signals=detect_signals(results, metadata, acquired_subtitles),
+                available_routes=status.get("available_primary_routes_not_yet_acquired", []),
+                ytdlp=ytdlp,
+                node_path=node_path,
+                cookies_path=Path(args.youtube_cookies).expanduser().resolve() if args.youtube_cookies else None,
+                use_js_runtime=bool(args.use_js_runtime),
+                use_remote_components=bool(args.use_remote_components),
+                options_args=args,
+            )
+            write_json(output_root / "00_source" / "yt_dlp_diagnostics.json", diagnostics)
+            write_text(output_root / "00_source" / "yt_dlp_diagnostics.md", render_ytdlp_diagnostics_md(diagnostics))
+            report["yt_dlp_diagnostics"] = {
+                "json": str((output_root / "00_source" / "yt_dlp_diagnostics.json").resolve()),
+                "markdown": str((output_root / "00_source" / "yt_dlp_diagnostics.md").resolve()),
+                "block_reason": diagnostics["summary"]["block_reason"],
+                "next_step": diagnostics["summary"]["next_step"],
+            }
+
     write_json(output_root / "00_source" / "source_status.json", status)
     write_json(output_root / "00_source" / "acquisition_runner_report.json", report)
     write_text(output_root / "00_source" / "acquisition_notes.md", render_notes(report))
+    files_written = [
+        str((output_root / "00_source" / "source_status.json").resolve()),
+        str((output_root / "00_source" / "acquisition_runner_report.json").resolve()),
+        str((output_root / "00_source" / "acquisition_notes.md").resolve()),
+    ]
+    if source["input_kind"] == "url":
+        files_written.extend(
+            [
+                str((output_root / "00_source" / "yt_dlp_diagnostics.json").resolve()),
+                str((output_root / "00_source" / "yt_dlp_diagnostics.md").resolve()),
+            ]
+        )
     return {
         "runner": RUNNER_NAME,
         "output_root": str(output_root),
@@ -699,11 +1068,7 @@ def run_acquisition(args: argparse.Namespace) -> dict[str, Any]:
         "next_step": status["next_step"],
         "available_primary_routes_not_yet_acquired": status.get("available_primary_routes_not_yet_acquired", []),
         "doctor_overall_status": report["doctor_overall_status"],
-        "files_written": [
-            str((output_root / "00_source" / "source_status.json").resolve()),
-            str((output_root / "00_source" / "acquisition_runner_report.json").resolve()),
-            str((output_root / "00_source" / "acquisition_notes.md").resolve()),
-        ],
+        "files_written": files_written,
     }
 
 
@@ -720,6 +1085,14 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-formats", action="store_true", help="Run yt-dlp --list-formats.")
     parser.add_argument("--use-js-runtime", action="store_true", help="Pass Node.js to yt-dlp for player challenge solving.")
     parser.add_argument("--use-remote-components", action="store_true", help="Allow yt-dlp remote ejs solver component.")
+    parser.add_argument("--ytdlp-extractor-args", action="append", default=[], help="Raw yt-dlp --extractor-args value.")
+    parser.add_argument("--ytdlp-player-clients", default="default,mweb,web,android_vr", help="Comma-separated YouTube player_client probe matrix. Use an empty string to disable.")
+    parser.add_argument("--youtube-visitor-data", default=None, help="Visitor Data passed to yt-dlp without logging the value.")
+    parser.add_argument("--youtube-po-token", action="append", default=[], help="PO Token passed to yt-dlp without logging the value.")
+    parser.add_argument("--ytdlp-proxy", default=None, help="Proxy URL passed to yt-dlp --proxy.")
+    parser.add_argument("--ytdlp-impersonate", default=None, help="Client passed to yt-dlp --impersonate.")
+    parser.add_argument("--ytdlp-sleep-requests", type=float, default=None, help="Seconds passed to yt-dlp --sleep-requests.")
+    parser.add_argument("--ytdlp-retry-sleep", action="append", default=[], help="Repeatable yt-dlp --retry-sleep expression.")
     parser.add_argument("--download-subtitles", action="store_true", help="Download subtitles only; no media download.")
     parser.add_argument("--subtitle-languages", default="all,-live_chat")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print summary JSON.")

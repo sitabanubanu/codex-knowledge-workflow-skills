@@ -208,6 +208,10 @@ def cmd_run(args: argparse.Namespace) -> int:
             args.final_language,
             "--audience",
             args.audience,
+            "--video-skill-root",
+            str(VIDEO),
+            "--document-skill-root",
+            str(DOCUMENT),
             "--asr-model",
             args.asr_model,
             "--platform-mode",
@@ -221,6 +225,34 @@ def cmd_run(args: argparse.Namespace) -> int:
             runner.extend(["--input-transcript", input_value])
         if args.youtube_cookies:
             runner.extend(["--youtube-cookies", str(args.youtube_cookies)])
+        if args.ytdlp:
+            runner.extend(["--ytdlp", str(args.ytdlp)])
+        if args.node:
+            runner.extend(["--node", str(args.node)])
+        if args.platform_timeout_seconds:
+            runner.extend(["--platform-timeout-seconds", str(args.platform_timeout_seconds)])
+        if args.subtitle_languages:
+            runner.extend(["--subtitle-languages", args.subtitle_languages])
+        if args.use_js_runtime:
+            runner.append("--use-js-runtime")
+        if args.use_remote_components:
+            runner.append("--use-remote-components")
+        for extractor_arg in args.ytdlp_extractor_args or []:
+            runner.extend(["--ytdlp-extractor-args", extractor_arg])
+        if args.ytdlp_player_clients:
+            runner.extend(["--ytdlp-player-clients", args.ytdlp_player_clients])
+        if args.youtube_visitor_data:
+            runner.extend(["--youtube-visitor-data", args.youtube_visitor_data])
+        for po_token in args.youtube_po_token or []:
+            runner.extend(["--youtube-po-token", po_token])
+        if args.ytdlp_proxy:
+            runner.extend(["--ytdlp-proxy", args.ytdlp_proxy])
+        if args.ytdlp_impersonate:
+            runner.extend(["--ytdlp-impersonate", args.ytdlp_impersonate])
+        if args.ytdlp_sleep_requests is not None:
+            runner.extend(["--ytdlp-sleep-requests", str(args.ytdlp_sleep_requests)])
+        for retry_sleep in args.ytdlp_retry_sleep or []:
+            runner.extend(["--ytdlp-retry-sleep", retry_sleep])
         if args.resume:
             runner.append("--resume")
         if args.pretty:
@@ -610,6 +642,20 @@ def make_parser() -> argparse.ArgumentParser:
     run.add_argument("--asr-model", default="base")
     run.add_argument("--platform-mode", choices=["auto", "probe", "subtitles", "audio"], default="auto")
     run.add_argument("--youtube-cookies", type=Path)
+    run.add_argument("--ytdlp", type=Path, help="Optional yt-dlp executable override.")
+    run.add_argument("--node", type=Path, help="Optional Node.js executable override for yt-dlp JavaScript challenge handling.")
+    run.add_argument("--platform-timeout-seconds", type=int, default=90)
+    run.add_argument("--subtitle-languages", default="all,-live_chat")
+    run.add_argument("--use-js-runtime", action="store_true", help="Pass Node.js to yt-dlp for YouTube player challenge handling.")
+    run.add_argument("--use-remote-components", action="store_true", help="Allow yt-dlp remote EJS solver components.")
+    run.add_argument("--ytdlp-extractor-args", action="append", default=[], help="Raw yt-dlp --extractor-args value, e.g. youtube:fetch_pot=auto.")
+    run.add_argument("--ytdlp-player-clients", default="default,mweb,web,android_vr", help="Comma-separated YouTube player_client probe matrix, e.g. default,mweb,web,android_vr. Use an empty string to disable.")
+    run.add_argument("--youtube-visitor-data", help="Visitor Data passed to yt-dlp as youtube:visitor_data=...; never logged.")
+    run.add_argument("--youtube-po-token", action="append", default=[], help="PO Token passed to yt-dlp, e.g. web.gvs+XXX or web.subs+XXX; never logged.")
+    run.add_argument("--ytdlp-proxy", help="Proxy URL passed to yt-dlp --proxy.")
+    run.add_argument("--ytdlp-impersonate", help="Client passed to yt-dlp --impersonate, e.g. chrome.")
+    run.add_argument("--ytdlp-sleep-requests", type=float, help="Seconds passed to yt-dlp --sleep-requests.")
+    run.add_argument("--ytdlp-retry-sleep", action="append", default=[], help="Repeatable yt-dlp --retry-sleep expression.")
     run.add_argument("--resume", action="store_true")
     run.add_argument("--pretty", action="store_true")
     run.set_defaults(func=cmd_run)
