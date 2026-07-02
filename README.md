@@ -46,6 +46,13 @@ cd codex-knowledge-workflow-skills
 python .\kw.py demo
 ```
 
+Optional local CLI install:
+
+```powershell
+python -m pip install -e .
+kw demo
+```
+
 On macOS or Linux:
 
 ```bash

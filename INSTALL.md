@@ -62,6 +62,19 @@ macOS / Linux:
 python kw.py demo
 ```
 
+Optional editable CLI command:
+
+```powershell
+python -m pip install -e .
+kw demo
+```
+
+The repository entry point remains supported:
+
+```powershell
+python .\kw.py demo
+```
+
 Open:
 
 ```text

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-knowledge-workflow-skills"
+version = "0.3.1"
+description = "Source-gated Knowledge Workflow CLI and Codex skills."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "sitabanubanu" }
+]
+dependencies = []
+
+[project.scripts]
+kw = "kw_cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["kw_cli*"]
