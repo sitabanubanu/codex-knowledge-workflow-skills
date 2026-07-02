@@ -1,5 +1,7 @@
 # Knowledge Workflow Skills
 
+[![offline-validation][offline-validation-badge]][offline-validation]
+
 Auditable Codex workflow for turning videos, audio, subtitles, and transcripts
 into evidence-grounded knowledge reports.
 
@@ -250,3 +252,6 @@ Chrome probe normalization, and validation matrices.
 - [Chrome probe integration](docs/chrome-probe-integration.md)
 - [Validation matrix](docs/validation.md)
 - [Release notes](RELEASE_NOTES.md)
+
+[offline-validation-badge]: https://github.com/sitabanubanu/codex-knowledge-workflow-skills/actions/workflows/offline-validation.yml/badge.svg
+[offline-validation]: https://github.com/sitabanubanu/codex-knowledge-workflow-skills/actions/workflows/offline-validation.yml

@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+## v0.3.1-validation-and-release
+
 ### Added
 
+- GitHub Actions offline validation for push and pull request checks.
 - Chinese final-report rendering and a Language Match quality gate for
   requested Chinese output.
 - Route-readiness diagnostics in `kw.py doctor`, including concise default
@@ -32,13 +35,19 @@
 
 ### Validation
 
-Latest local validation:
+Latest local validation before release:
 
 ```powershell
-python .\kw.py validate --include-sync --output-root .\test_outputs\phase8-validate-full
+python .\kw.py validate --include-sync --output-root .\test_outputs\phase9-final-validate
 ```
 
 Result: all default offline checks and sync verification passed.
+
+GitHub Actions runs the default offline checks on push and pull request:
+
+- `python kw.py demo`
+- `python tests/knowledge_workflow_regression.py`
+- `python tests/real_workflow_acceptance.py`
 
 ## v0.3-product-entry-alpha
 
