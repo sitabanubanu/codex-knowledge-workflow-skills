@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+No unreleased changes recorded yet.
+
+## v0.4.0-cli-synthesis-and-ci
+
+### Added
+
+- Editable Python package installation with the `kw` console command.
+- `kw_cli` package entrypoint while preserving `python kw.py ...`.
+- Batch content-level synthesis artifacts:
+  - `cross_source_synthesis.md`
+  - `theme_clusters.json`
+  - `conflict_map.md`
+  - `repeated_claims.md`
+  - `unique_insights.md`
+  - `recommended_research_path.md`
+- Chrome visible transcript example with a saved local transcript artifact.
+- Multi-platform CI matrix for Ubuntu and Windows on Python 3.10, 3.11, and
+  3.12.
+- Release checklist for safe artifact publication.
+
+### Changed
+
+- GitHub Actions now installs the package in editable mode and runs `kw demo`.
+- Batch synthesis reads only completed, quality-approved item claim maps and
+  cites item IDs plus claim IDs.
+- CLI internals are now prepared for further command-level decomposition.
+
+### Validation
+
+Latest GitHub Actions `offline-validation` passed across all matrix jobs:
+
+- Ubuntu latest / Python 3.10, 3.11, 3.12
+- Windows latest / Python 3.10, 3.11, 3.12
+
 ## v0.3.1-validation-and-release
 
 ### Added

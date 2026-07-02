@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+No unreleased changes recorded yet.
+
+## v0.4.0-cli-synthesis-and-ci
+
+- Added editable `kw` console command installation.
+- Split the CLI compatibility entrypoint into `kw_cli.main`.
+- Added batch content-level synthesis outputs based on approved claim maps.
+- Added Chrome visible transcript example.
+- Expanded GitHub Actions offline validation to Ubuntu and Windows across
+  Python 3.10, 3.11, and 3.12.
+- Added release checklist documentation.
+
+## v0.3.1-validation-and-release
+
 - Added product quickstart, install guide, and demo transcript example.
 - Added `kw.py` CLI wrappers for doctor, validation, batch, templates, quality,
   Chrome probe, and result indexing.
