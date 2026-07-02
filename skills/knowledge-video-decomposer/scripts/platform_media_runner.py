@@ -139,7 +139,9 @@ def preferred_audio_player_client(report: dict[str, Any]) -> str | None:
     return None
 
 
-def build_audio_command(args: argparse.Namespace, audio_dir: Path) -> tuple[list[str], bool, bool, bool]:
+def build_audio_command(args: argparse.Namespace, audio_dir: Path, cookie_cleanup_paths: list[Path] | None = None) -> tuple[list[str], bool, bool, bool]:
+    if cookie_cleanup_paths is None:
+        cookie_cleanup_paths = []
     ytdlp = acquisition_runner.resolve_ytdlp(args.ytdlp)
     if ytdlp is None:
         raise PlatformMediaRunnerError("yt-dlp was not found; run doctor.py and install or expose yt-dlp first.")
@@ -158,11 +160,11 @@ def build_audio_command(args: argparse.Namespace, audio_dir: Path) -> tuple[list
 
     cookies_used = False
     if args.youtube_cookies:
-        cookies_path = Path(args.youtube_cookies).expanduser().resolve()
-        if not cookies_path.is_file():
-            raise PlatformMediaRunnerError(f"cookies file was not found: {cookies_path}")
-        command.extend(["--cookies", str(cookies_path)])
-        cookies_used = True
+        cookies_path, _cookies_meta = acquisition_runner.resolve_youtube_cookies_path(args.youtube_cookies, allow_missing_auto=True)
+        if cookies_path is not None:
+            runtime_path = acquisition_runner.runtime_cookies_copy(cookies_path, "download-audio", cookie_cleanup_paths)
+            command.extend(["--cookies", str(runtime_path)])
+            cookies_used = True
 
     js_used = False
     if args.use_js_runtime:
@@ -219,17 +221,25 @@ def download_audio(args: argparse.Namespace, output_root: Path) -> tuple[dict[st
     audio_dir = output_root / "00_source" / "raw" / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
     before = existing_audio_files(audio_dir)
-    command, cookies_used, js_used, remote_used = build_audio_command(args, audio_dir)
-    result = acquisition_runner.run_command(
-        name="yt_dlp_download_audio",
-        command_kind="yt-dlp:download-audio",
-        args=command,
-        timeout_seconds=args.timeout_seconds,
-        raw_dir=output_root / "00_source" / "raw",
-        cookies_used=cookies_used,
-        js_runtime_used=js_used,
-        remote_components_used=remote_used,
-    )
+    cookie_cleanup_paths: list[Path] = []
+    command, cookies_used, js_used, remote_used = build_audio_command(args, audio_dir, cookie_cleanup_paths)
+    try:
+        result = acquisition_runner.run_command(
+            name="yt_dlp_download_audio",
+            command_kind="yt-dlp:download-audio",
+            args=command,
+            timeout_seconds=args.timeout_seconds,
+            raw_dir=output_root / "00_source" / "raw",
+            cookies_used=cookies_used,
+            js_runtime_used=js_used,
+            remote_components_used=remote_used,
+        )
+    finally:
+        for cookie_copy in cookie_cleanup_paths:
+            try:
+                cookie_copy.unlink(missing_ok=True)
+            except OSError:
+                pass
     files = new_audio_files(audio_dir, before) if result.returncode == 0 else []
     return result.as_dict(), files
 
@@ -390,7 +400,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", required=False, help="Platform video URL.")
     parser.add_argument("--output-root", type=Path, default=None, help="10_video artifact root.")
     parser.add_argument("--mode", choices=["auto", "probe", "subtitles", "audio"], default="auto")
-    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt.")
+    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
     parser.add_argument("--ytdlp", default=None, help="Optional yt-dlp executable override.")
     parser.add_argument("--node", default=None, help="Optional Node.js executable override.")
     parser.add_argument("--timeout-seconds", type=int, default=acquisition_runner.DEFAULT_TIMEOUT_SECONDS)

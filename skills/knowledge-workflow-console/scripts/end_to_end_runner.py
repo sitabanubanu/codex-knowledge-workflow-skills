@@ -1111,7 +1111,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--video-skill-root", type=Path, default=default_skill_root("knowledge-video-decomposer"), help="knowledge-video-decomposer skill root.")
     parser.add_argument("--document-skill-root", type=Path, default=default_skill_root("knowledge-document-composer"), help="knowledge-document-composer skill root.")
     parser.add_argument("--platform-mode", choices=["auto", "probe", "subtitles", "audio"], default="auto", help="Platform media acquisition mode for URL input.")
-    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt.")
+    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
     parser.add_argument("--ytdlp", default=None, help="Optional yt-dlp executable override.")
     parser.add_argument("--node", default=None, help="Optional Node.js executable override.")
     parser.add_argument("--platform-timeout-seconds", type=int, default=90, help="Timeout for platform acquisition commands.")

@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,9 @@ from write_artifact import ArtifactWriteError, write_artifact
 
 RUNNER_NAME = "knowledge-video-acquisition-runner"
 DEFAULT_TIMEOUT_SECONDS = 90
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[3]
+DEFAULT_YOUTUBE_COOKIES = REPO_ROOT / "work" / "youtube-cookies" / "youtube.cookies.txt"
 
 
 BLOCK_PATTERNS: list[tuple[str, str]] = [
@@ -84,6 +88,60 @@ class CommandResult:
 
 class AcquisitionRunnerError(Exception):
     """Expected CLI-facing acquisition runner failure."""
+
+
+def resolve_youtube_cookies_path(value: str | Path | None, *, allow_missing_auto: bool = True) -> tuple[Path | None, dict[str, Any]]:
+    meta: dict[str, Any] = {
+        "configured": False,
+        "source": None,
+        "auto_default_path": str(DEFAULT_YOUTUBE_COOKIES),
+        "exists": False,
+        "size_bytes": None,
+        "last_modified": None,
+        "status": "not_configured",
+    }
+    if value is None:
+        return None, meta
+    text = str(value).strip()
+    if not text:
+        return None, meta
+
+    is_auto = text.lower() == "auto"
+    path = DEFAULT_YOUTUBE_COOKIES if is_auto else Path(text).expanduser()
+    path = path.resolve() if path.is_absolute() else (Path.cwd() / path).resolve()
+    meta.update({"configured": True, "source": "auto_default_path" if is_auto else "explicit_path", "path": str(path)})
+
+    if not path.exists():
+        meta["status"] = "missing"
+        if is_auto and allow_missing_auto:
+            return None, meta
+        raise AcquisitionRunnerError(f"cookies file was not found: {path}")
+    if not path.is_file():
+        meta["status"] = "not_file"
+        raise AcquisitionRunnerError(f"cookies path is not a file: {path}")
+
+    stat = path.stat()
+    meta.update(
+        {
+            "exists": True,
+            "size_bytes": stat.st_size,
+            "last_modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            "status": "available",
+        }
+    )
+    return path, meta
+
+
+def runtime_cookies_copy(source: Path | None, label: str, cleanup_paths: list[Path]) -> Path | None:
+    if source is None:
+        return None
+    safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "-", label).strip("-") or "cookies"
+    handle = tempfile.NamedTemporaryFile(prefix=f"kw-ytdlp-{safe_label}-", suffix=".cookies.txt", delete=False)
+    runtime_path = Path(handle.name)
+    handle.close()
+    shutil.copy2(source, runtime_path)
+    cleanup_paths.append(runtime_path)
+    return runtime_path
 
 
 def now_iso() -> str:
@@ -452,6 +510,7 @@ def ytdlp_diagnostics(
     use_js_runtime: bool,
     use_remote_components: bool,
     options_args: argparse.Namespace | None = None,
+    cookies_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     attempts = []
     for result in results:
@@ -478,7 +537,12 @@ def ytdlp_diagnostics(
     elif "media_formats_listed" in available_routes:
         next_step = "download_audio_then_run_local_asr"
     elif block_reason in {"bot_check", "login_required", "request_blocked", "http_429"}:
-        next_step = "refresh_or_re_export_youtube_cookies_or_use_browser_visible_transcript"
+        if cookies_meta and cookies_meta.get("status") == "missing":
+            next_step = "place_exported_youtube_cookies_at_default_path_or_pass_explicit_cookies"
+        elif cookies_path is None:
+            next_step = "provide_user_exported_youtube_cookies_or_browser_visible_transcript"
+        else:
+            next_step = "refresh_or_re_export_youtube_cookies_or_use_browser_visible_transcript"
     elif block_reason == "po_token_required":
         next_step = "provide_po_token_or_use_browser_visible_transcript_or_local_media"
     elif block_reason in {"js_runtime_missing", "ejs_solver_missing", "n_challenge_failed"}:
@@ -492,6 +556,18 @@ def ytdlp_diagnostics(
         "yt_dlp": {
             "path": str(ytdlp.resolve()),
             "cookies_configured": cookies_path is not None,
+            "cookies_request": cookies_meta
+            or {
+                "configured": cookies_path is not None,
+                "source": "explicit_path" if cookies_path else None,
+                "auto_default_path": str(DEFAULT_YOUTUBE_COOKIES),
+                "exists": cookies_path.is_file() if cookies_path else False,
+                "size_bytes": cookies_path.stat().st_size if cookies_path and cookies_path.is_file() else None,
+                "last_modified": datetime.fromtimestamp(cookies_path.stat().st_mtime, timezone.utc).isoformat()
+                if cookies_path and cookies_path.is_file()
+                else None,
+                "status": "available" if cookies_path else "not_configured",
+            },
             "cookie_values_reported": False,
             "node_path": str(node_path.resolve()) if node_path and node_path.is_file() else None,
             "js_runtime_requested": use_js_runtime,
@@ -522,11 +598,17 @@ def ytdlp_diagnostics(
 def render_ytdlp_diagnostics_md(payload: dict[str, Any]) -> str:
     summary = payload.get("summary", {})
     tool = payload.get("yt_dlp", {})
+    cookie_request = tool.get("cookies_request") if isinstance(tool.get("cookies_request"), dict) else {}
     lines = [
         "# yt-dlp Diagnostics",
         "",
         f"- yt-dlp: `{tool.get('path')}`",
         f"- Cookies configured: `{tool.get('cookies_configured')}`",
+        f"- Cookies source: `{cookie_request.get('source')}`",
+        f"- Cookies status: `{cookie_request.get('status')}`",
+        f"- Default cookies path: `{cookie_request.get('auto_default_path')}`",
+        f"- Cookies file size bytes: `{cookie_request.get('size_bytes')}`",
+        f"- Cookies values reported: `{tool.get('cookie_values_reported')}`",
         f"- JavaScript runtime requested: `{tool.get('js_runtime_requested')}`",
         f"- Node path: `{tool.get('node_path')}`",
         f"- Remote components requested: `{tool.get('remote_components_requested')}`",
@@ -575,9 +657,10 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
     if ytdlp is None:
         raise AcquisitionRunnerError("yt-dlp was not found; run doctor.py and install or expose yt-dlp first.")
 
-    cookies_path = Path(args.youtube_cookies).expanduser().resolve() if args.youtube_cookies else None
-    if cookies_path is not None and not cookies_path.is_file():
-        raise AcquisitionRunnerError(f"cookies file was not found: {cookies_path}")
+    cookies_path, cookies_meta = resolve_youtube_cookies_path(args.youtube_cookies, allow_missing_auto=True)
+    cookie_cleanup_paths: list[Path] = []
+    if cookies_path is not None:
+        cookies_meta["runtime_copy_used"] = True
 
     node_path = resolve_node(args.node)
     use_js = bool(args.use_js_runtime and node_path is not None and node_path.is_file())
@@ -609,7 +692,7 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
         cookie_metadata, cookies_used, js_used, remote_used = build_ytdlp_command(
             ytdlp=ytdlp,
             url=args.input,
-            cookies_path=cookies_path,
+            cookies_path=runtime_cookies_copy(cookies_path, "metadata", cookie_cleanup_paths),
             node_path=node_path,
             use_js_runtime=use_js,
             use_remote_components=use_remote,
@@ -635,7 +718,7 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
         list_subs, cookies_used, js_used, remote_used = build_ytdlp_command(
             ytdlp=ytdlp,
             url=args.input,
-            cookies_path=cookies_path,
+            cookies_path=runtime_cookies_copy(cookies_path, "list-subs", cookie_cleanup_paths),
             node_path=node_path,
             use_js_runtime=use_js,
             use_remote_components=use_remote,
@@ -658,7 +741,7 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
         list_formats, cookies_used, js_used, remote_used = build_ytdlp_command(
             ytdlp=ytdlp,
             url=args.input,
-            cookies_path=cookies_path,
+            cookies_path=runtime_cookies_copy(cookies_path, "list-formats", cookie_cleanup_paths),
             node_path=node_path,
             use_js_runtime=use_js,
             use_remote_components=use_remote,
@@ -684,7 +767,7 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
             client_list_subs, cookies_used, js_used, remote_used = build_ytdlp_command(
                 ytdlp=ytdlp,
                 url=args.input,
-                cookies_path=cookies_path,
+                cookies_path=runtime_cookies_copy(cookies_path, f"{safe_client}-list-subs", cookie_cleanup_paths),
                 node_path=node_path,
                 use_js_runtime=use_js,
                 use_remote_components=use_remote,
@@ -707,7 +790,7 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
             client_list_formats, cookies_used, js_used, remote_used = build_ytdlp_command(
                 ytdlp=ytdlp,
                 url=args.input,
-                cookies_path=cookies_path,
+                cookies_path=runtime_cookies_copy(cookies_path, f"{safe_client}-list-formats", cookie_cleanup_paths),
                 node_path=node_path,
                 use_js_runtime=use_js,
                 use_remote_components=use_remote,
@@ -739,7 +822,7 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
         dl_args, cookies_used, js_used, remote_used = build_ytdlp_command(
             ytdlp=ytdlp,
             url=args.input,
-            cookies_path=cookies_path,
+            cookies_path=runtime_cookies_copy(cookies_path, "download-subtitles", cookie_cleanup_paths),
             node_path=node_path,
             use_js_runtime=use_js,
             use_remote_components=use_remote,
@@ -780,6 +863,11 @@ def run_ytdlp_probe(args: argparse.Namespace, raw_dir: Path, source: dict[str, s
                     or path.stat().st_mtime > before_subtitles[path.resolve()][1]
                 )
             )
+    for cookie_copy in cookie_cleanup_paths:
+        try:
+            cookie_copy.unlink(missing_ok=True)
+        except OSError:
+            pass
     return results, metadata, acquired_subtitles
 
 
@@ -1020,6 +1108,7 @@ def run_acquisition(args: argparse.Namespace) -> dict[str, Any]:
         ytdlp = resolve_ytdlp(args.ytdlp)
         if ytdlp is not None:
             node_path = resolve_node(args.node)
+            diagnostic_cookies_path, diagnostic_cookies_meta = resolve_youtube_cookies_path(args.youtube_cookies, allow_missing_auto=True)
             diagnostics = ytdlp_diagnostics(
                 source=source,
                 results=results,
@@ -1029,13 +1118,16 @@ def run_acquisition(args: argparse.Namespace) -> dict[str, Any]:
                 available_routes=status.get("available_primary_routes_not_yet_acquired", []),
                 ytdlp=ytdlp,
                 node_path=node_path,
-                cookies_path=Path(args.youtube_cookies).expanduser().resolve() if args.youtube_cookies else None,
+                cookies_path=diagnostic_cookies_path,
                 use_js_runtime=bool(args.use_js_runtime),
                 use_remote_components=bool(args.use_remote_components),
                 options_args=args,
+                cookies_meta=diagnostic_cookies_meta,
             )
             write_json(output_root / "00_source" / "yt_dlp_diagnostics.json", diagnostics)
             write_text(output_root / "00_source" / "yt_dlp_diagnostics.md", render_ytdlp_diagnostics_md(diagnostics))
+            status["cookies_request"] = diagnostics["yt_dlp"].get("cookies_request")
+            status["yt_dlp_next_step"] = diagnostics["summary"].get("next_step")
             report["yt_dlp_diagnostics"] = {
                 "json": str((output_root / "00_source" / "yt_dlp_diagnostics.json").resolve()),
                 "markdown": str((output_root / "00_source" / "yt_dlp_diagnostics.md").resolve()),
@@ -1076,7 +1168,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Probe a platform video source and write acquisition artifacts.")
     parser.add_argument("--input", required=False, help="Platform URL or local transcript path.")
     parser.add_argument("--output-root", type=Path, default=None, help="Directory for acquisition artifacts.")
-    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt.")
+    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
     parser.add_argument("--ytdlp", default=None, help="Optional yt-dlp executable override.")
     parser.add_argument("--node", default=None, help="Optional Node.js executable override.")
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)

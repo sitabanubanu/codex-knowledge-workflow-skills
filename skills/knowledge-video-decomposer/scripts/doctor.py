@@ -27,6 +27,9 @@ from write_artifact import ArtifactWriteError, write_artifact
 
 DOCTOR_NAME = "knowledge-video-decomposer-doctor"
 STATUS_ORDER = {"ok": 0, "skip": 1, "warn": 2, "fail": 3}
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[3]
+DEFAULT_YOUTUBE_COOKIES = REPO_ROOT / "work" / "youtube-cookies" / "youtube.cookies.txt"
 
 
 @dataclass
@@ -224,8 +227,10 @@ def check_ytdlp_impersonation(ytdlp_path: Path | None) -> Check:
 
 def check_youtube_cookies(path: Path | None) -> Check:
     if path is None:
-        path = Path("work") / "youtube-cookies" / "youtube.cookies.txt"
-    path = path.expanduser()
+        path = DEFAULT_YOUTUBE_COOKIES
+    elif str(path).strip().lower() == "auto":
+        path = DEFAULT_YOUTUBE_COOKIES
+    path = Path(path).expanduser()
     if not path.is_absolute():
         path = Path.cwd() / path
 
@@ -246,10 +251,29 @@ def check_youtube_cookies(path: Path | None) -> Check:
         )
 
     stat = path.stat()
-    sample = path.read_text(encoding="utf-8", errors="replace")[:2048]
-    has_netscape_header = "Netscape HTTP Cookie File" in sample
-    has_youtube_domain = any(domain in sample for domain in [".youtube.com", "youtube.com", ".google.com"])
-    status = "ok" if stat.st_size > 0 and has_netscape_header and has_youtube_domain else "warn"
+    has_netscape_header = False
+    has_youtube_domain = False
+    non_comment_rows = 0
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for index, line in enumerate(handle):
+            if index >= 200:
+                break
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if "Netscape HTTP Cookie File" in stripped:
+                has_netscape_header = True
+            if stripped.startswith("#"):
+                continue
+            parts = stripped.split("\t")
+            if len(parts) >= 6:
+                non_comment_rows += 1
+                domain = parts[0].lower()
+                if "youtube.com" in domain or "google.com" in domain:
+                    has_youtube_domain = True
+
+    small_file_warning = stat.st_size < 4096
+    status = "ok" if stat.st_size > 0 and has_netscape_header and has_youtube_domain and not small_file_warning else "warn"
     summary = (
         "User-exported Netscape cookies file is present."
         if status == "ok"
@@ -266,7 +290,9 @@ def check_youtube_cookies(path: Path | None) -> Check:
             "last_modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
             "netscape_header_detected": has_netscape_header,
             "youtube_or_google_domain_detected": has_youtube_domain,
-            "cookie_file_sample_read_for_validation": True,
+            "non_comment_rows_checked": non_comment_rows,
+            "small_file_warning": small_file_warning,
+            "cookie_file_structure_read_for_validation": True,
             "cookie_values_reported": False,
         },
         next_step="" if status == "ok" else "Re-export cookies for youtube.com using a Netscape-format local exporter.",
@@ -635,9 +661,9 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         check_python_encoding(),
         check_utf8_write(),
     ]
-    cookie_sample_read = any(
+    cookie_structure_read = any(
         check.name == "youtube_cookies_file"
-        and bool(check.details.get("cookie_file_sample_read_for_validation"))
+        and bool(check.details.get("cookie_file_structure_read_for_validation"))
         for check in checks
     )
 
@@ -648,7 +674,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
         "checks": [check.as_dict() for check in checks],
         "capabilities": capability_matrix(checks),
         "privacy": {
-            "cookie_file_sample_read_for_validation": cookie_sample_read,
+            "cookie_file_structure_read_for_validation": cookie_structure_read,
             "cookie_values_reported": False,
             "network_probe_performed": False,
             "media_download_performed": False,
@@ -674,7 +700,7 @@ def write_outputs(report: dict[str, Any], args: argparse.Namespace) -> None:
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check local prerequisites for knowledge-video acquisition.")
-    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt.")
+    parser.add_argument("--youtube-cookies", default=None, help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
     parser.add_argument("--asr-python", default=None, help="Python executable used for faster-whisper checks.")
     parser.add_argument("--chrome-plugin-root", default=None, help="Optional Chrome plugin root override.")
     parser.add_argument("--output-json", default=None, help="Write full doctor report JSON to this path.")
@@ -703,7 +729,7 @@ def run_self_test() -> int:
         tmp_path = Path(tmp)
         cookies = tmp_path / "youtube.cookies.txt"
         cookies.write_text(
-            "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tREDACTED\n",
+            "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tREDACTED\n" + ("# padding\n" * 600),
             encoding="utf-8",
         )
         cookie_check = check_youtube_cookies(cookies)

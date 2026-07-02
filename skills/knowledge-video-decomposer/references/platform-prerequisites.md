@@ -112,7 +112,7 @@ Recommended probe-only command:
 python scripts/acquisition_runner.py `
   --input <video-url> `
   --output-root outputs/knowledge-workflow/<run-id> `
-  --youtube-cookies work/youtube-cookies/youtube.cookies.txt `
+  --youtube-cookies auto `
   --list-subtitles `
   --list-formats `
   --use-js-runtime `
@@ -155,7 +155,7 @@ Recommended auto command:
 python scripts/platform_media_runner.py `
   --input <video-url> `
   --output-root outputs/knowledge-workflow/<run-id>/10_video `
-  --youtube-cookies work/youtube-cookies/youtube.cookies.txt `
+  --youtube-cookies auto `
   --use-js-runtime `
   --mode auto `
   --pretty
@@ -235,6 +235,8 @@ Allowed:
   Netscape-format cookies, such as a locally operating `cookies.txt` exporter.
 - Ask the user to export cookies for YouTube or the target site and place the
   file in a local workspace path.
+- Prefer `work/youtube-cookies/youtube.cookies.txt` for YouTube. Repository
+  CLI/runners accept `--youtube-cookies auto` for this fixed path only.
 - Use the exported file only for the requested source acquisition.
 - Store the file under an ignored local working directory such as
   `work/youtube-cookies/`.
@@ -246,6 +248,10 @@ Not allowed:
 - Do not install browser extensions on the user's behalf.
 - Do not click through extension permission prompts without explicit user action.
 - Do not paste cookie contents into chat.
+- Do not automatically scan Downloads, browser profiles, or the whole disk for
+  cookies unless the user explicitly identifies a path for the current task.
+- Do not treat `--youtube-cookies auto` as a search mode; it only checks
+  `work/youtube-cookies/youtube.cookies.txt`.
 - Do not commit cookies files or include them in artifacts.
 - Do not pass cookies to third-party services.
 - Do not use cookies to access material the user is not authorized to view.

@@ -21,6 +21,7 @@ CONSOLE = REPO_ROOT / "skills" / "knowledge-workflow-console"
 VIDEO = REPO_ROOT / "skills" / "knowledge-video-decomposer"
 DOCUMENT = REPO_ROOT / "skills" / "knowledge-document-composer"
 OUTPUT_BASE = REPO_ROOT / "outputs" / "knowledge-workflow"
+DEFAULT_YOUTUBE_COOKIES = REPO_ROOT / "work" / "youtube-cookies" / "youtube.cookies.txt"
 
 TRANSCRIPT_EXTENSIONS = {".txt", ".md", ".srt", ".vtt", ".jsonl", ".json"}
 MEDIA_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".webm", ".wav", ".mov", ".opus"}
@@ -58,6 +59,15 @@ def run_required(command: list[str], *, cwd: Path) -> None:
     code = run_command(command, cwd=cwd, show_output=False)
     if code != 0:
         raise KwError(f"command failed with exit code {code}: {' '.join(command)}")
+
+
+def youtube_cookies_cli_value(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text
 
 
 def is_url(value: str) -> bool:
@@ -154,8 +164,9 @@ def write_result(project_root: Path, pretty: bool) -> None:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     command = [sys.executable, str(VIDEO / "scripts" / "doctor.py")]
-    if args.youtube_cookies:
-        command.extend(["--youtube-cookies", str(args.youtube_cookies)])
+    cookies_value = youtube_cookies_cli_value(args.youtube_cookies)
+    if cookies_value:
+        command.extend(["--youtube-cookies", cookies_value])
     if args.asr_python:
         command.extend(["--asr-python", args.asr_python])
     if args.output_json:
@@ -223,8 +234,9 @@ def cmd_run(args: argparse.Namespace) -> int:
             runner.extend(["--input-media", input_value])
         else:
             runner.extend(["--input-transcript", input_value])
-        if args.youtube_cookies:
-            runner.extend(["--youtube-cookies", str(args.youtube_cookies)])
+        cookies_value = youtube_cookies_cli_value(args.youtube_cookies)
+        if cookies_value:
+            runner.extend(["--youtube-cookies", cookies_value])
         if args.ytdlp:
             runner.extend(["--ytdlp", str(args.ytdlp)])
         if args.node:
@@ -616,7 +628,7 @@ def make_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     doctor = subparsers.add_parser("doctor", help="Check local workflow prerequisites.")
-    doctor.add_argument("--youtube-cookies", type=Path)
+    doctor.add_argument("--youtube-cookies", help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
     doctor.add_argument("--asr-python")
     doctor.add_argument("--output-json", type=Path)
     doctor.add_argument("--output-md", type=Path)
@@ -641,7 +653,7 @@ def make_parser() -> argparse.ArgumentParser:
     run.add_argument("--audience", default="reader who needs an auditable source-faithful explanation")
     run.add_argument("--asr-model", default="base")
     run.add_argument("--platform-mode", choices=["auto", "probe", "subtitles", "audio"], default="auto")
-    run.add_argument("--youtube-cookies", type=Path)
+    run.add_argument("--youtube-cookies", help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
     run.add_argument("--ytdlp", type=Path, help="Optional yt-dlp executable override.")
     run.add_argument("--node", type=Path, help="Optional Node.js executable override for yt-dlp JavaScript challenge handling.")
     run.add_argument("--platform-timeout-seconds", type=int, default=90)
