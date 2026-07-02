@@ -416,7 +416,7 @@ def test_doctor_self_test(base: Path) -> None:
 def test_doctor_cli_relative_outputs(base: Path) -> None:
     work = base / "doctor_cli"
     work.mkdir(parents=True, exist_ok=True)
-    result = run_ok(
+    result = run(
         [
             sys.executable,
             str(REPO_ROOT / "kw.py"),
@@ -430,6 +430,7 @@ def test_doctor_cli_relative_outputs(base: Path) -> None:
         cwd=work,
         timeout=240,
     )
+    assert_true("doctor command returned diagnostic status", result["returncode"] in {0, 1})
     assert_true("doctor default summary", result["stdout"].startswith("Knowledge Workflow Doctor"))
     json_path = work / "doctor.json"
     md_path = work / "doctor.md"

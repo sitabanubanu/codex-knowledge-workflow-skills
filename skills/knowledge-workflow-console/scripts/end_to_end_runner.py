@@ -201,6 +201,9 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def default_skill_root(skill_name: str) -> Path:
+    sibling = Path(__file__).resolve().parents[2] / skill_name
+    if sibling.is_dir():
+        return sibling
     return Path.home() / ".codex" / "skills" / skill_name
 
 
