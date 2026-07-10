@@ -1,66 +1,47 @@
-# Supported Platforms And Inputs
+# Supported Platforms
 
-The workflow is strongest when it starts from first-hand material: local
-transcripts, subtitles, or local media that can be transcribed. Platform URL
-support is intentionally conservative.
+This project no longer treats platform support as a built-in crawler matrix.
+Agent-Reach is the acquisition layer; this project is the source-gated evidence
+layer.
 
-| Input | Stability | Full Report | Notes |
-| --- | --- | --- | --- |
-| Local transcript | High | Yes | Best first-run and demo path. |
-| Local subtitles | High | Yes | Timestamped evidence can be preserved. |
-| Local audio/video | Medium-high | Yes, after ASR | Depends on ASR setup and audio quality. |
-| YouTube public video | Medium-high | Yes, when material is acquired. | May require cookies or ASR. |
-| X video | Low-medium | Unstable | Often blocked or metadata-only. |
-| Xiaohongshu | Low | Usually no from URL alone. | Prefer user-provided material. |
-| Douyin | Low | Usually no from URL alone. | Prefer user-provided material. |
-| Generic web video page | Medium | Depends on exposed material. | Chrome probe may help. |
-| Private or gated page | Not a bypass target. | No, unless material is provided. | Records blocked/degraded status. |
+## First Integration
 
-Local transcript extensions:
+| Input | Acquisition route | Evidence rule |
+| --- | --- | --- |
+| Local transcript | Local bundle | Can become `source_confirmed` when non-empty. |
+| Local subtitle | Local bundle | Can become `source_confirmed` when non-empty. |
+| Local audio/video | Local bundle | Pending/degraded until ASR creates transcript. |
+| Web page | Agent-Reach/Jina Reader route | Usually secondary unless the page itself is the primary source. |
+| YouTube | Agent-Reach-selected yt-dlp route | Full analysis only when subtitles/transcript/ASR transcript are acquired. |
+| Bilibili | Agent-Reach-selected bili-cli route | Metadata alone stays `secondary_only` or degraded. |
+| GitHub | Agent-Reach-selected gh route | README/source text can be primary for repository analysis. |
+| Xiaohongshu | Agent-Reach/OpenCLI backend when configured; otherwise Jina fallback only | Fallback page text stays `secondary_only`; login/CAPTCHA/blocked responses stay blocked or failed. |
+| Twitter/X | Agent-Reach/OpenCLI backend when configured; otherwise Jina fallback only | Fallback page text stays `secondary_only`; 403/abuse/login responses stay blocked or failed. |
 
-- `.txt`
-- `.md`
-- `.jsonl`
-- `.json`
+## Explicitly Not First-Version Targets
 
-Local subtitle extensions:
+- OpenCLI deep integration
+- Reddit
+- Xiaohongshu full-content route without authorized backend/session
+- Twitter/X logged-in state
+- Facebook
+- Instagram
+- LinkedIn private content
+- CAPTCHA, paywall, private, region-locked, or unauthorized content
 
-- `.srt`
-- `.vtt`
+Unsupported or blocked inputs should still produce an acquisition bundle and a
+degraded result index.
 
-Local audio/video extensions:
+## Platform Status Versus Source Status
 
-- `.mp3`
-- `.mp4`
-- `.m4a`
-- `.webm`
-- `.wav`
-- `.mov`
-- `.opus`
+Agent-Reach `active_backend` only says which acquisition route is available. It
+does not prove material is trustworthy.
 
-## Source Status Rules
+The evidence layer decides:
 
-Full decomposition requires one of:
-
-- `primary_transcript`
-- `primary_audio_asr`
-- `browser_visible_transcript`
-- `browser_derived_media`
-
-Metadata, screenshots, search snippets, Firecrawl context, and third-party
-summaries are background only. They cannot upgrade a source to
-`source_confirmed`.
-
-## Recommended First Route
-
-Run the local transcript demo first:
-
-```powershell
-python .\kw.py demo
-```
-
-Then use `kw.py preflight` before platform URLs:
-
-```powershell
-python .\kw.py preflight --input "https://www.youtube.com/watch?v=..." --mode audit
-```
+- `source_confirmed`
+- `source_partial`
+- `secondary_only`
+- `source_blocked`
+- `source_failed`
+- `degraded_report_only`

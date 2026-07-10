@@ -31,6 +31,85 @@ Key artifacts:
 - scout_report.md
 - recommendation.md
 
+## 00_acquisition
+
+Producer: agent-reach-console or local bundle builder
+
+Consumer: source-gated-evidence-layer
+
+Required artifact:
+
+- `00_acquisition/manifest.json`
+
+Optional artifacts:
+
+- `00_acquisition/artifacts/transcript.vtt`
+- `00_acquisition/artifacts/transcript.md`
+- `00_acquisition/artifacts/page.md`
+- `00_acquisition/artifacts/metadata.json`
+- `00_acquisition/artifacts/audio.wav`
+- `00_acquisition/logs/agent_reach_doctor.json`
+- `00_acquisition/logs/commands.jsonl`
+- `00_acquisition/logs/acquisition_notes.md`
+
+The acquisition layer must not write `source_status.json`, evidence audit
+artifacts, packs, or final reports.
+
+## agent-reach-console Output Contract
+
+Producer: agent-reach-console
+
+Consumer: source-gated-evidence-layer
+
+Required output:
+
+```text
+00_acquisition/manifest.json
+```
+
+Bundle statuses are acquisition-only: `material_acquired`,
+`partial_material_acquired`, `metadata_only`, `secondary_only`, `blocked`,
+`failed`, or `unsupported`.
+
+## source-gated-evidence-layer Input Contract
+
+Producer: agent-reach-console or local bundle builder
+
+Consumer: source-gated-evidence-layer
+
+Required input:
+
+```text
+00_acquisition/manifest.json
+```
+
+The first action is bundle validation. The second action is source status
+construction.
+
+## source-gated-evidence-layer Output Contract
+
+Producer: source-gated-evidence-layer
+
+Consumer: knowledge-document-composer
+
+Current compatibility output:
+
+```text
+10_video/00_source/source_status.json
+10_video/video_analysis_pack.md
+```
+
+Medium-term output:
+
+```text
+10_source/source_status.json
+10_source/source_analysis_pack.md
+```
+
+The first v0.6 implementation may keep writing `10_video` to avoid breaking
+existing tests and consumers. `10_video` will be renamed to `10_source` in a
+future migration.
+
 ## 10_video
 
 Producer: knowledge-video-decomposer
@@ -59,6 +138,7 @@ Key artifacts:
 - claim_source_audit.json
 - gap_check.md
 - video_analysis_pack.md
+- source_analysis_pack.md
 
 ## 20_document
 
@@ -106,8 +186,9 @@ Producer: knowledge-workflow-console
 
 Consumers: knowledge-workflow-console, user-facing closeout
 
-Use `scripts/end_to_end_runner.py` for the productized transcript-to-document
-workflow. Supported inputs:
+`scripts/end_to_end_runner.py` is retained as a legacy compatibility runner.
+The primary v0.6 product route is `kw.py run`, which creates and ingests an
+acquisition bundle first. Supported legacy inputs:
 
 - `--input-transcript`: normalize a local transcript/subtitle, then run the
   decomposition and document planning stages.
@@ -237,6 +318,7 @@ logs/result_index.json
 
 It reads existing artifacts only:
 
+- `00_acquisition/manifest.json`
 - `logs/preflight.json`
 - `logs/run_state.json`
 - `10_video/00_source/source_status.json`

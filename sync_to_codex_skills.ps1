@@ -10,6 +10,8 @@ $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceRoot = Join-Path $repoRoot "skills"
 $skills = @(
   "knowledge-workflow-console",
+  "agent-reach-console",
+  "source-gated-evidence-layer",
   "knowledge-video-decomposer",
   "knowledge-document-composer"
 )
@@ -165,5 +167,5 @@ if ($VerifyOnly) {
 if ($DryRun) {
   Write-Host "DRY RUN complete. No files were changed."
 } else {
-  Write-Host "SYNC complete. Only the three knowledge workflow skills were updated."
+  Write-Host "SYNC complete. Knowledge Workflow skills were updated."
 }

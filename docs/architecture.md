@@ -1,51 +1,73 @@
 # Architecture
 
-Knowledge Workflow is a three-skill Codex package with a thin repository CLI.
+Knowledge Workflow is now a source-gated acquisition-to-report workflow.
 
 ```text
 kw.py / knowledge-workflow-console
   -> preflight
-  -> source gate
-  -> knowledge-video-decomposer
+  -> agent-reach-console or local bundle builder
+  -> 00_acquisition/manifest.json
+  -> source-gated-evidence-layer
+  -> 10_video/00_source/source_status.json
+  -> transcript normalization / ASR / segmentation
+  -> inventory / source logic
   -> evidence audit
-  -> video_analysis_pack.md
+  -> video_analysis_pack.md (compatibility)
+  -> source_analysis_pack.md (migration target)
   -> knowledge-document-composer
+  -> claim_map.json
   -> quality_gate.json
-  -> final_report.md
+  -> final_report.md when approved
   -> result_index.md
 ```
 
-## Skill Responsibilities
+## Responsibilities
 
-### knowledge-workflow-console
+| Layer | Owns | Does not own |
+| --- | --- | --- |
+| `agent-reach-console` | installation checks, doctor, upstream route selection, acquisition bundle writing | source gate, evidence audit, claims, reports |
+| `source-gated-evidence-layer` | bundle validation, `source_status.json`, normalization, ASR handoff, evidence audit, pack gate, degraded output | platform fetching, cookies, raw browser state |
+| `knowledge-document-composer` | Source / Inference / Extension, claim map, report outline, quality gate, final report | acquisition, source-status repair, metadata promotion |
+| `knowledge-workflow-console` | product routing, preflight, status, result index | detailed acquisition, evidence analysis, prose judgment |
 
-- classify input,
-- choose route and mode,
-- run preflight,
-- call end-to-end runner,
-- write status summary and result index.
+## Stable Handoff
 
-### knowledge-video-decomposer
+The acquisition bundle is the only stable interface between acquisition and
+evidence:
 
-- source acquisition state,
-- transcript normalization,
-- ASR route,
-- segmentation,
-- inventory,
-- source logic,
-- evidence audit,
-- video analysis pack.
+```text
+00_acquisition/manifest.json
+```
 
-### knowledge-document-composer
+The evidence layer maps bundle status to source status. Only
+`source_confirmed` and `source_partial` can enter normal or partial
+decomposition.
 
-- source gate for document planning,
-- commitments,
-- source reconstruction,
-- claim map,
-- final report writer,
-- quality gate.
+## Compatibility
 
-## Product CLI
+The first architecture-reset implementation still writes:
 
-`kw.py` is intentionally thin. It wraps existing stage scripts and should not
-reimplement source gating, ASR, evidence audit, or report quality checks.
+```text
+10_video/
+```
+
+This avoids breaking existing tests and users. The future name is:
+
+```text
+10_source/
+```
+
+`knowledge-document-composer` accepts `source_analysis_pack.md` when present and
+falls back to legacy `video_analysis_pack.md`.
+
+## Legacy Acquisition
+
+These old second-skill scripts are retained but no longer primary:
+
+- `acquisition_runner.py`
+- `platform_media_runner.py`
+- `chrome_media_probe.py` as the main acquisition route
+- YouTube cookies as the main flow
+- Bilibili generic-web fallback as the main flow
+
+They must not be used to bypass the acquisition bundle or source gate.

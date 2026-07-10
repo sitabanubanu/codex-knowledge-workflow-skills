@@ -1,131 +1,95 @@
 # Troubleshooting
 
-Start with the run's `result_index.md`. It is the user-facing entry point and
-usually contains the source status, whether full analysis was allowed, and the
-next action.
-
-## The Demo Fails
+## `agent-reach` Not Found
 
 Run:
 
 ```powershell
-python .\kw.py demo
-python .\kw.py result --project-root .\outputs\knowledge-workflow\demo-transcript
+python -m pip install https://github.com/Panniantong/Agent-Reach/archive/main.zip
+agent-reach install --env=auto --safe
+agent-reach doctor --json
 ```
 
-Then inspect:
-
-```text
-outputs/knowledge-workflow/demo-transcript/result_index.md
-outputs/knowledge-workflow/demo-transcript/logs/run_state.json
-```
-
-## Doctor Says Warn Or Fail
-
-Run:
+Or through the wrapper:
 
 ```powershell
-python .\kw.py doctor --youtube-cookies auto
+python .\kw.py agent-reach install --safe
+python .\kw.py agent-reach doctor
 ```
 
-Read the default route summary first. It tells you which paths are ready, which
-paths need setup, and which warning still matters.
+If still missing, the acquisition layer should write a `failed` bundle. Ingest
+will produce `source_failed` and no final report.
 
-For a full diagnostic record, run:
-
-```powershell
-python .\kw.py doctor `
-  --youtube-cookies auto `
-  --output-md .\test_outputs\doctor.md `
-  --output-json .\test_outputs\doctor.json `
-  --overwrite
-```
-
-In the full Markdown or JSON report, read these sections first:
-
-- `route_readiness`: what you can try now.
-- `setup_requirements`: which route-specific setup is missing.
-- `privacy`: confirms doctor did not fetch media, launch Chrome, or report
-  cookie values.
-
-Interpretation:
-
-- Minimal local transcript demo should be available even when platform URL
-  prerequisites are missing.
-- Local audio/video requires ffmpeg, ffprobe, and faster-whisper.
-- Platform URL preflight requires yt-dlp, but success is still best effort.
-- YouTube cookies + JavaScript routes may require Node.js and a user-exported
-  Netscape cookies file.
-- Chinese Markdown/JSON should use UTF-8-safe artifact writers, `apply_patch`,
-  or `PYTHONUTF8=1` when the environment reports non-UTF-8 console encodings.
-
-## Only Metadata Was Found
-
-Metadata cannot support a complete video analysis. Provide one of:
-
-- transcript (`.txt`, `.md`, `.jsonl`, `.json`),
-- subtitles (`.srt`, `.vtt`),
-- local audio/video,
-- authorized cookies only when appropriate.
-
-## Platform URL Is Blocked
-
-Common causes:
-
-- bot or sign-in checks,
-- HTTP 429,
-- CAPTCHA,
-- private or region-locked content,
-- missing subtitles,
-- yt-dlp player challenge changes.
-
-Expected behavior: the workflow writes `source_blocked`, `source_failed`,
-`secondary_only`, or `degraded_report_only`. It should not write a complete
-analysis pack.
-
-## ASR Does Not Run
+## Acquisition Succeeded But No Report Was Written
 
 Check:
 
-```powershell
-python .\kw.py doctor
+```text
+00_acquisition/manifest.json
+10_video/00_source/source_status.json
+result_index.md
 ```
 
-Real ASR may require ffmpeg/ffprobe and faster-whisper dependencies. For smoke
-tests using fixture inputs:
+Common safe outcomes:
 
-```powershell
-python .\tests\asr_integration.py
-```
+- `metadata_only` -> `secondary_only`
+- `blocked` -> `source_blocked`
+- `failed` -> `source_failed`
+- `unsupported` -> `degraded_report_only`
 
-For real ASR tests, set explicit environment variables and provide media:
+These states intentionally block normal `final_report.md`.
 
-```powershell
-$env:KW_REAL_ASR_SMOKE='1'
-$env:KW_REAL_ASR_MP3='C:\path\sample.mp3'
-$env:KW_REAL_ASR_MP4='C:\path\sample.mp4'
-python .\tests\asr_integration.py
-```
+## YouTube Bot Check Or Sign-In
 
-## Final Report Was Not Written
+Do not loop over private browser profiles and do not read cookie values.
 
-Common causes:
+Allowed next actions:
 
-- no accepted Source claim,
-- evidence audit did not allow a full pack,
-- source status was partial, blocked, failed, secondary-only, or degraded,
-- required document planning artifacts are missing.
+- provide an authorized subtitle/transcript;
+- provide local audio/video for ASR;
+- configure Agent-Reach or an upstream tool outside the repository;
+- record `blocked` and write degraded output.
 
-Read:
+`manifest.json` may record `cookies_used=true`, but never cookie contents.
+
+## Bilibili Metadata Only
+
+Bilibili metadata or page details are not a transcript. They cannot support a
+complete video analysis. Provide subtitles, transcript, or local media for ASR.
+
+## Empty Transcript
+
+An empty transcript should become `source_failed` or degraded. It must not
+create `video_analysis_pack.md` or `final_report.md`.
+
+## Local Audio Without ASR
+
+The bundle can record local audio/video, but the evidence layer needs a
+transcript before full analysis. Run ASR or provide a transcript/subtitle.
+
+## Result Index Looks Degraded
+
+That usually means the gate worked. Read the next action in:
 
 ```text
-20_document/quality_check.md
-20_document/quality_gate.json
-10_video/05_gap_check/claim_source_audit.json
+result_index.md
+10_video/00_source/degraded_source_report.md
 ```
 
-## Chinese Text Looks Corrupted
+## Do Not Commit
 
-Use UTF-8 write paths such as Python scripts, `apply_patch`, or the provided
-artifact writers. Avoid writing long Chinese Markdown through PowerShell
-redirection or inline command strings.
+Before committing, check:
+
+```powershell
+git status --short
+```
+
+Do not commit:
+
+- `work/`
+- cookies
+- tokens
+- `outputs/`
+- `test_outputs/`
+- `__pycache__/`
+- private logs

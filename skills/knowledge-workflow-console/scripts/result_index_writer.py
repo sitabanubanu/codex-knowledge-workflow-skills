@@ -87,12 +87,16 @@ def action_items(status: str, user_action: str) -> list[str]:
             "Use the resume flag if this project was interrupted mid-run.",
         ]
     if status == "degraded":
-        return [
+        items = []
+        if user_action:
+            items.append(str(user_action))
+        items.extend([
             "Provide a subtitle or transcript file when available.",
             "Provide a local audio or video file when ASR is acceptable.",
             "Provide a user-exported cookies.txt only when you are authorized to access the same page.",
             "Use quick mode only when a non-primary triage is enough.",
-        ]
+        ])
+        return items
     if status == "failed":
         return [
             "Read logs/run_state.json for the failed stage and retry hint.",
@@ -114,8 +118,10 @@ def build_result(project_root: Path) -> dict[str, Any]:
     logs_root = project_root / "logs"
     video_root = project_root / "10_video"
     document_root = project_root / "20_document"
+    acquisition_root = project_root / "00_acquisition"
 
     run_state = read_json(logs_root / "run_state.json")
+    acquisition_manifest = read_json(acquisition_root / "manifest.json")
     source_status = read_json(video_root / "00_source" / "source_status.json")
     quality_gate = read_json(document_root / "quality_gate.json")
     platform_result = read_json(video_root / "00_source" / "platform_media_result.json")
@@ -126,7 +132,7 @@ def build_result(project_root: Path) -> dict[str, Any]:
     pack_exists = (video_root / "video_analysis_pack.md").is_file()
     transcript_exists = (video_root / "01_transcript" / "clean_transcript.jsonl").is_file()
     quality_approved = bool(quality_gate.get("approved_for_final_report"))
-    full_allowed = bool(source_status.get("can_enter_full_decomposition")) and source_state == "source_confirmed"
+    full_allowed = bool(source_status.get("can_enter_full_decomposition")) and source_state in {"source_confirmed", "source_partial"}
     material_decision = platform_result.get("material_decision") if isinstance(platform_result, dict) else {}
     material_decision = material_decision if isinstance(material_decision, dict) else {}
 
@@ -158,6 +164,7 @@ def build_result(project_root: Path) -> dict[str, Any]:
 
     key_files = [
         file_entry(project_root, "Result index", project_root / "result_index.md"),
+        file_entry(project_root, "Acquisition manifest", acquisition_root / "manifest.json"),
         file_entry(project_root, "Preflight", logs_root / "preflight.md"),
         file_entry(project_root, "Run state", logs_root / "run_state.json"),
         file_entry(project_root, "Source status", video_root / "00_source" / "source_status.json"),
@@ -172,6 +179,7 @@ def build_result(project_root: Path) -> dict[str, Any]:
         "runner": RUNNER_NAME,
         "project_root": str(project_root),
         "status": status,
+        "acquisition_status": acquisition_manifest.get("status") or run_state.get("acquisition_status") or "unknown",
         "mode": run_state.get("mode") or preflight.get("requested_mode") or "unknown",
         "source_status": source_state,
         "primary_material_available": bool(source_status.get("primary_material_available")),
@@ -191,6 +199,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
         "# Workflow Result",
         "",
         f"- Status: `{payload['status']}`",
+        f"- Acquisition status: `{payload.get('acquisition_status', 'unknown')}`",
         f"- Mode: `{payload['mode']}`",
         f"- Source status: `{payload['source_status']}`",
         f"- Primary material available: `{payload['primary_material_available']}`",

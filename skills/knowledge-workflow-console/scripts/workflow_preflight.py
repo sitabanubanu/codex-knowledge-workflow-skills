@@ -111,7 +111,7 @@ def build_preflight(args: argparse.Namespace) -> dict[str, Any]:
         user_actions = "Ensure ffmpeg/ffprobe and faster-whisper are installed, or provide an existing transcript."
         can_full = "yes, if ASR succeeds with usable transcript coverage"
     elif input_kind == "url":
-        route = "platform_acquisition_then_gate"
+        route = "agent_reach_acquisition_bundle_then_source_gate"
         estimate = support["success_estimate"]
         user_actions = support["user_actions"]
         can_full = support["full_report"]
@@ -146,7 +146,7 @@ def build_preflight(args: argparse.Namespace) -> dict[str, Any]:
 
 def next_step_for(input_kind: str, mode: str) -> str:
     if input_kind == "url":
-        return "Run doctor, then platform media acquisition; use Chrome route only when page state or platform blocks require it."
+        return "Run Agent-Reach doctor, create an acquisition bundle, then ingest through the source gate."
     if input_kind == "media":
         return "Run doctor, then local ASR; continue only if transcript artifacts are produced."
     if input_kind == "transcript_or_subtitle":

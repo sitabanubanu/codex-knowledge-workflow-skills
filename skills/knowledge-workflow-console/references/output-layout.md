@@ -18,6 +18,10 @@ outputs\knowledge-workflow\<project-id>\
 ```text
 outputs\knowledge-workflow\<project-id>\
   result_index.md
+  00_acquisition\
+    manifest.json
+    artifacts\
+    logs\
   00_scout\
   10_video\
     00_source\
@@ -29,6 +33,19 @@ outputs\knowledge-workflow\<project-id>\
   20_document\
   30_final\
   logs\
+```
+
+Short-term compatibility keeps `10_video`. Medium-term structure renames this
+stage to `10_source`:
+
+```text
+outputs\knowledge-workflow\<project-id>\
+  result_index.md
+  logs\
+  00_acquisition\
+  10_source\
+  20_document\
+  30_final\
 ```
 
 ## Logs
@@ -50,6 +67,21 @@ Store workflow logs in `logs\`:
 - rework_notes.md
 
 ## URL / Media Acquisition Outputs
+
+New acquisition output:
+
+```text
+00_acquisition\manifest.json
+00_acquisition\artifacts\
+00_acquisition\logs\agent_reach_doctor.json
+00_acquisition\logs\commands.jsonl
+00_acquisition\logs\acquisition_notes.md
+```
+
+The evidence layer ingests the manifest and writes source status. The
+acquisition layer must not write source-status approval or final reports.
+
+## Legacy URL / Media Acquisition Outputs
 
 When `end_to_end_runner.py` starts from `--input-url`, store platform
 acquisition outputs under `10_video\00_source\`:

@@ -1,6 +1,44 @@
 ﻿# Knowledge Workflow Routing
 
-knowledge-workflow-console is the controller. It only decides the route, invokes the appropriate skill or tool, checks intermediate artifacts, and decides whether to continue to the next stage. It does not directly handle detailed video analysis or document writing.
+knowledge-workflow-console is the controller. It only decides the route, invokes the appropriate skill or tool, checks intermediate artifacts, and decides whether to continue to the next stage. It does not directly handle acquisition internals, detailed evidence analysis, or document writing.
+
+## v0.6 Routing Reset
+
+New primary route:
+
+```text
+URL/query
+  -> agent-reach-console
+  -> 00_acquisition/manifest.json
+  -> source-gated-evidence-layer
+  -> 10_video/00_source/source_status.json (legacy-compatible)
+  -> 10_video/video_analysis_pack.md or source_analysis_pack.md when allowed
+  -> knowledge-document-composer
+```
+
+Local file route:
+
+```text
+local transcript/subtitle/audio/video
+  -> local acquisition bundle
+  -> source-gated-evidence-layer
+```
+
+Existing complete pack route:
+
+```text
+video_analysis_pack.md or source_analysis_pack.md
+  -> knowledge-document-composer
+```
+
+Blocked or degraded route:
+
+```text
+blocked/failed/metadata_only/secondary_only bundle
+  -> source_status.json
+  -> degraded_source_report.md
+  -> result_index.md only
+```
 
 ## Supervisor Dispatch Layer
 
@@ -103,10 +141,10 @@ Route:
 Use when the user gives a YouTube, X, Bilibili, course site, public video page, conference page, podcast page, or other video page link.
 
 Route:
-1. knowledge-video-decomposer acquisition/source gate before any full decomposition or document writing. The video decomposer must read and apply its `references/chrome-routing.md` and `references/source-status.md` rules for every video URL or platform page.
-2. If the user asks for Chrome, the page state matters, or a platform block appears, route through the video decomposer Chrome routing gate before repeating extractors or falling back to secondary sources.
-3. Continue to full or partial video decomposition only when the source gate allows it.
-4. knowledge-document-composer only after the Source Status Handoff Gate below allows the requested report type.
+1. `agent-reach-console` creates `00_acquisition/manifest.json`.
+2. `source-gated-evidence-layer` validates the bundle and writes `source_status.json`.
+3. Continue to full or partial decomposition only when the source gate allows it.
+4. `knowledge-document-composer` only after the Source Status Handoff Gate below allows the requested report type.
 5. Stop at transcript artifacts if the user only wants a transcript.
 
 If the user asks for a low-cost or quick validation run, use the Low-Cost / Fast Pass Mode below before doing the full route.
@@ -116,26 +154,23 @@ If the user asks for a low-cost or quick validation run, use the Low-Cost / Fast
 Use when the user gives an existing transcript, subtitle file, json3, vtt, srt, Markdown, or plain text.
 
 Route:
-1. knowledge-video-decomposer for normalization and segmentation
-2. knowledge-document-composer for reports and document generation
+1. Build a local `00_acquisition/manifest.json`.
+2. `source-gated-evidence-layer` validates and ingests it.
+3. `knowledge-document-composer` runs only after evidence audit and pack gates allow.
 
 Productized runner:
 
-- When the input is a local transcript/subtitle file, local media file, or
-  platform URL and the user wants the gated workflow through video analysis pack
-  plus document planning, use `scripts/end_to_end_runner.py`.
-- For URL input, the runner calls the video decomposer platform media runner
-  first. If subtitles are acquired, it normalizes them. If audio is acquired, it
-  runs ASR. If only metadata, blocked state, or failed acquisition remains, it
-  writes degraded acquisition output and does not create a full analysis pack.
-- The runner does not launch or control Chrome. If Chrome deep-probe is needed,
-  use the video decomposer Chrome route before or around the runner.
+- `kw.py run` is the primary route and uses the acquisition bundle handoff.
+- `scripts/end_to_end_runner.py` remains available as a legacy compatibility
+  runner. Do not use it as the primary URL acquisition route for new work.
 
 If the user explicitly only wants an article or report, route directly to knowledge-document-composer.
 
 ### 4. Existing Video Analysis Pack
 
-Use when the user gives structured materials such as video_analysis_pack.md, logic_graph.json, claims.json, or source_logic.md.
+Use when the user gives structured materials such as `source_analysis_pack.md`,
+`video_analysis_pack.md`, `logic_graph.json`, `claims.json`, or
+`source_logic.md`.
 
 Route:
 1. knowledge-document-composer
@@ -152,14 +187,18 @@ Route:
 Use when the user needs to confirm real page state, login state, dynamic content, visible transcript, subtitle controls, expand buttons, comments, description, screenshots, or webpage context.
 
 Route:
-1. Chrome plugin
-2. Firecrawl, yt-dlp, knowledge-video-decomposer, or knowledge-document-composer based on the Chrome result
+1. Chrome plugin or browser control for observation/export only.
+2. Save any user-approved transcript, subtitle, page text, media file, or
+   observation into an acquisition bundle.
+3. Continue through `source-gated-evidence-layer`.
 
 ## Chrome Calling Rules
 
-Chrome is a high-priority visual page reconnaissance tool. Prefer Chrome when the task involves real webpage state, video pages, platform pages, visible subtitles, login state, interactive buttons, screenshots, or page context judgment.
+Chrome is a visual page reconnaissance and user-approved export tool. Prefer Chrome when the task involves real webpage state, video pages, platform pages, visible subtitles, login state, interactive buttons, screenshots, or page context judgment.
 
-For video URLs and platform pages, Chrome is controlled by the knowledge-video-decomposer Chrome routing gate. The console must route the task into that gate when Chrome is requested or when platform access is blocked, rather than treating Chrome as an optional post-processing check.
+For new video URL and platform page runs, Chrome observations must be converted
+into acquisition bundle artifacts before evidence-layer ingest. Do not let
+Chrome metadata bypass the source gate.
 
 Prioritize Chrome when:
 - The user gives a YouTube, X, Bilibili, course site, public video page, conference page, podcast page, or product launch page.
@@ -184,7 +223,10 @@ Chrome can be skipped when:
 
 ## Source Status Handoff Gate
 
-Before sending any video-derived task to knowledge-document-composer, inspect the source status produced by knowledge-video-decomposer. Do not infer a permissive status from metadata, search results, Firecrawl output, screenshots, page observations, or third-party summaries.
+Before sending any source-derived task to knowledge-document-composer, inspect
+the source status produced by `source-gated-evidence-layer`. Do not infer a
+permissive status from the acquisition bundle alone, metadata, search results,
+webpage extraction, screenshots, page observations, or third-party summaries.
 
 Rules:
 
@@ -212,9 +254,10 @@ Rules:
 
 ## Tool Priority Principles
 
-- Real webpage state judgment: Chrome first.
-- Structured subtitle, audio, and metadata extraction: yt-dlp first.
-- Webpage text and publication context: Firecrawl first, but only as background or degraded-report material when first-hand transcript/audio is unavailable.
+- Acquisition readiness and routing: Agent-Reach doctor first.
+- Real webpage state judgment: Chrome when page state matters.
+- Structured subtitle, audio, and metadata extraction: upstream tools selected by Agent-Reach.
+- Webpage text and publication context: Jina Reader or another acquisition route, but only as primary when the page itself is the source being analyzed.
 - No reliable transcript: direct faster-whisper fallback first; Hearsay MCP, WhisperX, or another ASR route only as backup.
 - Early video cleanup and segmentation mode: refer to VideoLingo.
 - Document generation and reprocessing: knowledge-document-composer.

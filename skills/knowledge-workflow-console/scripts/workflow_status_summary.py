@@ -32,8 +32,10 @@ def build_summary(project_root: Path) -> dict[str, Any]:
     video_root = project_root / "10_video"
     document_root = project_root / "20_document"
     logs_root = project_root / "logs"
+    acquisition_root = project_root / "00_acquisition"
 
     run_state = read_json(logs_root / "run_state.json") or {}
+    acquisition_manifest = read_json(acquisition_root / "manifest.json") or {}
     source_status = read_json(video_root / "00_source" / "source_status.json") or {}
     quality_gate = read_json(document_root / "quality_gate.json") or {}
     platform_result = read_json(video_root / "00_source" / "platform_media_result.json") or {}
@@ -80,6 +82,7 @@ def build_summary(project_root: Path) -> dict[str, Any]:
         "runner": RUNNER_NAME,
         "project_root": str(project_root),
         "current_stage": current_stage,
+        "acquisition_status": acquisition_manifest.get("status") or run_state.get("acquisition_status") or "unknown",
         "source_status": source_state,
         "primary_material_available": bool(source_status.get("primary_material_available")),
         "full_analysis_allowed": full_allowed,
@@ -90,6 +93,7 @@ def build_summary(project_root: Path) -> dict[str, Any]:
         "user_action_required": user_action,
         "next_step": next_step,
         "key_outputs": {
+            "acquisition_manifest": str(acquisition_root / "manifest.json"),
             "source_status": str(video_root / "00_source" / "source_status.json"),
             "transcript": str(video_root / "01_transcript" / "clean_transcript.jsonl"),
             "video_analysis_pack": str(video_root / "video_analysis_pack.md"),
@@ -104,6 +108,7 @@ def emit_markdown(payload: dict[str, Any]) -> str:
         "# Workflow Status",
         "",
         f"- Current stage: `{payload['current_stage']}`",
+        f"- Acquisition status: `{payload['acquisition_status']}`",
         f"- Source status: `{payload['source_status']}`",
         f"- Primary material available: `{payload['primary_material_available']}`",
         f"- Full analysis allowed: `{payload['full_analysis_allowed']}`",

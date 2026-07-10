@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+from . import agent_reach_adapter, bundle, ingest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONSOLE = REPO_ROOT / "skills" / "knowledge-workflow-console"
@@ -42,6 +44,12 @@ RUN_OPTION_DEFAULTS = {
     "ytdlp_impersonate": None,
     "ytdlp_sleep_requests": None,
     "ytdlp_retry_sleep": (),
+    "asr_jsonl": None,
+    "asr_python": None,
+    "asr_device": "cpu",
+    "asr_compute_type": "int8",
+    "asr_timeout_seconds": 0.0,
+    "asr_vad": True,
 }
 
 
@@ -49,9 +57,20 @@ class KwError(Exception):
     """User-facing CLI failure."""
 
 
+def configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except OSError:
+                pass
+
+
 def run_command(command: list[str], *, cwd: Path, show_output: bool = True) -> int:
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     if show_output:
         completed = subprocess.run(command, cwd=str(cwd), env=env)
     else:
@@ -233,6 +252,174 @@ def write_result(project_root: Path, pretty: bool) -> None:
     run_required(command, cwd=CONSOLE / "scripts")
 
 
+def current_source_status(project_root: Path) -> dict:
+    return read_json(project_root / "10_video" / "00_source" / "source_status.json")
+
+
+def current_acquisition_manifest(project_root: Path) -> dict:
+    return read_json(project_root / "00_acquisition" / "manifest.json")
+
+
+def write_run_state(
+    *,
+    project_root: Path,
+    mode: str,
+    input_kind: str,
+    input_value: str,
+    status: str,
+    workflow_outcome: str,
+    failure_reason: str = "",
+    degraded_reason: str = "",
+    user_action_required: str = "",
+) -> None:
+    source_status = current_source_status(project_root)
+    manifest = current_acquisition_manifest(project_root)
+    payload = {
+        "runner": "knowledge-workflow-cli",
+        "schema_version": 3,
+        "mode": "platform_url" if input_kind == "url" else "local_file",
+        "requested_mode": mode,
+        "status": status,
+        "workflow_outcome": workflow_outcome,
+        "project_root": str(project_root),
+        "input": input_value,
+        "input_kind": input_kind,
+        "acquisition_status": manifest.get("status") or "unknown",
+        "source_status": source_status.get("source_status") or "unknown",
+        "current_stage": "result_index",
+        "failure_reason": failure_reason,
+        "degraded_reason": degraded_reason,
+        "user_action_required": user_action_required or source_status.get("next_step") or manifest.get("next_action") or "",
+    }
+    write_text(project_root / "logs" / "run_state.json", json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def print_flow_summary(project_root: Path) -> None:
+    manifest = current_acquisition_manifest(project_root)
+    source_status = current_source_status(project_root)
+    source_state = source_status.get("source_status") or "unknown"
+    full_allowed = bool(source_status.get("can_enter_full_decomposition")) and source_state in {"source_confirmed", "source_partial"}
+    print(f"Acquisition status: {manifest.get('status', 'unknown')}")
+    print(f"Source status: {source_state}")
+    print(f"Full report allowed: {str(full_allowed).lower()}")
+    print(f"Result index: {project_root / 'result_index.md'}")
+
+
+def run_new_flow(args: argparse.Namespace) -> int:
+    args = apply_run_option_defaults(args)
+    project_root = ensure_project_root(args)
+    input_kind = classify_input(args.input)
+    input_value = normalize_input(args.input)
+    exit_code = 0
+    failure_reason = ""
+    degraded_reason = ""
+    user_action_required = ""
+    workflow_outcome = "source_gated_flow"
+    try:
+        if input_kind == "transcript":
+            validate_local_transcript_input(input_value)
+        run_preflight(input_value, args.mode, project_root, args.pretty)
+        if args.mode == "quick":
+            workflow_outcome = "preflight_only"
+            write_run_state(
+                project_root=project_root,
+                mode=args.mode,
+                input_kind=input_kind,
+                input_value=input_value,
+                status="completed",
+                workflow_outcome=workflow_outcome,
+            )
+            write_result(project_root, args.pretty)
+            print_flow_summary(project_root)
+            return 0
+
+        if input_kind == "url":
+            manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+                input_value=input_value,
+                project_root=project_root,
+            )
+        else:
+            manifest_path = bundle.build_local_bundle(input_path=Path(input_value), project_root=project_root)
+
+        ingest_result = ingest.ingest_bundle(manifest_path=manifest_path, project_root=project_root)
+        source_status = current_source_status(project_root)
+        source_state = source_status.get("source_status")
+        if input_kind == "media" and source_state == "degraded_report_only":
+            manifest = current_acquisition_manifest(project_root)
+            asr_result = ingest.run_asr_for_media_bundle(
+                manifest_path=manifest_path,
+                manifest=manifest,
+                project_root=project_root,
+                asr_model=args.asr_model,
+                language=args.language,
+                asr_python=args.asr_python,
+                asr_jsonl=args.asr_jsonl,
+                asr_device=args.asr_device,
+                asr_compute_type=args.asr_compute_type,
+                asr_timeout_seconds=args.asr_timeout_seconds,
+                asr_vad=args.asr_vad,
+                pretty=args.pretty,
+            )
+            source_status = current_source_status(project_root)
+            source_state = source_status.get("source_status")
+            if asr_result.get("status") == "failed":
+                degraded_reason = source_status.get("status_reason") or str(asr_result.get("error") or "")
+                user_action_required = source_status.get("next_step") or ""
+        if source_state in {"source_confirmed", "source_partial"} and args.mode in {"standard", "audit"}:
+            audit_result = ingest.run_audit_pipeline(
+                project_root=project_root,
+                document_goal=args.document_goal,
+                final_language=args.final_language,
+                audience=args.audience,
+                pretty=args.pretty,
+            )
+            if audit_result.get("status") == "completed":
+                workflow_outcome = "analysis_pack_and_document_planning"
+            elif audit_result.get("status") == "skipped":
+                workflow_outcome = "transcript_ready"
+            else:
+                workflow_outcome = "audit_failed"
+        else:
+            workflow_outcome = "degraded_acquisition_only"
+            degraded_reason = source_status.get("status_reason") or str(ingest_result.get("error") or "")
+            user_action_required = source_status.get("next_step") or ""
+
+        if (
+            args.mode == "audit"
+            and workflow_outcome == "analysis_pack_and_document_planning"
+            and (project_root / "20_document" / "composer_intake.json").is_file()
+        ):
+            ingest.compose_final_report(project_root=project_root, pretty=args.pretty)
+            workflow_outcome = "final_report_ready"
+    except (KwError, bundle.BundleError, ingest.IngestError, agent_reach_adapter.AgentReachAdapterError) as exc:
+        exit_code = 1
+        failure_reason = str(exc)
+        workflow_outcome = "failed"
+        print(str(exc), file=sys.stderr)
+    finally:
+        try:
+            write_run_state(
+                project_root=project_root,
+                mode=args.mode,
+                input_kind=input_kind,
+                input_value=input_value,
+                status="failed" if exit_code else "completed",
+                workflow_outcome=workflow_outcome,
+                failure_reason=failure_reason,
+                degraded_reason=degraded_reason,
+                user_action_required=user_action_required,
+            )
+            write_status(project_root, args.pretty)
+            write_result(project_root, args.pretty)
+        except KwError as exc:
+            exit_code = 1
+            print(str(exc), file=sys.stderr)
+
+    print(f"Project: {project_root}")
+    print_flow_summary(project_root)
+    return exit_code
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     command = [sys.executable, str(VIDEO / "scripts" / "doctor.py")]
     cookies_value = youtube_cookies_cli_value(args.youtube_cookies)
@@ -267,7 +454,92 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_agent_reach_install(args: argparse.Namespace) -> int:
+    return agent_reach_adapter.agent_reach_install(safe=args.safe, dry_run=args.dry_run, channels=args.channels or "")
+
+
+def cmd_agent_reach_doctor(args: argparse.Namespace) -> int:
+    return agent_reach_adapter.agent_reach_doctor(output_json=args.output_json)
+
+
+def cmd_agent_reach_plan(args: argparse.Namespace) -> int:
+    return agent_reach_adapter.agent_reach_route_plan(input_value=args.input, output_json=args.output_json)
+
+
+def cmd_acquire(args: argparse.Namespace) -> int:
+    project_root = ensure_project_root(args)
+    input_value = normalize_input(args.input) if not args.query else args.input
+    try:
+        manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+            input_value=input_value,
+            project_root=project_root,
+        )
+    except (bundle.BundleError, agent_reach_adapter.AgentReachAdapterError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    manifest = read_json(manifest_path)
+    print(f"Acquisition status: {manifest.get('status', 'unknown')}")
+    print(f"Manifest: {manifest_path}")
+    return 0
+
+
+def cmd_ingest(args: argparse.Namespace) -> int:
+    project_root = args.project_root.resolve()
+    try:
+        result = ingest.ingest_bundle(manifest_path=args.bundle.resolve(), project_root=project_root)
+        write_status(project_root, args.pretty)
+        write_result(project_root, args.pretty)
+    except (bundle.BundleError, ingest.IngestError, KwError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"Source status: {result.get('source_status', 'unknown')}")
+    print(f"Result index: {project_root / 'result_index.md'}")
+    return 0
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    project_root = args.project_root.resolve()
+    try:
+        result = ingest.run_audit_pipeline(
+            project_root=project_root,
+            document_goal=args.document_goal,
+            final_language=args.final_language,
+            audience=args.audience,
+            pretty=args.pretty,
+        )
+        write_status(project_root, args.pretty)
+        write_result(project_root, args.pretty)
+    except (ingest.IngestError, KwError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"Audit status: {result.get('status', 'unknown')}")
+    print(f"Result index: {project_root / 'result_index.md'}")
+    return 0 if result.get("status") in {"completed", "skipped"} else 1
+
+
+def cmd_compose(args: argparse.Namespace) -> int:
+    project_root = args.project_root.resolve()
+    try:
+        result = ingest.compose_final_report(project_root=project_root, pretty=args.pretty)
+        write_status(project_root, args.pretty)
+        write_result(project_root, args.pretty)
+    except (ingest.IngestError, KwError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"Compose status: {result.get('status', 'unknown')}")
+    print(f"Result index: {project_root / 'result_index.md'}")
+    return 0
+
+
+def cmd_validate_bundle(args: argparse.Namespace) -> int:
+    return bundle.cli_validate(args.bundle.resolve())
+
+
 def cmd_run(args: argparse.Namespace) -> int:
+    return run_new_flow(args)
+
+    # Legacy runner kept below for compatibility reference while the v0.6
+    # acquisition-bundle route becomes the primary path.
     args = apply_run_option_defaults(args)
     project_root = ensure_project_root(args)
     input_kind = classify_input(args.input)
@@ -1317,6 +1589,9 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
                 "py_compile",
                 "kw.py",
                 "kw_cli/main.py",
+                "kw_cli/bundle.py",
+                "kw_cli/agent_reach_adapter.py",
+                "kw_cli/ingest.py",
                 str(VIDEO / "scripts" / "doctor.py"),
                 str(VIDEO / "scripts" / "chrome_media_probe.py"),
                 "tests/knowledge_workflow_regression.py",
@@ -1325,6 +1600,11 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
         ("demo", [sys.executable, "kw.py", "demo"]),
         ("regression", [sys.executable, "tests/knowledge_workflow_regression.py"]),
         ("real_workflow_acceptance", [sys.executable, "tests/real_workflow_acceptance.py"]),
+        ("acquisition_bundle_schema", [sys.executable, "tests/test_acquisition_bundle_schema.py"]),
+        ("local_bundle_ingest", [sys.executable, "tests/test_local_bundle_ingest.py"]),
+        ("agent_reach_acquire_offline", [sys.executable, "tests/test_agent_reach_acquire_offline.py"]),
+        ("source_gate_from_bundle", [sys.executable, "tests/test_source_gate_from_bundle.py"]),
+        ("no_fake_report_from_agent_reach_failures", [sys.executable, "tests/test_no_fake_report_from_agent_reach_failures.py"]),
     ]
     if args.include_live_platform:
         commands.append(("live_platform_smoke", [sys.executable, "tests/live_platform_smoke.py"]))
@@ -1357,7 +1637,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         completed = subprocess.run(
             command,
             cwd=str(REPO_ROOT),
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"},
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -1426,6 +1706,50 @@ def make_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--pretty", action="store_true")
     preflight.set_defaults(func=cmd_preflight)
 
+    agent_reach = subparsers.add_parser("agent-reach", help="Manage Agent-Reach acquisition readiness.")
+    agent_reach_sub = agent_reach.add_subparsers(dest="agent_reach_command", required=True)
+    agent_reach_install = agent_reach_sub.add_parser("install", help="Install or update Agent-Reach.")
+    agent_reach_install.add_argument("--safe", action="store_true", help="Safe mode: do not auto-install system packages.")
+    agent_reach_install.add_argument("--dry-run", action="store_true", help="Show what would be done.")
+    agent_reach_install.add_argument("--channels", default="", help="Comma-separated optional Agent-Reach channels, e.g. opencli,twitter,xiaohongshu.")
+    agent_reach_install.set_defaults(func=cmd_agent_reach_install)
+    agent_reach_doctor = agent_reach_sub.add_parser("doctor", help="Run agent-reach doctor --json.")
+    agent_reach_doctor.add_argument("--output-json", type=Path)
+    agent_reach_doctor.set_defaults(func=cmd_agent_reach_doctor)
+    agent_reach_plan = agent_reach_sub.add_parser("plan", help="Show Agent-Reach route plan for an input.")
+    agent_reach_plan.add_argument("--input", required=True)
+    agent_reach_plan.add_argument("--output-json", type=Path)
+    agent_reach_plan.set_defaults(func=cmd_agent_reach_plan)
+
+    acquire = subparsers.add_parser("acquire", help="Acquire URL/query material into 00_acquisition/manifest.json.")
+    acquire.add_argument("--input", required=True, help="URL or query to acquire.")
+    acquire.add_argument("--project-root", type=Path)
+    acquire.add_argument("--query", action="store_true", help="Treat --input as a query rather than a path.")
+    acquire.set_defaults(func=cmd_acquire)
+
+    ingest_cmd = subparsers.add_parser("ingest", help="Validate and ingest an acquisition bundle.")
+    ingest_cmd.add_argument("--bundle", type=Path, required=True, help="Path to 00_acquisition/manifest.json.")
+    ingest_cmd.add_argument("--project-root", type=Path, required=True)
+    ingest_cmd.add_argument("--pretty", action="store_true")
+    ingest_cmd.set_defaults(func=cmd_ingest)
+
+    validate_bundle = subparsers.add_parser("validate-bundle", help="Validate an acquisition bundle manifest.")
+    validate_bundle.add_argument("--bundle", type=Path, required=True)
+    validate_bundle.set_defaults(func=cmd_validate_bundle)
+
+    audit = subparsers.add_parser("audit", help="Run source-gated decomposition and document planning.")
+    audit.add_argument("--project-root", type=Path, required=True)
+    audit.add_argument("--document-goal", default="source-faithful knowledge report")
+    audit.add_argument("--final-language", default="current conversation language")
+    audit.add_argument("--audience", default="reader who needs an auditable source-faithful explanation")
+    audit.add_argument("--pretty", action="store_true")
+    audit.set_defaults(func=cmd_audit)
+
+    compose = subparsers.add_parser("compose", help="Run final report writer from document planning artifacts.")
+    compose.add_argument("--project-root", type=Path, required=True)
+    compose.add_argument("--pretty", action="store_true")
+    compose.set_defaults(func=cmd_compose)
+
     run = subparsers.add_parser("run", help="Run a local transcript, media file, or URL through the workflow.")
     run.add_argument("--input", required=True)
     run.add_argument("--mode", choices=["quick", "standard", "audit"], default="audit")
@@ -1435,6 +1759,15 @@ def make_parser() -> argparse.ArgumentParser:
     run.add_argument("--document-goal", default="source-faithful knowledge report")
     run.add_argument("--audience", default="reader who needs an auditable source-faithful explanation")
     run.add_argument("--asr-model", default="base")
+    run.add_argument("--asr-jsonl", type=Path, help="Existing ASR JSONL to normalize instead of running faster-whisper.")
+    run.add_argument("--asr-python", help="Python runtime that can import faster_whisper.")
+    run.add_argument("--asr-device", default="cpu")
+    run.add_argument("--asr-compute-type", default="int8")
+    run.add_argument("--asr-timeout-seconds", type=float, default=0.0)
+    asr_vad = run.add_mutually_exclusive_group()
+    asr_vad.add_argument("--asr-vad", dest="asr_vad", action="store_true", help="Enable VAD filtering for ASR.")
+    asr_vad.add_argument("--no-asr-vad", dest="asr_vad", action="store_false", help="Disable VAD filtering for ASR.")
+    run.set_defaults(asr_vad=True)
     run.add_argument("--platform-mode", choices=["auto", "probe", "subtitles", "audio"], default="auto")
     run.add_argument("--youtube-cookies", help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
     run.add_argument("--ytdlp", type=Path, help="Optional yt-dlp executable override.")
@@ -1517,6 +1850,7 @@ def make_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    configure_stdio()
     parser = make_parser()
     args = parser.parse_args()
     try:
