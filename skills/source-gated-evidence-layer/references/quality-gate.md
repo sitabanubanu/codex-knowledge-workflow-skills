@@ -21,3 +21,11 @@ Blocked states:
 
 Blocked states may produce degraded reports and result indexes, never normal
 final reports.
+
+Delivery also requires current provenance:
+
+- `composer_receipt.json` binds claim map and composer intake to the current
+  analysis receipt;
+- `final_report_receipt.json` binds quality gate and final report to the
+  current composer receipt;
+- stale files cannot approve delivery even when an old quality gate says true.

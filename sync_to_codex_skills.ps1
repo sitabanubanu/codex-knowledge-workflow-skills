@@ -12,7 +12,6 @@ $skills = @(
   "knowledge-workflow-console",
   "agent-reach-console",
   "source-gated-evidence-layer",
-  "knowledge-video-decomposer",
   "knowledge-document-composer"
 )
 

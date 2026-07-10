@@ -1,47 +1,45 @@
-# Supported Platforms
+# Supported Platforms and Operations
 
-This project no longer treats platform support as a built-in crawler matrix.
-Agent-Reach is the acquisition layer; this project is the source-gated evidence
-layer.
+Platform support is an operation-specific capability, not a promise that every
+URL can be fetched.
 
-## First Integration
+The adapter executes a route only when Agent-Reach doctor reports the active
+backend as `status: ok` and this repository implements the requested operation.
 
-| Input | Acquisition route | Evidence rule |
-| --- | --- | --- |
-| Local transcript | Local bundle | Can become `source_confirmed` when non-empty. |
-| Local subtitle | Local bundle | Can become `source_confirmed` when non-empty. |
-| Local audio/video | Local bundle | Pending/degraded until ASR creates transcript. |
-| Web page | Agent-Reach/Jina Reader route | Usually secondary unless the page itself is the primary source. |
-| YouTube | Agent-Reach-selected yt-dlp route | Full analysis only when subtitles/transcript/ASR transcript are acquired. |
-| Bilibili | Agent-Reach-selected bili-cli route | Metadata alone stays `secondary_only` or degraded. |
-| GitHub | Agent-Reach-selected gh route | README/source text can be primary for repository analysis. |
-| Xiaohongshu | Agent-Reach/OpenCLI backend when configured; otherwise Jina fallback only | Fallback page text stays `secondary_only`; login/CAPTCHA/blocked responses stay blocked or failed. |
-| Twitter/X | Agent-Reach/OpenCLI backend when configured; otherwise Jina fallback only | Fallback page text stays `secondary_only`; 403/abuse/login responses stay blocked or failed. |
+| Input | Implemented operation | Current adapter route | Evidence boundary |
+| --- | --- | --- | --- |
+| Local transcript/subtitle | `extract_transcript` | local Bundle v2 copy | Non-empty transcript scope can confirm `video_content`. |
+| Local audio/video | `extract_transcript` | local bundle, then ASR | Media alone is degraded; a hashed ASR transcript can confirm the source. |
+| Ordinary web page | `read` | Jina Reader selected by Agent-Reach | `article_body` is primary only for target `web_article`. |
+| YouTube | `extract_transcript`, `read` | yt-dlp metadata/subtitles; Agent-Reach transcription fallback | Only subtitle/transcript scope unlocks `video_content`; metadata never does. |
+| Bilibili | `extract_transcript` with ready OpenCLI; `read`/`extract_transcript` with ready bili-cli | OpenCLI subtitle JSON, or bili-cli detail/audio plus Agent-Reach transcription | The public Bilibili search API is search-only and is blocked for transcript extraction. |
+| GitHub repository | `read` | gh metadata and temporary clone for README | Repository document scope can confirm target `repository`. |
+| Xiaohongshu note | `read` | ready OpenCLI, xiaohongshu-mcp, or xhs-cli | Note text confirms `social_post`; it does not confirm an embedded video. No anonymous Jina fallback is used. |
+| X/Twitter status | `read` with ready twitter-cli | twitter-cli single-status route | Tweet text confirms `social_post`; it does not confirm embedded media. OpenCLI search support is not treated as a single-status reader. |
+| Query | `search` | Exa through mcporter | Search results remain `secondary_only` and are for triage. |
 
-## Explicitly Not First-Version Targets
+## Browser-Assisted Acquisition
 
-- OpenCLI deep integration
-- Reddit
-- Xiaohongshu full-content route without authorized backend/session
-- Twitter/X logged-in state
-- Facebook
-- Instagram
-- LinkedIn private content
-- CAPTCHA, paywall, private, region-locked, or unauthorized content
+OpenCLI can use an existing authorized Chromium-browser session when its extension is
+installed, connected, and doctor reports `status: ok`. If doctor reports
+`warn`, the run is blocked rather than pretending the browser route worked.
 
-Unsupported or blocked inputs should still produce an acquisition bundle and a
-degraded result index.
+A Codex browser-control session may be used manually to inspect or export
+authorized visible material. The exported text, subtitle, or media must still
+enter through a bundle artifact. Browser metadata, screenshots, and page shell
+state do not become Source automatically.
 
-## Platform Status Versus Source Status
+## Deliberately Unsupported
 
-Agent-Reach `active_backend` only says which acquisition route is available. It
-does not prove material is trustworthy.
+- CAPTCHA bypass;
+- paywall bypass;
+- private or unauthorized content;
+- region or account-permission bypass;
+- using a search backend as a content extractor;
+- treating metadata, comments, snippets, screenshots, or post captions as a
+  video transcript;
+- automatic single-status X reading through OpenCLI until Agent-Reach exposes
+  and documents a stable command used by this adapter.
 
-The evidence layer decides:
-
-- `source_confirmed`
-- `source_partial`
-- `secondary_only`
-- `source_blocked`
-- `source_failed`
-- `degraded_report_only`
+Unsupported, unhealthy, or capability-mismatched routes still produce a valid
+blocked or degraded acquisition bundle with an explicit next action.

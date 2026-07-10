@@ -2,7 +2,29 @@
 
 ## Unreleased
 
-No unreleased changes recorded yet.
+- Added Acquisition Bundle schema v2 with run, attempt, bundle, target,
+  operation, scope, byte-count, and SHA-256 fields.
+- Added immutable project-run identity, staged attempts, explicit resume, and
+  acquisition/downstream history archives.
+- Added backend operation capability checks on top of Agent-Reach doctor.
+- Added target/scope source gates so social captions cannot unlock embedded
+  video analysis.
+- Added gate, analysis, composer, and final-report provenance receipts.
+- Changed status, result, export, quality, templates, and batch synthesis to
+  reject stale outputs.
+- Wired all exposed YouTube acquisition options into the Bundle v2 path and
+  added Agent-Reach transcription fallback.
+- Added canonical JSON handling for Xiaohongshu and Bilibili OpenCLI output.
+- Added centralized persisted-output redaction and new integrity, redaction,
+  capability, scope, and provenance tests.
+- Reduced the user-facing skill set to four; `knowledge-video-decomposer` is an
+  internal compatibility library.
+- Added `kw browser-import` and end-to-end browser-export options for formal
+  handoff from authorized browser-visible artifacts into Bundle v2.
+- Added direct-source claim handling for social posts, web articles, and
+  repository documents.
+- Added explicit `--youtube-browser edge|chrome` routing and browser-lock
+  diagnostics so the control plugin name is not mistaken for login ownership.
 
 ## v0.5.0-real-world-validation
 

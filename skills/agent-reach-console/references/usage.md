@@ -1,48 +1,63 @@
-# Agent-Reach Console Usage
+# Usage
 
-## URL Input
-
-```powershell
-python kw.py acquire --input <url> --project-root <project>
-python kw.py ingest --bundle <project>\00_acquisition\manifest.json --project-root <project>
-```
-
-URL acquisition writes:
-
-```text
-00_acquisition/
-  manifest.json
-  artifacts/
-  logs/
-```
-
-The next stage is always `source-gated-evidence-layer`.
-
-## Local File Input
-
-Local transcript, subtitle, audio, or video files can bypass Agent-Reach while
-still using the same bundle protocol:
+## Plan First
 
 ```powershell
-python kw.py run --input .\input.vtt --mode audit
+python kw.py agent-reach doctor
+python kw.py agent-reach plan --input <url> --target <target> --operation <operation>
 ```
 
-The CLI builds a local `00_acquisition/manifest.json` with
-`acquisition_layer=local_file`, then sends it to ingest.
+Execute only when `capability_ready` is true.
 
-## Query Or Search Input
+## Acquire
 
-The first version records unsupported query/search routes as an
-`unsupported` or degraded bundle unless a supported platform route is selected.
-Future versions can route search through Agent-Reach search channels.
+```powershell
+python kw.py acquire --input <url> --target <target> --operation <operation> --project-root <project>
+```
 
-## Output Location
+For YouTube browser-backed acquisition, select the browser that actually owns
+the login state:
 
-The manifest is the only stable output contract:
+```powershell
+python kw.py acquire --input <youtube-url> --target video_content --operation extract_transcript --youtube-browser edge --project-root <project>
+```
+
+Use `chrome` only when Chrome is the real host browser. A control plugin named
+Chrome may still be installed and running inside Edge.
+
+For queries:
+
+```powershell
+python kw.py acquire --query --input "<query>" --target search_triage --operation search --project-root <project>
+```
+
+For the same source, target, and operation:
+
+```powershell
+python kw.py acquire ... --project-root <same-project> --resume
+```
+
+Without `--resume`, project-root reuse fails. Resume writes a new staged
+attempt, validates it, archives the old bundle, and promotes the new bundle.
+
+## Local Material
+
+Local transcript, subtitle, audio, or video bypasses Agent-Reach execution but
+uses the same Bundle v2 and run identity:
+
+```powershell
+python kw.py run --input .\input.vtt --target video_content --operation extract_transcript --mode audit
+```
+
+Local media remains degraded until ASR creates a usable transcript.
+
+## Handoff
+
+The only handoff is:
 
 ```text
 <project>\00_acquisition\manifest.json
 ```
 
-Do not use acquired artifacts directly for report writing. Pass the manifest to
-`source-gated-evidence-layer`.
+Pass it to `source-gated-evidence-layer`. Never send raw backend output to the
+composer.

@@ -5,7 +5,7 @@ Use this order when a workflow needs transcript material:
 ## Priority of Paths (highest to lowest)
 
 1. **Already-available subtitles or transcripts** - from the source page, platform caption APIs, or user-provided transcript/subtitle files.
-2. **yt-dlp with Chrome cookies** - when yt-dlp bare is blocked by a platform, retry with `--cookies-from-browser chrome`. This uses the user's own browser identity to fetch subtitles or audio that they are already authorized to access. This is the fastest path from "blocked" to "primary material in hand" and must be attempted before falling back to slower routes.
+2. **yt-dlp with the actual browser profile** - when yt-dlp bare is blocked, first distinguish Edge from Chrome, then use `--cookies-from-browser edge` or `chrome`. The control-plugin name is not browser identity.
 3. **User-exported cookies.txt** - when browser-cookie decryption fails (for example DPAPI/App-Bound errors on Windows Chrome), ask the user to export Netscape-format cookies and use `--cookies <cookies.txt>`. See `platform-prerequisites.md`.
 4. **yt-dlp with JavaScript runtime / solver** - when cookies work but yt-dlp reports `n challenge solving failed`, `Only images are available`, or only storyboards appear, add a supported JavaScript runtime and the recommended solver component before declaring audio unavailable.
 5. **yt-dlp bare** - when the platform does not block bare requests, use yt-dlp without cookies to download subtitles or audio.
@@ -34,38 +34,39 @@ It writes `00_source/source_status.json`, `00_source/metadata.json`,
 It does not write semantic segments, inventory, source logic, or
 `video_analysis_pack.md`.
 
-## Path 2: yt-dlp with Chrome Cookies (primary fast path after block)
+## Path 2: yt-dlp with the actual browser profile
 
 When a yt-dlp bare request returns HTTP 429, bot check, sign-in required, RequestBlocked, or a similar platform block on a platform like YouTube, the agent MUST retry with:
 
 ```
-yt-dlp --cookies-from-browser chrome <URL>
+yt-dlp --cookies-from-browser <edge|chrome> <URL>
 ```
 
-This uses the user's own Chrome profile cookies. It is the user's own browser identity on their own machine - not a credential handoff to a third party, not a bypass technique.
+This uses the explicitly selected local browser profile. It must match the
+browser that actually owns the authorized session.
 
-After yt-dlp with Chrome cookies:
+After yt-dlp with the selected browser profile:
 
 - **If subtitles are obtained** (`.vtt`, `.srt`, etc.): they qualify as `primary_transcript`. The source may enter `source_confirmed`.
 - **If audio is obtained** (`.m4a`, `.opus`, `.mp3`, etc.): it qualifies as `primary_audio_asr` after local ASR succeeds. The source may enter `source_confirmed`.
-- **If yt-dlp with Chrome cookies also fails**: record the failure and continue to Path 3 when the failure is browser-cookie decryption, or Path 6 when all yt-dlp routes are exhausted.
+- **If the selected browser profile also fails**: record the actual browser and failure, then continue to Path 3 for profile access errors or Path 6 when all yt-dlp routes are exhausted.
 
 Useful yt-dlp flags for this path:
 
 ```
 # Subtitles only, with auto-generated captions
-yt-dlp --cookies-from-browser chrome --skip-download --write-subs --write-auto-subs <URL>
+yt-dlp --cookies-from-browser <edge|chrome> --skip-download --write-subs --write-auto-subs <URL>
 
 # Audio only for downstream ASR
-yt-dlp --cookies-from-browser chrome -f bestaudio --extract-audio --audio-format mp3 <URL>
+yt-dlp --cookies-from-browser <edge|chrome> -f bestaudio --extract-audio --audio-format mp3 <URL>
 
 # List available subtitles
-yt-dlp --cookies-from-browser chrome --list-subs <URL>
+yt-dlp --cookies-from-browser <edge|chrome> --list-subs <URL>
 ```
 
 ## Path 3: User-Exported cookies.txt
 
-When yt-dlp bare is blocked and `--cookies-from-browser chrome` fails with
+When yt-dlp bare is blocked and the selected `--cookies-from-browser` route fails with
 DPAPI/App-Bound, locked database, or similar local browser-cookie errors, switch
 to a user-exported Netscape cookies file.
 
@@ -112,7 +113,7 @@ normal player challenge handling after authorized source access is established.
 
 ## Path 5: yt-dlp Bare
 
-When the platform does not block bare requests, use yt-dlp without cookies. Same flags as above, without `--cookies-from-browser chrome`.
+When the platform does not block bare requests, use yt-dlp without cookies. Same flags as above, without `--cookies-from-browser`.
 
 ## Path 6: Chrome-Derived Media Probe
 
@@ -189,7 +190,7 @@ Allowed inputs:
 
 - User-provided local `.mp4`, `.m4a`, `.mp3`, `.wav`, `.webm`, `.mkv`, or similar media files.
 - User-provided transcript/subtitle files.
-- Public subtitles or media files obtained through yt-dlp (bare or with `--cookies-from-browser chrome`).
+- Public subtitles or media files obtained through yt-dlp (bare or with the explicitly selected Edge/Chrome profile).
 - Subtitle or media files exported through Chrome pageAssets, or fetched from a confirmed public downloadable URL discovered during the Chrome deep-probe.
 
 Not allowed as ASR inputs:
@@ -252,7 +253,7 @@ manual transcript inputs.
 
 Every transcript artifact must record:
 
-- Source type: official subtitle, automatic caption, user transcript, yt-dlp Chrome cookies subtitle, yt-dlp Chrome cookies audio + ASR, Chrome pageAssets export, Chrome deep-probe URL fetch, direct faster-whisper, Hearsay, WhisperX, or other.
+- Source type: official subtitle, automatic caption, user transcript, yt-dlp selected-browser subtitle, yt-dlp selected-browser audio + ASR, browser pageAssets export, browser deep-probe URL fetch, direct faster-whisper, Hearsay, WhisperX, or other.
 - Tool and version if available.
 - Model name for ASR.
 - Language setting.

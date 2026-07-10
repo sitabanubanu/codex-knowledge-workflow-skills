@@ -1,175 +1,223 @@
-# Acquisition Bundle Protocol
+# Acquisition Bundle Protocol v2
 
-`acquisition_bundle` is the stable handoff between the Agent-Reach acquisition
-layer and the Knowledge Workflow evidence layer.
+`00_acquisition/manifest.json` is the only stable handoff between acquisition
+and evidence judgment.
 
-Agent-Reach gets the material. Knowledge Workflow decides whether the material
-is trustworthy. No primary material, no fake report.
+Agent-Reach gets material. Knowledge Workflow decides whether that material is
+task-primary, auditable, and sufficient for a report.
 
-## Directory
+## Layout
 
 ```text
-00_acquisition/
-  manifest.json
-  artifacts/
-    transcript.vtt
-    transcript.md
-    page.md
-    metadata.json
-    audio.wav
+<project>/
   logs/
-    agent_reach_doctor.json
-    route_plan.json
-    commands.jsonl
-    acquisition_notes.md
+    run_identity.json
+  .kw_staging/                 # temporary; never a result
+  acquisition_history/        # prior validated attempts
+  run_history/                # prior downstream results
+  00_acquisition/
+    manifest.json
+    artifacts/
+    logs/
+      agent_reach_doctor.json
+      route_plan.json
+      commands.jsonl
+      acquisition_notes.md
 ```
 
-The exact artifact filenames can vary, but `manifest.json` must list every
-artifact that the evidence layer may inspect.
+An attempt writes to `.kw_staging/<attempt_id>/00_acquisition`. It is promoted
+only after schema, path, byte-count, hash, privacy, and status validation pass.
 
-## `manifest.json`
+## Manifest
 
-Required fields:
+Schema v2 requires these fields:
 
-- `schema_version`: Protocol version. Current value: `1`.
-- `created_at`: UTC ISO timestamp.
-- `input`: Original user input or normalized local path.
-- `source_url`: Source URL when applicable; empty for local-only bundles.
-- `source_id`: Stable source id when available, such as a video id, repo id, or
-  local file stem.
-- `platform`: `web`, `youtube`, `bilibili`, `github`, `x`,
-  `xiaohongshu`, `local_file`, `search`, `rss`, or `unknown`.
-- `acquisition_layer`: `agent-reach`, `local_file`, or another explicit
-  acquisition controller name.
-- `active_backend`: Active Agent-Reach backend or local builder name.
-- `status`: One of the protocol status values below.
-- `artifacts`: List of artifact objects.
-- `metadata`: Non-secret metadata about the acquisition and source.
-  For Agent-Reach-backed bundles, include or write a companion route plan that
-  records the detected channel, doctor status, active backend, preferred
-  command family, and authorized setup steps.
-- `privacy`: Privacy and secret-handling flags.
-- `limits`: Known limits of the acquired material.
-- `failures`: Errors, blockers, or failed routes.
-- `next_action`: User-safe next step.
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | Integer `2`. |
+| `created_at` | UTC creation timestamp. |
+| `input` | Redacted URL, query, or local path. |
+| `source_url` | Redacted canonical URL when applicable. |
+| `source_id` | Platform-stable source identifier. |
+| `platform` | `youtube`, `bilibili`, `x`, `xiaohongshu`, `web`, `github`, `search`, or `local_file`. |
+| `acquisition_layer` | Upstream layer: `agent-reach`, `browser_export`, or `local_file`. |
+| `active_backend` | Doctor-selected backend actually considered. |
+| `status` | Acquisition result only; never a source-gate decision. |
+| `run_id` | Immutable project-run identifier. |
+| `attempt_id` | Identifier for this acquisition attempt. |
+| `bundle_id` | Identifier for the promoted bundle. |
+| `analysis_target` | Material scope the evidence layer must satisfy. |
+| `operation` | Capability required from the backend. |
+| `source_fingerprint` | Stable source identity hash. |
+| `artifacts` | Artifact records defined below. |
+| `metadata` | Redacted, non-authoritative route and source metadata. |
+| `privacy` | Boolean privacy declarations. |
+| `limits` | Known acquisition limits. |
+| `failures` | Redacted stage failures. |
+| `next_action` | Safe next step. |
 
-Recommended artifact fields:
+Schema v1 is accepted only as a legacy compatibility input and receives a
+validation warning. New producers must write v2.
 
-- `path`: Path relative to `00_acquisition`.
-- `type`: One of the artifact types below.
-- `source_class`: One of the source classes below.
-- `mime_type`: Optional media type.
-- `language`: Optional language label.
-- `description`: Short non-secret description.
-- `bytes`: Optional file size in bytes.
-- `sha256`: Optional content hash.
-- `created_by`: Tool or route that created it.
+## Run Identity
 
-## Status Values
+`logs/run_identity.json` binds one project root to:
 
-- `material_acquired`: Primary material is present.
-- `partial_material_acquired`: Partial primary material is present.
-- `metadata_only`: Only metadata was acquired.
-- `secondary_only`: Only secondary/background material was acquired.
-- `blocked`: Acquisition was blocked by permissions, CAPTCHA, bot checks,
-  login, private content, paywall, region controls, or similar barriers.
-- `failed`: Acquisition failed because of tool, network, runtime, or parsing
-  error.
-- `unsupported`: No supported acquisition route exists in this version.
+- `run_id`;
+- platform and source id;
+- source fingerprint;
+- analysis target;
+- operation.
 
-## Artifact Types
+Rules:
 
-- `transcript`
-- `subtitle`
-- `page_markdown`
-- `page_text`
-- `audio`
-- `video`
-- `metadata`
-- `search_result`
-- `comments`
-- `unknown`
+1. A non-empty project root cannot be reused implicitly.
+2. `--resume` is required for another attempt.
+3. Resume fails when source fingerprint, target, or operation differs.
+4. A local-file fingerprint includes the file SHA-256, not only its path.
+5. Refreshed URL access tokens may be redacted from identity when the stable
+   source id and URL path are unchanged.
 
-## Source Classes
+## Analysis Targets
 
-- `primary`
-- `partial_primary`
-- `secondary`
-- `metadata_only`
-- `unknown`
+| Target | Required primary scope | Default operation |
+| --- | --- | --- |
+| `video_content` | `video_transcript` | `extract_transcript` |
+| `social_post` | `social_post_text` | `read` |
+| `web_article` | `article_body` | `read` |
+| `repository` | `repository_document` | `read` |
+| `search_triage` | none; search remains secondary | `search` |
 
-## Source Class Rules
+`auto` is accepted at the CLI but must be resolved before a v2 manifest is
+written.
 
-- A transcript, subtitle, ASR transcript, or authorized local audio-derived
-  transcript can be `primary`.
-- A transcript or subtitle covering only a known portion of the source can be
-  `partial_primary`.
-- Original webpage body can be `primary` or `secondary` depending on the task.
-  A first-party article page may be primary for an article analysis; a video
-  landing page is usually secondary for video-content analysis unless it
-  contains the transcript.
-- Social post/note text acquired through a documented, authorized
-  Agent-Reach backend such as `twitter-cli`, OpenCLI, `xiaohongshu-mcp`, or
-  `xhs-cli` can be primary for the post/note text. It is not a primary video
-  transcript unless the artifact itself contains subtitles, transcript text, or
-  audio-derived transcription.
-- Search results, titles, descriptions, metadata, and comments do not support a
-  full video analysis by default.
-- `metadata_only` cannot enter a full report.
-- `unknown` must become degraded output or `needs_review`; it must not be
-  upgraded to Source claims.
+## Artifact Records
 
-## Privacy
+Every artifact requires:
 
-Required privacy fields:
+| Field | Meaning |
+| --- | --- |
+| `artifact_id` | Unique artifact identifier. |
+| `path` | Relative path contained by `00_acquisition/`. Absolute paths and `..` are invalid. |
+| `type` | `transcript`, `subtitle`, `page_markdown`, `page_text`, `audio`, `video`, `metadata`, `search_result`, `comments`, or `unknown`. |
+| `source_class` | `primary`, `partial_primary`, `secondary`, `metadata_only`, or `unknown`. |
+| `content_scope` | `video_transcript`, `social_post_text`, `article_body`, `repository_document`, `search_result`, `comments`, `media`, `metadata`, or `unknown`. |
+| `coverage` | `full`, `partial`, or `unknown`. |
+| `run_id` | Must equal manifest `run_id`. |
+| `source_id` | Must equal manifest `source_id`. |
+| `bytes` | Exact file size. |
+| `sha256` | Exact file SHA-256. |
 
-- `cookies_used`: Boolean.
-- `browser_session_used`: Boolean.
-- `secrets_redacted`: Boolean.
-- `contains_user_private_data`: Boolean.
+Optional descriptive fields include `language`, `description`, and
+`created_by`.
 
-Security requirements:
+`source_class` is acquisition-side provenance. It does not by itself unlock a
+report. The source gate also requires a target-compatible `content_scope`.
 
-- `commands.jsonl` must not record cookie values, tokens, Authorization headers,
-  session ids, or private account secrets.
-- `manifest.json` may record whether cookies were used, but never cookie
-  contents.
-- Logs must not contain private material full text unless the user explicitly
-  provided that material and it is intentionally stored under `artifacts/`.
-- Route plans may name commands and setup actions, but must use placeholders
-  for cookie, token, session, and authorization values.
-- Failed or blocked bundles still need a manifest so the evidence layer can
-  produce an auditable degraded result.
+## Acquisition Status
 
-## Agent-Reach Route Policy
+Allowed values:
 
-The acquisition layer must follow Agent-Reach's channel model:
+- `material_acquired`: at least one primary artifact exists;
+- `partial_material_acquired`: primary coverage is partial;
+- `metadata_only`: only metadata exists;
+- `secondary_only`: only search results or secondary material exists;
+- `blocked`: access or capability is blocked;
+- `failed`: acquisition execution failed;
+- `unsupported`: no adapter route exists.
 
-1. Run `agent-reach doctor --json`.
-2. Map the source platform to the doctor channel, such as `x` -> `twitter` and
-   search -> `exa_search`.
-3. Use the reported `active_backend` and the command family documented by
-   Agent-Reach for that backend.
-4. For login/session platforms such as Twitter/X and Xiaohongshu, do not make
-   anonymous Jina/curl the main fallback. If no active backend exists, write a
-   `blocked` bundle with the install/login route instead.
-5. For video-bearing sources, distinguish post/page text from video content:
-   post text can be primary for post analysis; video analysis still requires a
-   subtitle, transcript, or audio-derived transcript.
+Status invariants:
+
+- `material_acquired` requires a `primary` artifact;
+- `partial_material_acquired` requires `primary` or `partial_primary`;
+- blocked, failed, unsupported, metadata-only, and secondary-only bundles
+  cannot contain primary artifacts;
+- metadata artifacts can never be primary.
+
+## Capability Gate
+
+Before executing a platform command, the adapter writes
+`logs/route_plan.json` and verifies:
+
+1. Agent-Reach doctor reports the selected backend with `status: ok`.
+2. The adapter implements the requested operation for that backend and input.
+
+If either check fails, write a blocked bundle. Do not fall through to an
+unrelated generic route. Examples:
+
+- Bilibili search API cannot satisfy `extract_transcript`;
+- X OpenCLI search capability is not a documented single-status reader;
+- social-post text does not satisfy embedded-video analysis.
 
 ## Source Gate Mapping
 
-The evidence layer maps bundle status to `source_status.json`:
+The evidence layer maps acquisition results to:
 
-| Bundle state | Source status |
+- `source_confirmed`;
+- `source_partial`;
+- `secondary_only`;
+- `source_blocked`;
+- `source_failed`;
+- `degraded_report_only`.
+
+It admits full decomposition only when primary artifacts match the analysis
+target. `social_post_text`, metadata, comments, and screenshots cannot satisfy
+`video_content`; only `video_transcript` can.
+
+## Provenance Receipts
+
+After ingest, each stage binds downstream output to the current run:
+
+| Receipt | Binds |
 | --- | --- |
-| `material_acquired` + primary artifact | `source_confirmed` |
-| `partial_material_acquired` + partial primary artifact | `source_partial` |
-| `metadata_only` | `secondary_only` or `degraded_report_only` |
-| `secondary_only` | `secondary_only` |
-| `blocked` | `source_blocked` |
-| `failed` | `source_failed` |
-| `unsupported` | `degraded_report_only` |
+| `10_video/00_source/gate_receipt.json` | Manifest hash, source-status hash, target decision, optional ASR-derived transcript hash. |
+| `10_video/analysis_receipt.json` | Gate receipt, evidence audit, and analysis-pack hash. |
+| `20_document/composer_receipt.json` | Analysis receipt, claim map, and composer intake. |
+| `20_document/final_report_receipt.json` | Composer receipt, quality gate, and final-report hash. |
 
-`source_confirmed` and `source_partial` are the only states that can enter
-normal or partial decomposition.
+Every receipt repeats run, bundle, source, fingerprint, target, and gate-input
+hash. A missing or mismatched receipt makes the corresponding output stale.
+Status and export commands must not infer success from file existence.
+
+## Retry and History
+
+- Failed staging attempts are removed and never promoted.
+- On successful `--resume`, the previous `00_acquisition` moves to
+  `acquisition_history/<attempt-or-bundle-id>/`.
+- When the new bundle is ingested, previous `10_video`, `20_document`, and
+  `30_final` move to `run_history/<attempt-or-bundle-id>/`.
+- History is auditable but never considered current output.
+
+## Privacy
+
+`privacy` requires boolean fields:
+
+- `cookies_used`;
+- `browser_session_used`;
+- `secrets_redacted` (must be `true`);
+- `contains_user_private_data`.
+
+Hard rules:
+
+- never persist cookie contents, authorization headers, session ids, tokens,
+  visitor data, PO tokens, passwords, or proxy credentials;
+- redact sensitive URL query values in manifest, preflight, run state,
+  acquisition notes, commands, errors, and backend JSON;
+- cookie files remain user-managed and are passed by path only;
+- browser-visible material must be exported into an artifact before ingest;
+- authorized browser exports enter through `kw browser-import` or
+  `kw run --browser-source-url ... --browser-platform ...`;
+- browser exports preserve the redacted source URL, explicit platform,
+  target, operation, content scope, byte count, and SHA-256;
+- never bypass CAPTCHA, paywalls, private access, region restrictions, or
+  account permissions.
+
+## Validation
+
+```powershell
+python .\kw.py validate-bundle --bundle <project>\00_acquisition\manifest.json
+```
+
+Validation fails on missing fields, invalid enum values, escaping paths,
+missing files, byte/hash mismatch, run/source mismatch, status invariants, or
+unredacted secret-like manifest data.

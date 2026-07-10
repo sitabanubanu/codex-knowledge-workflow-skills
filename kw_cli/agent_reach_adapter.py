@@ -7,6 +7,7 @@ creates acquisition bundles and never approves evidence or reports.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 
-from . import bundle
+from . import bundle, canonicalize, run_context, source_gate
+from .redaction import redact_text, redact_url, sanitize_command as redact_command, sanitize_data
 
 
 SUPPORTED_PLATFORMS = {
@@ -30,6 +32,8 @@ SUPPORTED_PLATFORMS = {
 }
 AGENT_REACH_INSTALL_SOURCE = "https://github.com/Panniantong/Agent-Reach/archive/main.zip"
 LOGIN_REQUIRED_PLATFORMS = {"x", "xiaohongshu"}
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_YOUTUBE_COOKIES = REPO_ROOT / "work" / "youtube-cookies" / "youtube.cookies.txt"
 
 
 PLATFORM_SETUP_HINTS = {
@@ -105,48 +109,11 @@ def source_id_for(value: str, platform: str) -> str:
 
 
 def sanitize_command(command: list[str]) -> list[str]:
-    redacted: list[str] = []
-    redact_next = False
-    sensitive_markers = ("cookie", "token", "authorization", "password", "secret")
-    for item in command:
-        lowered = item.lower()
-        if redact_next:
-            redacted.append("[REDACTED]")
-            redact_next = False
-            continue
-        if any(marker in lowered for marker in sensitive_markers):
-            if "=" in item:
-                key = item.split("=", 1)[0]
-                redacted.append(f"{key}=[REDACTED]")
-            elif ":" in item:
-                key = item.split(":", 1)[0]
-                redacted.append(f"{key}:[REDACTED]")
-            elif "?" in item:
-                redacted.append("[REDACTED_URL_WITH_SECRET_QUERY]")
-            else:
-                redacted.append(item)
-                redact_next = True
-            continue
-        redacted.append(item)
-    return redacted
+    return redact_command(command)
 
 
 def redact_value_for_record(value: str) -> str:
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.query:
-        return value
-    sensitive_markers = ("cookie", "token", "authorization", "password", "secret", "session")
-    pairs = []
-    changed = False
-    for key, item_value in parse_qsl(parsed.query, keep_blank_values=True):
-        if any(marker in key.lower() for marker in sensitive_markers):
-            pairs.append((key, "[REDACTED]"))
-            changed = True
-        else:
-            pairs.append((key, item_value))
-    if not changed:
-        return value
-    return urlunparse(parsed._replace(query=urlencode(pairs, doseq=True)))
+    return redact_url(value)
 
 
 def append_command_log(log_path: Path, *, command: list[str], returncode: int, note: str = "") -> None:
@@ -154,7 +121,7 @@ def append_command_log(log_path: Path, *, command: list[str], returncode: int, n
     record = {
         "command": sanitize_command(command),
         "returncode": returncode,
-        "note": note,
+        "note": redact_text(note),
         "secrets_redacted": True,
     }
     with log_path.open("a", encoding="utf-8", newline="\n") as handle:
@@ -179,6 +146,9 @@ def resolve_command_for_subprocess(command: list[str]) -> list[str]:
 
 
 def run_capture(command: list[str], *, cwd: Path | None = None, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     return subprocess.run(
         resolve_command_for_subprocess(command),
         cwd=str(cwd) if cwd else None,
@@ -187,6 +157,7 @@ def run_capture(command: list[str], *, cwd: Path | None = None, timeout: int = 6
         errors="replace",
         capture_output=True,
         timeout=timeout,
+        env=env,
     )
 
 
@@ -264,18 +235,58 @@ def xhs_note_parts(value: str) -> tuple[str, str]:
     return note_id, xsec_token
 
 
-def route_plan_for(platform: str, doctor: dict[str, Any], input_value: str) -> dict[str, Any]:
+def backend_supports_operation(platform: str, backend: str, operation: str, input_value: str) -> bool:
+    lowered = backend.lower()
+    if not backend:
+        return False
+    if platform == "bilibili":
+        if "search api" in lowered or "搜索 api" in lowered:
+            return False
+        if backend == "OpenCLI":
+            return operation == "extract_transcript"
+        return ("bili-cli" in lowered or "bili cli" in lowered) and operation in {"read", "extract_transcript"}
+    if platform == "x":
+        if "twitter-cli" in lowered:
+            return operation == "read" and "/status/" in urlparse(input_value).path
+        return False
+    if platform == "xiaohongshu":
+        return operation == "read"
+    if platform == "search":
+        return operation == "search"
+    if platform == "youtube":
+        return operation in {"read", "extract_transcript"}
+    if platform in {"web", "github"}:
+        return operation == "read"
+    return True
+
+
+def route_plan_for(
+    platform: str,
+    doctor: dict[str, Any],
+    input_value: str,
+    *,
+    analysis_target: str = "auto",
+    operation: str = "auto",
+) -> dict[str, Any]:
     item = doctor_item_for_platform(doctor, platform)
     active_backend = active_backend_from_doctor(doctor, platform)
+    chosen_target = source_gate.infer_analysis_target(platform, analysis_target)
+    chosen_operation = source_gate.infer_operation(chosen_target, operation)
+    backend_ready = active_backend_is_ready(doctor, platform)
+    operation_supported = backend_supports_operation(platform, active_backend, chosen_operation, input_value)
     plan: dict[str, Any] = {
         "platform": platform,
+        "analysis_target": chosen_target,
+        "operation": chosen_operation,
         "doctor_key": doctor_key_for_platform(platform),
         "doctor_status": item.get("status") or "",
         "doctor_message": item.get("message") or "",
         "active_backend": active_backend,
-        "active_backend_ready": active_backend_is_ready(doctor, platform),
+        "active_backend_ready": backend_ready,
+        "operation_supported": operation_supported,
+        "capability_ready": backend_ready and operation_supported,
         "backend_order": item.get("backends") or [],
-        "uses_agent_reach_active_backend": active_backend_is_ready(doctor, platform),
+        "uses_agent_reach_active_backend": backend_ready and operation_supported,
         "anonymous_web_fallback_allowed": platform not in LOGIN_REQUIRED_PLATFORMS,
         "install_commands": [],
         "preferred_commands": [],
@@ -289,6 +300,8 @@ def route_plan_for(platform: str, doctor: dict[str, Any], input_value: str) -> d
         plan["manual_steps"] = hints["manual_steps"]
     if active_backend and not active_backend_is_ready(doctor, platform):
         plan["blocked_until_ready_reason"] = "Agent-Reach selected this backend, but doctor did not report status ok."
+    elif active_backend and not operation_supported:
+        plan["blocked_until_ready_reason"] = f"The active backend does not support operation {chosen_operation!r} for this input."
 
     if platform == "x":
         if active_backend == "twitter-cli":
@@ -296,16 +309,16 @@ def route_plan_for(platform: str, doctor: dict[str, Any], input_value: str) -> d
             plan["primary_scope"] = "tweet_text_and_thread_context_if_returned; not video transcript"
         elif active_backend == "OpenCLI":
             plan["preferred_commands"] = [
-                "opencli twitter article <URL_OR_ID> -f yaml",
-                "opencli twitter user-posts <USERNAME> -f yaml",
-                "opencli twitter search <QUERY> -f yaml",
+                "opencli twitter article <URL_OR_ID> -f json",
+                "opencli twitter user-posts <USERNAME> -f json",
+                "opencli twitter search <QUERY> -f json",
             ]
             plan["primary_scope"] = "documented OpenCLI Twitter routes; single status URLs may still require twitter-cli or browser export"
         elif not active_backend:
             plan["blocked_without_backend_reason"] = "Twitter/X is a login/session platform in Agent-Reach; do not retry anonymous Jina/curl as the main route."
     elif platform == "xiaohongshu":
         if active_backend == "OpenCLI":
-            plan["preferred_commands"] = ["opencli xiaohongshu note <NOTE_URL_WITH_XSEC_TOKEN> -f yaml"]
+            plan["preferred_commands"] = ["opencli xiaohongshu note <NOTE_URL_WITH_XSEC_TOKEN> -f json"]
             plan["primary_scope"] = "note_text_and_visible_engagement_data; not embedded video transcript"
         elif active_backend == "xiaohongshu-mcp":
             plan["preferred_commands"] = [
@@ -339,7 +352,7 @@ def route_plan_for(platform: str, doctor: dict[str, Any], input_value: str) -> d
     elif platform == "bilibili":
         plan["preferred_commands"] = [
             "bili video <BV_ID_OR_URL>",
-            "opencli bilibili subtitle <BV_ID>",
+            "opencli bilibili subtitle <BV_ID> -f json",
             "bili audio <BV_ID>",
         ]
         plan["primary_scope"] = "subtitle or audio-derived transcript; bili metadata alone is metadata_only"
@@ -385,6 +398,8 @@ def blocked_status_from_reason(reason: str) -> str:
         "paywall",
         "private",
         "too many requests",
+        "cookie database",
+        "failed to decrypt with dpapi",
     )
     return "blocked" if any(marker in lowered for marker in blockers) else "failed"
 
@@ -401,6 +416,11 @@ def primary_missing_limit(platform: str, status: str) -> list[str]:
 
 def youtube_next_action(failures: list[dict[str, Any]], *, metadata_only: bool = False) -> str:
     text = "\n".join(str(item.get("reason", "")) for item in failures if isinstance(item, dict)).lower()
+    if "could not copy chrome cookie database" in text or "failed to decrypt with dpapi" in text:
+        return (
+            "The selected browser profile is locked or unavailable to yt-dlp. "
+            "Close that browser only if you approve interruption, or provide a fresh user-exported cookies file, transcript, subtitle, or local media."
+        )
     if any(marker in text for marker in ("sign in", "not a bot", "bot", "cookies", "captcha", "429", "403")):
         return (
             "Resolve YouTube access with user-authorized cookies/browser material, "
@@ -422,6 +442,11 @@ def make_failed_manifest(
     source_url: str = "",
     metadata: dict[str, Any] | None = None,
     next_action: str | None = None,
+    run_id: str = "",
+    attempt_id: str = "",
+    analysis_target: str = "auto",
+    operation: str = "auto",
+    source_fingerprint: str = "",
 ) -> Path:
     manifest = bundle.make_manifest(
         project_root=project_root,
@@ -443,9 +468,14 @@ def make_failed_manifest(
         limits=[reason],
         failures=[{"stage": "acquisition", "reason": reason}],
         next_action=next_action or "Provide transcript, subtitle, local audio/video, or supported authorized material.",
+        run_id=run_id,
+        attempt_id=attempt_id,
+        analysis_target=analysis_target,
+        operation=operation,
+        source_fingerprint=source_fingerprint,
     )
     notes = project_root / "00_acquisition" / "logs" / "acquisition_notes.md"
-    bundle.write_text(notes, f"# Acquisition Failed\n\n- Platform: `{platform}`\n- Reason: {reason}\n")
+    bundle.write_text(notes, f"# Acquisition Failed\n\n- Platform: `{platform}`\n- Reason: {redact_text(reason)}\n")
     return bundle.write_manifest(project_root, manifest)
 
 
@@ -496,7 +526,13 @@ def stdout_primary_artifact(
     ]
 
 
-def acquire_web(input_value: str, project_root: Path, command_log: Path) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
+def acquire_web(
+    input_value: str,
+    project_root: Path,
+    command_log: Path,
+    *,
+    analysis_target: str,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
     output = artifacts_root / "page.md"
@@ -513,15 +549,23 @@ def acquire_web(input_value: str, project_root: Path, command_log: Path) -> tupl
         if error_reason:
             return blocked_status_from_reason(error_reason), [], {}, [{"stage": "web_jina", "reason": error_reason}], "Provide a local page export or use an authorized browser/session route."
     if completed.returncode == 0 and _write_stdout_artifact(output, completed.stdout):
+        is_task_primary = analysis_target == "web_article"
         entry = bundle.artifact_entry(
             bundle_root=bundle_root,
             path=output,
             artifact_type="page_markdown",
-            source_class="secondary",
+            source_class="primary" if is_task_primary else "secondary",
+            content_scope="article_body",
             description="Web page Markdown acquired through Jina Reader route.",
             created_by="curl_jina_reader",
         )
-        return "secondary_only", [entry], {"reader_url": redact_value_for_record(reader_url)}, [], "Ingest as secondary/degraded material unless this page is the primary source."
+        return (
+            "material_acquired" if is_task_primary else "secondary_only",
+            [entry],
+            {"reader_url": redact_value_for_record(reader_url)},
+            [],
+            "ingest_bundle" if is_task_primary else "Use as secondary context or provide task-primary material.",
+        )
     return "failed", [], {}, [{"stage": "web", "reason": completed.stderr[-1000:] or "empty page output"}], "Provide page text or a supported primary artifact."
 
 
@@ -642,8 +686,19 @@ def acquire_xiaohongshu(
         )
 
     if active_backend == "OpenCLI":
-        command = ["opencli", "xiaohongshu", "note", input_value, "-f", "yaml"]
-        output = artifacts_root / "xiaohongshu_note.yaml"
+        if is_probable_xhs_note_url(input_value) and not xhs_note_parts(input_value)[1]:
+            return (
+                "blocked",
+                [],
+                metadata,
+                [{"stage": "xiaohongshu_opencli_route", "reason": "Xiaohongshu note URL is missing xsec_token."}],
+                "Search/feed first, then retry with the complete note URL returned by Xiaohongshu.",
+                active_backend,
+                privacy,
+            )
+        command = ["opencli", "xiaohongshu", "note", input_value, "-f", "json"]
+        raw_output = artifacts_root / "xiaohongshu_note.raw.json"
+        output = artifacts_root / "xiaohongshu_note.txt"
         privacy["browser_session_used"] = True
         try:
             completed = run_capture(command, timeout=120)
@@ -652,17 +707,35 @@ def acquire_xiaohongshu(
             return "failed", [], metadata, [{"stage": "xiaohongshu_opencli", "reason": str(exc)}], "Install/configure OpenCLI or provide primary material.", active_backend, privacy
         append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Xiaohongshu OpenCLI route")
         if completed.returncode == 0:
-            artifacts = stdout_primary_artifact(
-                bundle_root=bundle_root,
-                path=output,
-                stdout=completed.stdout,
-                artifact_type="page_text",
-                description="Xiaohongshu note text acquired through OpenCLI browser-session route.",
-                created_by="opencli_xiaohongshu",
-            )
-            if artifacts:
-                metadata["primary_scope"] = "note_text_not_embedded_video_transcript"
-                return "material_acquired", artifacts, metadata, [], "ingest_bundle", active_backend, privacy
+            try:
+                canonical_text, raw_payload = canonicalize.canonical_page_text(completed.stdout)
+            except canonicalize.CanonicalizationError as exc:
+                reason = str(exc)
+                return command_blocked_status(completed), [], metadata, [{"stage": "xiaohongshu_opencli_parse", "reason": reason}], "Provide a complete authorized note URL or local export.", active_backend, privacy
+            bundle.write_json(raw_output, sanitize_data(raw_payload))
+            bundle.write_text(output, canonical_text)
+            artifacts = [
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=output,
+                    artifact_type="page_text",
+                    source_class="primary",
+                    content_scope="social_post_text",
+                    description="Canonical Xiaohongshu note text acquired through OpenCLI.",
+                    created_by="opencli_xiaohongshu",
+                ),
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=raw_output,
+                    artifact_type="metadata",
+                    source_class="metadata_only",
+                    content_scope="metadata",
+                    description="Redacted raw OpenCLI JSON response.",
+                    created_by="opencli_xiaohongshu",
+                ),
+            ]
+            metadata["primary_scope"] = "note_text_not_embedded_video_transcript"
+            return "material_acquired", artifacts, metadata, [], "ingest_bundle", active_backend, privacy
         reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "empty OpenCLI output"
         return command_blocked_status(completed), [], metadata, [{"stage": "xiaohongshu_opencli", "reason": reason}], "Refresh Xiaohongshu login in Chrome, keep OpenCLI extension active, or provide primary material.", active_backend, privacy
 
@@ -685,7 +758,8 @@ def acquire_xiaohongshu(
             "--timeout",
             "120000",
         ]
-        output = artifacts_root / "xiaohongshu_note.json"
+        raw_output = artifacts_root / "xiaohongshu_note.raw.json"
+        output = artifacts_root / "xiaohongshu_note.txt"
         privacy["browser_session_used"] = True
         try:
             completed = run_capture(command, timeout=140)
@@ -694,17 +768,35 @@ def acquire_xiaohongshu(
             return "failed", [], metadata, [{"stage": "xiaohongshu_mcp", "reason": str(exc)}], "Start/login xiaohongshu-mcp or provide primary material.", active_backend, privacy
         append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Xiaohongshu MCP route")
         if completed.returncode == 0:
-            artifacts = stdout_primary_artifact(
-                bundle_root=bundle_root,
-                path=output,
-                stdout=completed.stdout,
-                artifact_type="page_text",
-                description="Xiaohongshu note detail acquired through xiaohongshu-mcp.",
-                created_by="xiaohongshu-mcp",
-            )
-            if artifacts:
-                metadata["primary_scope"] = "note_text_and_mcp_returned_comments_not_embedded_video_transcript"
-                return "material_acquired", artifacts, metadata, [], "ingest_bundle", active_backend, privacy
+            try:
+                canonical_text, raw_payload = canonicalize.canonical_page_text(completed.stdout)
+            except canonicalize.CanonicalizationError as exc:
+                reason = str(exc)
+                return command_blocked_status(completed), [], metadata, [{"stage": "xiaohongshu_mcp_parse", "reason": reason}], "Check MCP login/output or provide a local note export.", active_backend, privacy
+            bundle.write_json(raw_output, sanitize_data(raw_payload))
+            bundle.write_text(output, canonical_text)
+            artifacts = [
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=output,
+                    artifact_type="page_text",
+                    source_class="primary",
+                    content_scope="social_post_text",
+                    description="Canonical Xiaohongshu note text acquired through xiaohongshu-mcp.",
+                    created_by="xiaohongshu-mcp",
+                ),
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=raw_output,
+                    artifact_type="metadata",
+                    source_class="metadata_only",
+                    content_scope="metadata",
+                    description="Redacted raw xiaohongshu-mcp JSON response.",
+                    created_by="xiaohongshu-mcp",
+                ),
+            ]
+            metadata["primary_scope"] = "note_text_and_mcp_returned_comments_not_embedded_video_transcript"
+            return "material_acquired", artifacts, metadata, [], "ingest_bundle", active_backend, privacy
         reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "empty MCP output"
         return command_blocked_status(completed), [], metadata, [{"stage": "xiaohongshu_mcp", "reason": reason}], "Check xiaohongshu-mcp login status or provide primary material.", active_backend, privacy
 
@@ -744,19 +836,206 @@ def acquire_xiaohongshu(
     )
 
 
-def acquire_youtube(input_value: str, project_root: Path, command_log: Path) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
+def _split_csv(value: Any) -> list[str]:
+    if value is None:
+        return []
+    return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def _youtube_common_options(options: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    command_options: list[str] = []
+    applied: dict[str, Any] = {
+        "access_file_used": False,
+        "browser_name": "",
+        "js_runtime_used": False,
+        "remote_components_used": False,
+        "proxy_used": False,
+        "impersonation_used": False,
+    }
+
+    cookies_value = str(options.get("youtube_cookies") or "").strip()
+    browser_value = str(options.get("youtube_browser") or "").strip().lower()
+    if cookies_value and browser_value:
+        raise AgentReachAdapterError("Use only one of --youtube-cookies or --youtube-browser.")
+    if cookies_value:
+        cookies_path = DEFAULT_YOUTUBE_COOKIES if cookies_value.lower() == "auto" else Path(cookies_value).expanduser().resolve()
+        if not cookies_path.is_file():
+            raise AgentReachAdapterError(
+                f"YouTube cookies file does not exist: {cookies_path}. Export an authorized Netscape cookies.txt or omit --youtube-cookies."
+            )
+        command_options.extend(["--cookies", str(cookies_path)])
+        applied["access_file_used"] = True
+    if browser_value:
+        if browser_value not in {"edge", "chrome"}:
+            raise AgentReachAdapterError("--youtube-browser must be edge or chrome")
+        command_options.extend(["--cookies-from-browser", browser_value])
+        applied["browser_name"] = browser_value
+
+    if bool(options.get("use_js_runtime")):
+        node_value = options.get("node")
+        node_path = Path(node_value).expanduser().resolve() if node_value else Path(shutil.which("node") or "")
+        if not node_path.is_file():
+            raise AgentReachAdapterError("--use-js-runtime was requested, but a Node.js executable was not found")
+        command_options.extend(["--js-runtimes", f"node:{node_path}"])
+        applied["js_runtime_used"] = True
+
+    if bool(options.get("use_remote_components")):
+        command_options.extend(["--remote-components", "ejs:github"])
+        applied["remote_components_used"] = True
+
+    proxy = str(options.get("ytdlp_proxy") or "").strip()
+    if proxy:
+        command_options.extend(["--proxy", proxy])
+        applied["proxy_used"] = True
+    impersonate = str(options.get("ytdlp_impersonate") or "").strip()
+    if impersonate:
+        command_options.extend(["--impersonate", impersonate])
+        applied["impersonation_used"] = True
+    sleep_requests = options.get("ytdlp_sleep_requests")
+    if sleep_requests is not None:
+        command_options.extend(["--sleep-requests", str(sleep_requests)])
+        applied["sleep_requests"] = float(sleep_requests)
+    retry_sleep = [str(item).strip() for item in options.get("ytdlp_retry_sleep") or [] if str(item).strip()]
+    for item in retry_sleep:
+        command_options.extend(["--retry-sleep", item])
+    if retry_sleep:
+        applied["retry_sleep"] = retry_sleep
+
+    youtube_parts: list[str] = []
+    passthrough: list[str] = []
+    for raw in options.get("ytdlp_extractor_args") or []:
+        text = str(raw).strip()
+        if not text:
+            continue
+        if text.lower().startswith("youtube:"):
+            youtube_parts.append(text.split(":", 1)[1])
+        else:
+            passthrough.append(text)
+    player_clients = _split_csv(options.get("ytdlp_player_clients"))
+    if player_clients:
+        youtube_parts.append("player_client=" + ",".join(player_clients))
+        applied["player_clients"] = player_clients
+    visitor_data = str(options.get("youtube_visitor_data") or "").strip()
+    if visitor_data:
+        youtube_parts.append(f"visitor_data={visitor_data}")
+        applied["browser_challenge_context_used"] = True
+    po_tokens = [str(item).strip() for item in options.get("youtube_po_token") or [] if str(item).strip()]
+    for token in po_tokens:
+        youtube_parts.append(f"po_token={token}")
+    if po_tokens:
+        applied["proof_context_count"] = len(po_tokens)
+    if youtube_parts:
+        command_options.extend(["--extractor-args", "youtube:" + ";".join(youtube_parts)])
+    for extractor_arg in passthrough:
+        command_options.extend(["--extractor-args", extractor_arg])
+    if passthrough:
+        applied["passthrough_extractor_args"] = len(passthrough)
+    return command_options, applied
+
+
+def _safe_youtube_metadata(payload: dict[str, Any], input_value: str) -> dict[str, Any]:
+    safe_keys = (
+        "id",
+        "title",
+        "description",
+        "duration",
+        "timestamp",
+        "upload_date",
+        "uploader",
+        "uploader_id",
+        "channel",
+        "channel_id",
+        "availability",
+        "live_status",
+        "language",
+    )
+    result = {key: payload.get(key) for key in safe_keys if payload.get(key) is not None}
+    result["webpage_url"] = redact_value_for_record(str(payload.get("webpage_url") or input_value))
+    subtitles = payload.get("subtitles") if isinstance(payload.get("subtitles"), dict) else {}
+    auto_captions = payload.get("automatic_captions") if isinstance(payload.get("automatic_captions"), dict) else {}
+    result["subtitle_languages"] = sorted(str(key) for key in subtitles)
+    result["automatic_caption_languages"] = sorted(str(key) for key in auto_captions)
+    return sanitize_data(result)
+
+
+def _youtube_privacy(applied: dict[str, Any]) -> dict[str, bool]:
+    browser_used = bool(applied.get("browser_name"))
+    return {
+        "cookies_used": bool(applied.get("access_file_used")) or browser_used,
+        "browser_session_used": browser_used,
+    }
+
+
+def _youtube_transcribe(
+    *,
+    input_value: str,
+    artifacts_root: Path,
+    bundle_root: Path,
+    command_log: Path,
+    timeout: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    output = artifacts_root / "youtube_transcript.txt"
+    command = ["agent-reach", "transcribe", input_value, "-o", str(output)]
+    try:
+        completed = run_capture(command, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as exc:
+        append_command_log(command_log, command=command, returncode=1, note=str(exc))
+        return [], {"stage": "youtube_transcribe", "reason": str(exc)}
+    append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach YouTube transcription fallback")
+    if completed.returncode == 0 and output.is_file() and output.stat().st_size > 0:
+        return [
+            bundle.artifact_entry(
+                bundle_root=bundle_root,
+                path=output,
+                artifact_type="transcript",
+                source_class="primary",
+                content_scope="video_transcript",
+                description="Transcript produced by the Agent-Reach transcription route.",
+                created_by="agent-reach_transcribe",
+            )
+        ], None
+    reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "transcription route produced no transcript"
+    return [], {"stage": "youtube_transcribe", "reason": reason}
+
+
+def acquire_youtube(
+    input_value: str,
+    project_root: Path,
+    command_log: Path,
+    *,
+    options: dict[str, Any],
+    operation: str,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str, dict[str, bool]]:
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
     metadata_path = artifacts_root / "metadata.json"
     output_template = str(artifacts_root / "youtube.%(ext)s")
-    metadata_command = ["yt-dlp", "--skip-download", "--dump-single-json", input_value]
+    ytdlp_value = options.get("ytdlp")
+    ytdlp = str(Path(ytdlp_value).expanduser().resolve()) if ytdlp_value else "yt-dlp"
+    if ytdlp_value and not Path(ytdlp).is_file():
+        raise AgentReachAdapterError(f"yt-dlp executable does not exist: {ytdlp}")
+    common_options, applied = _youtube_common_options(options)
+    timeout = int(options.get("platform_timeout_seconds") or 90)
+    if timeout <= 0:
+        raise AgentReachAdapterError("--platform-timeout-seconds must be greater than zero")
+    mode = str(options.get("platform_mode") or "auto")
+    if mode not in {"auto", "probe", "subtitles", "audio"}:
+        raise AgentReachAdapterError(f"unsupported YouTube platform mode: {mode}")
+    if operation == "read":
+        if mode not in {"auto", "probe"}:
+            raise AgentReachAdapterError("YouTube operation 'read' only supports --platform-mode auto/probe")
+        mode = "probe"
+    subtitle_languages = str(options.get("subtitle_languages") or "all,-live_chat")
+    metadata_command = [ytdlp, *common_options, "--skip-download", "--dump-single-json", input_value]
     subtitle_command = [
-        "yt-dlp",
+        ytdlp,
+        *common_options,
         "--skip-download",
         "--write-subs",
         "--write-auto-subs",
         "--sub-langs",
-        "all,-live_chat",
+        subtitle_languages,
         "--convert-subs",
         "vtt",
         "-o",
@@ -764,35 +1043,40 @@ def acquire_youtube(input_value: str, project_root: Path, command_log: Path) -> 
         input_value,
     ]
     artifacts: list[dict[str, Any]] = []
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = {"platform_mode": mode, "applied_options": applied}
     failures: list[dict[str, Any]] = []
     try:
-        meta = run_capture(metadata_command, timeout=90)
+        meta = run_capture(metadata_command, timeout=timeout)
         append_command_log(command_log, command=metadata_command, returncode=meta.returncode, note="yt-dlp metadata")
         if meta.returncode == 0 and meta.stdout.strip():
             try:
                 parsed = json.loads(meta.stdout)
-                bundle.write_json(metadata_path, parsed)
+                safe_metadata = _safe_youtube_metadata(parsed if isinstance(parsed, dict) else {}, input_value)
+                bundle.write_json(metadata_path, safe_metadata)
                 artifacts.append(
                     bundle.artifact_entry(
                         bundle_root=bundle_root,
                         path=metadata_path,
                         artifact_type="metadata",
                         source_class="metadata_only",
+                        content_scope="metadata",
                         description="yt-dlp metadata.",
                         created_by="yt-dlp",
                     )
                 )
-                metadata["title"] = parsed.get("title")
+                metadata["title"] = safe_metadata.get("title")
             except json.JSONDecodeError:
-                bundle.write_text(metadata_path, meta.stdout)
+                failures.append({"stage": "youtube_metadata_parse", "reason": "yt-dlp metadata was not valid JSON"})
         else:
-            failures.append({"stage": "youtube_metadata", "reason": meta.stderr[-1000:]})
-        subs = run_capture(subtitle_command, timeout=120)
-        append_command_log(command_log, command=subtitle_command, returncode=subs.returncode, note="yt-dlp subtitles")
+            failures.append({"stage": "youtube_metadata", "reason": meta.stderr[-1000:] or meta.stdout[-1000:]})
+        if mode in {"auto", "subtitles"}:
+            subs = run_capture(subtitle_command, timeout=max(timeout, 120))
+            append_command_log(command_log, command=subtitle_command, returncode=subs.returncode, note="yt-dlp subtitles")
+            if subs.returncode != 0:
+                failures.append({"stage": "youtube_subtitles", "reason": subs.stderr[-1000:] or subs.stdout[-1000:]})
     except (OSError, subprocess.SubprocessError) as exc:
         failures.append({"stage": "youtube", "reason": str(exc)})
-        return "failed", artifacts, metadata, failures, youtube_next_action(failures)
+        return "failed", artifacts, metadata, failures, youtube_next_action(failures), _youtube_privacy(applied)
 
     subtitle_files = sorted(artifacts_root.glob("youtube*.vtt")) + sorted(artifacts_root.glob("youtube*.srt"))
     for subtitle in subtitle_files:
@@ -802,39 +1086,195 @@ def acquire_youtube(input_value: str, project_root: Path, command_log: Path) -> 
                 path=subtitle,
                 artifact_type="subtitle",
                 source_class="primary",
+                content_scope="video_transcript",
                 description="Subtitle acquired by yt-dlp.",
                 created_by="yt-dlp",
             )
         )
     if any(item.get("source_class") == "primary" for item in artifacts):
-        return "material_acquired", artifacts, metadata, failures, "ingest_bundle"
+        return "material_acquired", artifacts, metadata, failures, "ingest_bundle", _youtube_privacy(applied)
+    if mode in {"auto", "audio"}:
+        transcript_artifacts, transcript_failure = _youtube_transcribe(
+            input_value=input_value,
+            artifacts_root=artifacts_root,
+            bundle_root=bundle_root,
+            command_log=command_log,
+            timeout=max(timeout, 180),
+        )
+        artifacts.extend(transcript_artifacts)
+        if transcript_failure:
+            failures.append(transcript_failure)
+        if transcript_artifacts:
+            return "material_acquired", artifacts, metadata, failures, "ingest_bundle", _youtube_privacy(applied)
     if artifacts:
-        return "metadata_only", artifacts, metadata, failures, youtube_next_action(failures, metadata_only=True)
-    return "blocked" if failures else "failed", artifacts, metadata, failures, youtube_next_action(failures)
+        return "metadata_only", artifacts, metadata, failures, youtube_next_action(failures, metadata_only=True), _youtube_privacy(applied)
+    combined_reason = "\n".join(str(item.get("reason") or "") for item in failures)
+    status = blocked_status_from_reason(combined_reason) if failures else "failed"
+    return status, artifacts, metadata, failures, youtube_next_action(failures), _youtube_privacy(applied)
 
 
-def acquire_bilibili(input_value: str, project_root: Path, command_log: Path) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
+def acquire_bilibili(
+    input_value: str,
+    project_root: Path,
+    command_log: Path,
+    *,
+    doctor: dict[str, Any],
+    operation: str,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+    active_backend = active_backend_from_doctor(doctor, "bilibili")
+    item = doctor_item_for_platform(doctor, "bilibili")
+    metadata: dict[str, Any] = {"operation": operation}
+    artifacts: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+
+    if not active_backend_is_ready(doctor, "bilibili"):
+        return (
+            "blocked",
+            [],
+            metadata,
+            [{"stage": "bilibili_active_backend", "reason": item.get("message") or "No ready Bilibili backend."}],
+            "Configure a Bilibili backend reported ready by Agent-Reach, then retry.",
+        )
+
+    if operation == "extract_transcript" and active_backend == "OpenCLI":
+        command = ["opencli", "bilibili", "subtitle", input_value, "-f", "json"]
+        raw_path = artifacts_root / "bilibili_subtitle.raw.json"
+        transcript_path = artifacts_root / "bilibili_subtitle.json"
+        try:
+            completed = run_capture(command, timeout=120)
+        except (OSError, subprocess.SubprocessError) as exc:
+            append_command_log(command_log, command=command, returncode=1, note=str(exc))
+            return "failed", [], metadata, [{"stage": "bilibili_opencli", "reason": str(exc)}], "Restore OpenCLI browser connectivity or provide subtitles."
+        append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Bilibili OpenCLI subtitle route")
+        if completed.returncode != 0:
+            reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "OpenCLI subtitle command failed"
+            return command_blocked_status(completed), [], metadata, [{"stage": "bilibili_opencli", "reason": reason}], "Log in through Chrome/OpenCLI or provide subtitles."
+        try:
+            canonical, raw_payload = canonicalize.canonical_subtitle_json(completed.stdout)
+        except canonicalize.CanonicalizationError as exc:
+            return "failed", [], metadata, [{"stage": "bilibili_opencli_parse", "reason": str(exc)}], "Provide a subtitle export or retry the OpenCLI subtitle route."
+        bundle.write_json(raw_path, sanitize_data(raw_payload))
+        bundle.write_json(transcript_path, canonical)
+        artifacts.extend(
+            [
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=transcript_path,
+                    artifact_type="transcript",
+                    source_class="primary",
+                    content_scope="video_transcript",
+                    description="Canonical Bilibili subtitle transcript acquired through OpenCLI.",
+                    created_by="opencli_bilibili",
+                ),
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=raw_path,
+                    artifact_type="metadata",
+                    source_class="metadata_only",
+                    content_scope="metadata",
+                    description="Redacted raw OpenCLI Bilibili subtitle JSON.",
+                    created_by="opencli_bilibili",
+                ),
+            ]
+        )
+        return "material_acquired", artifacts, metadata, [], "ingest_bundle"
+
+    backend_lower = active_backend.lower()
+    if "bili-cli" not in backend_lower and "bili cli" not in backend_lower:
+        return (
+            "blocked",
+            [],
+            {**metadata, "capability_mismatch": True},
+            [
+                {
+                    "stage": "bilibili_capability",
+                    "reason": f"Active backend {active_backend!r} does not support {operation!r} for this URL.",
+                }
+            ],
+            "Install/activate OpenCLI for subtitles or bili-cli for audio/detail; the search API cannot extract video content.",
+        )
+
     metadata_path = artifacts_root / "metadata.json"
     command = ["bili", "video", input_value]
     try:
         completed = run_capture(command, timeout=60)
     except (OSError, subprocess.SubprocessError) as exc:
         append_command_log(command_log, command=command, returncode=1, note=str(exc))
-        return "failed", [], {}, [{"stage": "bilibili", "reason": str(exc)}], "Provide Bilibili subtitle/transcript or local media."
+        return "failed", [], metadata, [{"stage": "bilibili", "reason": str(exc)}], "Provide Bilibili subtitle/transcript or local media."
     append_command_log(command_log, command=command, returncode=completed.returncode, note="bili-cli metadata")
-    if completed.returncode == 0 and _write_stdout_artifact(metadata_path, completed.stdout):
-        entry = bundle.artifact_entry(
-            bundle_root=bundle_root,
-            path=metadata_path,
-            artifact_type="metadata",
-            source_class="metadata_only",
-            description="Bilibili metadata/detail output.",
-            created_by="bili-cli",
-        )
-        return "metadata_only", [entry], {}, [], "Provide subtitles, transcript, or local media for ASR before full analysis."
-    return "failed", [], {}, [{"stage": "bilibili", "reason": completed.stderr[-1000:] or "empty metadata output"}], "Provide subtitle/transcript or local media."
+    if completed.returncode == 0 and completed.stdout.strip():
+        try:
+            metadata_payload = json.loads(completed.stdout)
+        except json.JSONDecodeError:
+            failures.append({"stage": "bilibili_metadata_parse", "reason": "bili-cli metadata was not valid JSON"})
+        else:
+            bundle.write_json(metadata_path, sanitize_data(metadata_payload))
+            artifacts.append(bundle.artifact_entry(
+                bundle_root=bundle_root,
+                path=metadata_path,
+                artifact_type="metadata",
+                source_class="metadata_only",
+                content_scope="metadata",
+                description="Redacted Bilibili metadata/detail output.",
+                created_by="bili-cli",
+            ))
+    else:
+        failures.append({"stage": "bilibili_metadata", "reason": completed.stderr[-1000:] or "empty metadata output"})
+
+    if operation != "extract_transcript":
+        if artifacts:
+            return "metadata_only", artifacts, metadata, failures, "Provide subtitles/transcript when content analysis is required."
+        return "failed", [], metadata, failures, "Provide a supported Bilibili URL or local material."
+
+    audio_command = ["bili", "audio", input_value]
+    try:
+        audio_result = run_capture(audio_command, cwd=artifacts_root, timeout=180)
+    except (OSError, subprocess.SubprocessError) as exc:
+        append_command_log(command_log, command=audio_command, returncode=1, note=str(exc))
+        failures.append({"stage": "bilibili_audio", "reason": str(exc)})
+    else:
+        append_command_log(command_log, command=audio_command, returncode=audio_result.returncode, note="Agent-Reach bili-cli audio route")
+        if audio_result.returncode != 0:
+            failures.append({"stage": "bilibili_audio", "reason": audio_result.stderr[-1000:] or audio_result.stdout[-1000:] or "audio command failed"})
+
+    audio_files = [
+        path
+        for suffix in ("*.mp3", "*.m4a", "*.wav", "*.opus")
+        for path in artifacts_root.glob(suffix)
+        if path.is_file()
+    ]
+    if audio_files:
+        audio_path = sorted(audio_files)[0]
+        transcript_path = artifacts_root / "bilibili_transcript.txt"
+        transcribe_command = ["agent-reach", "transcribe", str(audio_path), "-o", str(transcript_path)]
+        try:
+            transcribed = run_capture(transcribe_command, timeout=600)
+        except (OSError, subprocess.SubprocessError) as exc:
+            append_command_log(command_log, command=transcribe_command, returncode=1, note=str(exc))
+            failures.append({"stage": "bilibili_transcribe", "reason": str(exc)})
+        else:
+            append_command_log(command_log, command=transcribe_command, returncode=transcribed.returncode, note="Agent-Reach transcription route")
+            if transcribed.returncode == 0 and transcript_path.is_file() and transcript_path.stat().st_size > 0:
+                artifacts.append(
+                    bundle.artifact_entry(
+                        bundle_root=bundle_root,
+                        path=transcript_path,
+                        artifact_type="transcript",
+                        source_class="primary",
+                        content_scope="video_transcript",
+                        description="Bilibili audio-derived transcript.",
+                        created_by="agent-reach_transcribe",
+                    )
+                )
+                return "material_acquired", artifacts, metadata, failures, "ingest_bundle"
+            failures.append({"stage": "bilibili_transcribe", "reason": transcribed.stderr[-1000:] or "transcription produced no file"})
+
+    if artifacts:
+        return "metadata_only", artifacts, metadata, failures, "Provide subtitles or configure the authorized audio transcription route."
+    return "failed", [], metadata, failures, "Provide Bilibili subtitles/transcript or authorized local media."
 
 
 def copy_repo_readme(clone_root: Path, output_path: Path) -> bool:
@@ -910,10 +1350,25 @@ def acquire_github(input_value: str, project_root: Path, command_log: Path) -> t
     return "failed", [], {}, failures, "Install/authenticate gh CLI or provide local source material."
 
 
-def acquire_search(input_value: str, project_root: Path, command_log: Path) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
+def acquire_search(
+    input_value: str,
+    project_root: Path,
+    command_log: Path,
+    *,
+    doctor: dict[str, Any],
+) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
     output = artifacts_root / "search_results.md"
+    if not active_backend_is_ready(doctor, "search"):
+        item = doctor_item_for_platform(doctor, "search")
+        return (
+            "blocked",
+            [],
+            {},
+            [{"stage": "search_active_backend", "reason": item.get("message") or "Exa search backend is not ready."}],
+            "Configure Exa in the mcporter home scope, then retry.",
+        )
     command = ["mcporter", "call", "exa.web_search_exa", f"query={input_value}", "numResults=5"]
     try:
         completed = run_capture(command, timeout=60)
@@ -934,16 +1389,27 @@ def acquire_search(input_value: str, project_root: Path, command_log: Path) -> t
     return "failed", [], {}, [{"stage": "search", "reason": completed.stderr[-1000:] or "empty search output"}], "Provide primary material or configure Agent-Reach search."
 
 
-def acquire_with_agent_reach(*, input_value: str, project_root: Path) -> Path:
+def _acquire_with_agent_reach_into(
+    *,
+    input_value: str,
+    project_root: Path,
+    run_id: str,
+    attempt_id: str,
+    analysis_target: str,
+    operation: str,
+    source_fingerprint: str,
+    platform_override: str = "",
+    youtube_options: dict[str, Any] | None = None,
+) -> Path:
     project_root = project_root.resolve()
     bundle_root = project_root / "00_acquisition"
     (bundle_root / "artifacts").mkdir(parents=True, exist_ok=True)
     (bundle_root / "logs").mkdir(parents=True, exist_ok=True)
     command_log = bundle_root / "logs" / "commands.jsonl"
-    platform = detect_platform(input_value)
+    platform = platform_override or detect_platform(input_value)
 
     if platform == "local_file":
-        return bundle.build_local_bundle(input_path=Path(input_value), project_root=project_root)
+        raise AgentReachAdapterError("local files must use build_local_bundle")
     if platform not in SUPPORTED_PLATFORMS:
         return make_failed_manifest(
             project_root=project_root,
@@ -951,6 +1417,11 @@ def acquire_with_agent_reach(*, input_value: str, project_root: Path) -> Path:
             platform=platform,
             status="unsupported",
             reason=f"platform is not supported by the first adapter version: {platform}",
+            run_id=run_id,
+            attempt_id=attempt_id,
+            analysis_target=analysis_target,
+            operation=operation,
+            source_fingerprint=source_fingerprint,
         )
     if shutil.which("agent-reach") is None:
         return make_failed_manifest(
@@ -959,27 +1430,58 @@ def acquire_with_agent_reach(*, input_value: str, project_root: Path) -> Path:
             platform=platform,
             status="failed",
             reason="agent-reach command not found",
+            run_id=run_id,
+            attempt_id=attempt_id,
+            analysis_target=analysis_target,
+            operation=operation,
+            source_fingerprint=source_fingerprint,
         )
 
     doctor = write_doctor(project_root, command_log)
     active_backend = active_backend_from_doctor(doctor, platform)
-    route_plan = route_plan_for(platform, doctor, input_value)
+    route_plan = route_plan_for(
+        platform,
+        doctor,
+        input_value,
+        analysis_target=analysis_target,
+        operation=operation,
+    )
     write_route_plan(project_root, route_plan)
     privacy_flags: dict[str, bool] = {
         "cookies_used": False,
         "browser_session_used": False,
     }
 
-    if platform == "web":
-        status, artifacts, metadata, failures, next_action = acquire_web(input_value, project_root, command_log)
+    if not route_plan.get("capability_ready"):
+        status, artifacts, metadata, failures, next_action = (
+            "blocked",
+            [],
+            {"route_plan": route_plan, "capability_mismatch": True},
+            [
+                {
+                    "stage": "active_backend_capability",
+                    "reason": route_plan.get("blocked_until_ready_reason")
+                    or f"No ready backend supports operation {operation!r} for {platform!r}.",
+                }
+            ],
+            "Configure a ready backend that supports the requested operation, or provide task-primary local material.",
+        )
+    elif platform == "web":
+        status, artifacts, metadata, failures, next_action = acquire_web(input_value, project_root, command_log, analysis_target=analysis_target)
     elif platform == "youtube":
-        status, artifacts, metadata, failures, next_action = acquire_youtube(input_value, project_root, command_log)
+        status, artifacts, metadata, failures, next_action, privacy_flags = acquire_youtube(
+            input_value,
+            project_root,
+            command_log,
+            options=youtube_options or {},
+            operation=operation,
+        )
     elif platform == "bilibili":
-        status, artifacts, metadata, failures, next_action = acquire_bilibili(input_value, project_root, command_log)
+        status, artifacts, metadata, failures, next_action = acquire_bilibili(input_value, project_root, command_log, doctor=doctor, operation=operation)
     elif platform == "github":
         status, artifacts, metadata, failures, next_action = acquire_github(input_value, project_root, command_log)
     elif platform == "search":
-        status, artifacts, metadata, failures, next_action = acquire_search(input_value, project_root, command_log)
+        status, artifacts, metadata, failures, next_action = acquire_search(input_value, project_root, command_log, doctor=doctor)
     elif platform == "x":
         status, artifacts, metadata, failures, next_action, active_backend, privacy_flags = acquire_x(
             input_value,
@@ -1002,7 +1504,7 @@ def acquire_with_agent_reach(*, input_value: str, project_root: Path) -> Path:
             [{"stage": "routing", "reason": f"unsupported platform: {platform}"}],
             "Provide local primary material.",
         )
-    if isinstance(metadata, dict) and "route_plan" not in metadata:
+    if isinstance(metadata, dict):
         metadata = {**metadata, "route_plan": route_plan}
 
     manifest = bundle.make_manifest(
@@ -1025,11 +1527,16 @@ def acquire_with_agent_reach(*, input_value: str, project_root: Path) -> Path:
         limits=primary_missing_limit(platform, status),
         failures=failures,
         next_action=next_action,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        analysis_target=analysis_target,
+        operation=operation,
+        source_fingerprint=source_fingerprint,
     )
     notes = [
         "# Acquisition Notes",
         "",
-        f"- Input: `{input_value}`",
+        f"- Input: `{redact_value_for_record(input_value)}`",
         f"- Platform: `{platform}`",
         f"- Active backend: `{active_backend or 'unknown'}`",
         f"- Status: `{status}`",
@@ -1039,6 +1546,67 @@ def acquire_with_agent_reach(*, input_value: str, project_root: Path) -> Path:
     ]
     bundle.write_text(bundle_root / "logs" / "acquisition_notes.md", "\n".join(notes))
     return bundle.write_manifest(project_root, manifest)
+
+
+def acquire_with_agent_reach(
+    *,
+    input_value: str,
+    project_root: Path,
+    analysis_target: str = "auto",
+    operation: str = "auto",
+    resume: bool = False,
+    platform_override: str = "",
+    youtube_options: dict[str, Any] | None = None,
+) -> Path:
+    project_root = project_root.resolve()
+    platform = platform_override or detect_platform(input_value)
+    if platform_override and platform_override not in SUPPORTED_PLATFORMS:
+        raise AgentReachAdapterError(f"unsupported platform override: {platform_override}")
+    if platform == "local_file":
+        return bundle.build_local_bundle(
+            input_path=Path(input_value),
+            project_root=project_root,
+            analysis_target=analysis_target,
+            operation=operation,
+            resume=resume,
+        )
+
+    chosen_target = source_gate.infer_analysis_target(platform, analysis_target)
+    chosen_operation = source_gate.infer_operation(chosen_target, operation)
+    source_id = source_id_for(input_value, platform)
+    try:
+        identity = run_context.ensure_run_identity(
+            project_root=project_root,
+            platform=platform,
+            source_id=source_id,
+            source_value=input_value,
+            analysis_target=chosen_target,
+            operation=chosen_operation,
+            resume=resume,
+        )
+        attempt = run_context.prepare_attempt(project_root=project_root, identity=identity)
+    except run_context.RunContextError as exc:
+        raise AgentReachAdapterError(str(exc)) from exc
+
+    try:
+        staged_manifest = _acquire_with_agent_reach_into(
+            input_value=input_value,
+            project_root=attempt.work_project_root,
+            run_id=attempt.run_id,
+            attempt_id=attempt.attempt_id,
+            analysis_target=attempt.analysis_target,
+            operation=attempt.operation,
+            source_fingerprint=str(identity["source_fingerprint"]),
+            platform_override=platform,
+            youtube_options=youtube_options,
+        )
+        validation = bundle.validate_manifest(staged_manifest)
+        if not validation["valid"]:
+            raise AgentReachAdapterError("acquisition bundle failed validation: " + "; ".join(validation["errors"]))
+        return run_context.promote_attempt(attempt)
+    except Exception:
+        run_context.abandon_attempt(attempt)
+        raise
 
 
 def _channel_set(channels: str) -> set[str]:
@@ -1065,7 +1633,7 @@ def install_npm_global(package: str) -> int:
 def configure_exa_search() -> None:
     if shutil.which("mcporter") is None:
         return
-    command = ["mcporter", "config", "add", "exa", "https://mcp.exa.ai/mcp"]
+    command = ["mcporter", "config", "add", "exa", "https://mcp.exa.ai/mcp", "--scope", "home"]
     try:
         subprocess.run(resolve_command_for_subprocess(command), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
@@ -1138,7 +1706,13 @@ def agent_reach_doctor(*, output_json: Path | None = None) -> int:
     return completed.returncode
 
 
-def agent_reach_route_plan(*, input_value: str, output_json: Path | None = None) -> int:
+def agent_reach_route_plan(
+    *,
+    input_value: str,
+    output_json: Path | None = None,
+    analysis_target: str = "auto",
+    operation: str = "auto",
+) -> int:
     platform = detect_platform(input_value)
     command = ["agent-reach", "doctor", "--json"]
     try:
@@ -1154,7 +1728,13 @@ def agent_reach_route_plan(*, input_value: str, output_json: Path | None = None)
     except json.JSONDecodeError as exc:
         print(f"agent-reach doctor returned invalid JSON: {exc}", file=sys.stderr)
         return 1
-    plan = route_plan_for(platform, doctor if isinstance(doctor, dict) else {}, input_value)
+    plan = route_plan_for(
+        platform,
+        doctor if isinstance(doctor, dict) else {},
+        input_value,
+        analysis_target=analysis_target,
+        operation=operation,
+    )
     payload = {"input": redact_value_for_record(input_value), "platform": platform, "route_plan": plan}
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if output_json:

@@ -28,13 +28,19 @@ Equivalent individual commands:
 python .\kw.py demo
 python .\tests\knowledge_workflow_regression.py
 python .\tests\real_workflow_acceptance.py
+python .\tests\test_acquisition_bundle_schema.py
+python .\tests\test_local_bundle_ingest.py
+python .\tests\test_agent_reach_acquire_offline.py
+python .\tests\test_source_gate_from_bundle.py
+python .\tests\test_no_fake_report_from_agent_reach_failures.py
+python .\tests\test_run_provenance.py
 ```
 
 The default regression suite also runs realistic offline samples under
 `examples/real_world/` and verifies common failure paths such as empty
 transcripts and missing input files.
 
-For manual v0.5.0 validation:
+For manual batch validation:
 
 ```powershell
 python .\kw.py batch `

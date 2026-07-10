@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from kw_cli import agent_reach_adapter, bundle
+from kw_cli import agent_reach_adapter, bundle, ingest, main as kw_main
 
 
 def assert_true(name: str, condition: bool, failures: list[str]) -> None:
@@ -42,12 +42,14 @@ def test_youtube_subtitle_material_acquired(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             if command[:3] == ["agent-reach", "doctor", "--json"]:
-                return completed(command, stdout=json.dumps({"youtube": {"active_backend": "yt-dlp"}}))
-            if command[:3] == ["yt-dlp", "--skip-download", "--dump-single-json"]:
+                return completed(command, stdout=json.dumps({"youtube": {"status": "ok", "active_backend": "yt-dlp"}}))
+            if "--dump-single-json" in command:
                 return completed(command, stdout=json.dumps({"title": "Video"}))
             if command and command[0] == "yt-dlp":
-                (project / "00_acquisition" / "artifacts").mkdir(parents=True, exist_ok=True)
-                (project / "00_acquisition" / "artifacts" / "youtube.en.vtt").write_text(
+                output_template = Path(command[command.index("-o") + 1])
+                subtitle_path = Path(str(output_template).replace("%(ext)s", "en.vtt"))
+                subtitle_path.parent.mkdir(parents=True, exist_ok=True)
+                subtitle_path.write_text(
                     "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello.\n",
                     encoding="utf-8",
                 )
@@ -71,7 +73,7 @@ def test_bilibili_metadata_only(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             if command[:3] == ["agent-reach", "doctor", "--json"]:
-                return completed(command, stdout=json.dumps({"bilibili": {"active_backend": "bili-cli"}}))
+                return completed(command, stdout=json.dumps({"bilibili": {"status": "ok", "active_backend": "bili-cli"}}))
             if command[:2] == ["bili", "video"]:
                 return completed(command, stdout='{"title":"bili"}')
             return completed(command)
@@ -92,7 +94,7 @@ def test_web_page_markdown_artifact(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             if command[:3] == ["agent-reach", "doctor", "--json"]:
-                return completed(command, stdout=json.dumps({"web": {"active_backend": "Jina Reader"}}))
+                return completed(command, stdout=json.dumps({"web": {"status": "ok", "active_backend": "Jina Reader"}}))
             if command and command[0] == "curl":
                 return completed(command, stdout="# Page\n\nBody")
             return completed(command)
@@ -216,13 +218,13 @@ def test_xiaohongshu_opencli_primary_artifact(failures: list[str]) -> None:
             if command[:3] == ["agent-reach", "doctor", "--json"]:
                 return completed(command, stdout=json.dumps({"xiaohongshu": {"status": "ok", "active_backend": "OpenCLI"}}))
             if command[:3] == ["opencli", "xiaohongshu", "note"]:
-                return completed(command, stdout="title: note\ncontent: primary text\n")
+                return completed(command, stdout=json.dumps({"title": "note", "content": "primary text"}))
             return completed(command, code=1, stderr="unexpected")
 
         with patch("kw_cli.agent_reach_adapter.shutil.which", return_value="agent-reach"):
             with patch("kw_cli.agent_reach_adapter.run_capture", side_effect=fake_run):
                 manifest_path = agent_reach_adapter.acquire_with_agent_reach(
-                    input_value="https://www.xiaohongshu.com/explore/fixture?xsec_token=abc",
+                    input_value="https://www.xiaohongshu.com/explore/fixture?xsec_token=TOPSECRET_XHS_VALUE",
                     project_root=project,
                 )
         manifest = load_manifest(manifest_path)
@@ -234,6 +236,27 @@ def test_xiaohongshu_opencli_primary_artifact(failures: list[str]) -> None:
             failures,
         )
         assert_true("xiaohongshu OpenCLI records browser_session_used", manifest.get("privacy", {}).get("browser_session_used") is True, failures)
+        ingest_result = ingest.ingest_bundle(manifest_path=manifest_path, project_root=project)
+        source_status = ingest.read_json(project / "10_video" / "00_source" / "source_status.json")
+        assert_true("xiaohongshu bundle ingests end to end", ingest_result.get("source_status") == "source_confirmed", failures)
+        assert_true("xiaohongshu source target is social_post", source_status.get("analysis_target") == "social_post", failures)
+        assert_true("xiaohongshu clean transcript exists", (project / "10_video" / "01_transcript" / "clean_transcript.jsonl").is_file(), failures)
+        secret_url = "https://www.xiaohongshu.com/explore/fixture?xsec_token=TOPSECRET_XHS_VALUE"
+        kw_main.run_preflight(secret_url, "standard", project, False)
+        kw_main.write_run_state(
+            project_root=project,
+            mode="standard",
+            input_kind="url",
+            input_value=secret_url,
+            status="completed",
+            workflow_outcome="transcript_ready",
+        )
+        persisted_text = "\n".join(
+            path.read_text(encoding="utf-8", errors="replace")
+            for path in project.rglob("*")
+            if path.is_file()
+        )
+        assert_true("xiaohongshu token is absent from persisted tree", "TOPSECRET_XHS_VALUE" not in persisted_text, failures)
 
 
 def test_xiaohongshu_opencli_warn_blocks_until_ready(failures: list[str]) -> None:
@@ -277,7 +300,7 @@ def test_github_readme_from_clone(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             if command[:3] == ["agent-reach", "doctor", "--json"]:
-                return completed(command, stdout=json.dumps({"github": {"active_backend": "gh"}}))
+                return completed(command, stdout=json.dumps({"github": {"status": "ok", "active_backend": "gh CLI"}}))
             if command[:4] == ["gh", "repo", "view", "cli/cli"]:
                 assert "--json" in command
                 assert "readme" not in command[-1]
@@ -310,7 +333,7 @@ def test_query_search_secondary_bundle(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             if command[:3] == ["agent-reach", "doctor", "--json"]:
-                return completed(command, stdout=json.dumps({"exa_search": {"active_backend": "mcporter/exa"}}))
+                return completed(command, stdout=json.dumps({"exa_search": {"status": "ok", "active_backend": "Exa via mcporter"}}))
             if command[:2] == ["mcporter", "call"]:
                 return completed(command, stdout="- Search result one\n- Search result two\n")
             return completed(command, code=1, stderr="unexpected")
@@ -323,7 +346,7 @@ def test_query_search_secondary_bundle(failures: list[str]) -> None:
                 )
         manifest = load_manifest(manifest_path)
         assert_true("query search -> secondary_only", manifest.get("status") == "secondary_only", failures)
-        assert_true("query active backend from exa_search", manifest.get("active_backend") == "mcporter/exa", failures)
+        assert_true("query active backend from exa_search", manifest.get("active_backend") == "Exa via mcporter", failures)
         assert_true(
             "query artifact is secondary search_result",
             any(item.get("type") == "search_result" and item.get("source_class") == "secondary" for item in manifest.get("artifacts", [])),
@@ -331,8 +354,170 @@ def test_query_search_secondary_bundle(failures: list[str]) -> None:
         )
 
 
+def test_bilibili_search_backend_cannot_claim_transcript(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-ar-bili-capability-") as tmp:
+        project = Path(tmp) / "project"
+        executed: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs):
+            executed.append(command)
+            if command[:3] == ["agent-reach", "doctor", "--json"]:
+                return completed(
+                    command,
+                    stdout=json.dumps(
+                        {"bilibili": {"status": "ok", "active_backend": "B站搜索 API", "message": "search only"}}
+                    ),
+                )
+            return completed(command, code=1, stderr="unexpected")
+
+        with patch("kw_cli.agent_reach_adapter.shutil.which", return_value="agent-reach"):
+            with patch("kw_cli.agent_reach_adapter.run_capture", side_effect=fake_run):
+                manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+                    input_value="https://www.bilibili.com/video/BV1xx411",
+                    project_root=project,
+                )
+        manifest = load_manifest(manifest_path)
+        assert_true("Bilibili search-only backend -> blocked", manifest.get("status") == "blocked", failures)
+        assert_true(
+            "Bilibili capability mismatch does not call content commands",
+            not any(command and command[0] in {"bili", "opencli"} for command in executed),
+            failures,
+        )
+        assert_true(
+            "Bilibili route plan records operation mismatch",
+            manifest.get("metadata", {}).get("route_plan", {}).get("operation_supported") is False,
+            failures,
+        )
+
+
+def test_youtube_options_are_applied_and_redacted(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-ar-youtube-options-") as tmp:
+        root = Path(tmp)
+        project = root / "project"
+        ytdlp = root / "yt-dlp.exe"
+        node = root / "node.exe"
+        cookies = root / "TOPSECRET_COOKIE_FILE.txt"
+        for path in (ytdlp, node, cookies):
+            path.write_text("fixture", encoding="utf-8")
+        executed: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs):
+            executed.append(command)
+            if command[:3] == ["agent-reach", "doctor", "--json"]:
+                return completed(command, stdout=json.dumps({"youtube": {"status": "ok", "active_backend": "yt-dlp"}}))
+            if "--dump-single-json" in command:
+                return completed(command, stdout=json.dumps({"id": "abc", "title": "Video"}))
+            if "--write-subs" in command:
+                return completed(command, code=1, stderr="no subtitles")
+            return completed(command, code=1, stderr="unexpected")
+
+        options = {
+            "platform_mode": "subtitles",
+            "youtube_cookies": str(cookies),
+            "ytdlp": ytdlp,
+            "node": node,
+            "platform_timeout_seconds": 45,
+            "subtitle_languages": "en,zh-Hans",
+            "use_js_runtime": True,
+            "use_remote_components": True,
+            "ytdlp_extractor_args": ["youtube:fetch_pot=auto"],
+            "ytdlp_player_clients": "web,mweb",
+            "youtube_visitor_data": "VISITOR_SECRET_VALUE",
+            "youtube_po_token": ["web.gvs+PO_SECRET_VALUE"],
+            "ytdlp_proxy": "http://user:PROXY_SECRET_VALUE@proxy.example:8080",
+            "ytdlp_impersonate": "chrome",
+            "ytdlp_sleep_requests": 1.5,
+            "ytdlp_retry_sleep": ["http:linear=1::2"],
+        }
+        with patch("kw_cli.agent_reach_adapter.shutil.which", return_value="agent-reach"):
+            with patch("kw_cli.agent_reach_adapter.run_capture", side_effect=fake_run):
+                manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+                    input_value="https://www.youtube.com/watch?v=abc",
+                    project_root=project,
+                    youtube_options=options,
+                )
+        manifest = load_manifest(manifest_path)
+        ytdlp_commands = [command for command in executed if command and command[0] == str(ytdlp.resolve())]
+        combined_command = "\n".join(" ".join(command) for command in ytdlp_commands)
+        for expected in (
+            "--cookies",
+            "--js-runtimes",
+            "--remote-components",
+            "--proxy",
+            "--impersonate",
+            "--sleep-requests",
+            "--retry-sleep",
+            "VISITOR_SECRET_VALUE",
+            "PO_SECRET_VALUE",
+            "en,zh-Hans",
+        ):
+            assert_true(f"YouTube option applied: {expected}", expected in combined_command, failures)
+        assert_true("YouTube options bundle remains valid", bundle.validate_manifest(manifest_path)["valid"], failures)
+        assert_true("YouTube subtitle-only failure is metadata_only", manifest.get("status") == "metadata_only", failures)
+        persisted_text = "\n".join(
+            path.read_text(encoding="utf-8", errors="replace")
+            for path in project.rglob("*")
+            if path.is_file()
+        )
+        for secret in ("TOPSECRET_COOKIE_FILE", "VISITOR_SECRET_VALUE", "PO_SECRET_VALUE", "PROXY_SECRET_VALUE"):
+            assert_true(f"YouTube secret not persisted: {secret}", secret not in persisted_text, failures)
+
+
+def test_youtube_edge_browser_is_explicit(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-ar-youtube-edge-") as tmp:
+        root = Path(tmp)
+        project = root / "project"
+        ytdlp = root / "yt-dlp.exe"
+        ytdlp.write_text("fixture", encoding="utf-8")
+        executed: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs):
+            executed.append(command)
+            if command[:3] == ["agent-reach", "doctor", "--json"]:
+                return completed(command, stdout=json.dumps({"youtube": {"status": "ok", "active_backend": "yt-dlp"}}))
+            if "--dump-single-json" in command:
+                return completed(command, stdout=json.dumps({"id": "edge", "title": "Video"}))
+            if "--write-subs" in command:
+                return completed(command, code=1, stderr="no subtitles")
+            return completed(command, code=1, stderr="unexpected")
+
+        with patch("kw_cli.agent_reach_adapter.shutil.which", return_value="agent-reach"):
+            with patch("kw_cli.agent_reach_adapter.run_capture", side_effect=fake_run):
+                manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+                    input_value="https://www.youtube.com/watch?v=edge",
+                    project_root=project,
+                    youtube_options={
+                        "platform_mode": "subtitles",
+                        "youtube_browser": "edge",
+                        "ytdlp": ytdlp,
+                    },
+                )
+        manifest = load_manifest(manifest_path)
+        ytdlp_commands = [command for command in executed if command and command[0] == str(ytdlp.resolve())]
+        assert_true(
+            "YouTube Edge browser option applied",
+            all("--cookies-from-browser" in command and "edge" in command for command in ytdlp_commands),
+            failures,
+        )
+        assert_true("YouTube Edge records cookies used", manifest.get("privacy", {}).get("cookies_used") is True, failures)
+        assert_true("YouTube Edge records browser session", manifest.get("privacy", {}).get("browser_session_used") is True, failures)
+        assert_true("YouTube Edge bundle valid", bundle.validate_manifest(manifest_path)["valid"], failures)
+
+
 def main() -> int:
     failures: list[str] = []
+    assert_true(
+        "locked browser cookie database is blocked",
+        agent_reach_adapter.blocked_status_from_reason("Could not copy Chrome cookie database") == "blocked",
+        failures,
+    )
+    assert_true(
+        "locked browser cookie database has actionable next step",
+        "selected browser profile is locked" in agent_reach_adapter.youtube_next_action(
+            [{"reason": "Could not copy Chrome cookie database"}]
+        ),
+        failures,
+    )
     test_agent_reach_missing_failed_bundle(failures)
     test_youtube_subtitle_material_acquired(failures)
     test_bilibili_metadata_only(failures)
@@ -344,6 +529,9 @@ def main() -> int:
     test_xiaohongshu_opencli_warn_blocks_until_ready(failures)
     test_github_readme_from_clone(failures)
     test_query_search_secondary_bundle(failures)
+    test_bilibili_search_backend_cannot_claim_transcript(failures)
+    test_youtube_options_are_applied_and_redacted(failures)
+    test_youtube_edge_browser_is_explicit(failures)
     if failures:
         print("FAILURES:")
         for failure in failures:

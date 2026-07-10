@@ -1,291 +1,81 @@
-﻿# Knowledge Workflow Routing
+# Routing
 
-knowledge-workflow-console is the controller. It only decides the route, invokes the appropriate skill or tool, checks intermediate artifacts, and decides whether to continue to the next stage. It does not directly handle acquisition internals, detailed evidence analysis, or document writing.
-
-## v0.6 Routing Reset
-
-New primary route:
+## Four-Layer Route
 
 ```text
-URL/query
+knowledge-workflow-console
   -> agent-reach-console
-  -> 00_acquisition/manifest.json
   -> source-gated-evidence-layer
-  -> 10_video/00_source/source_status.json (legacy-compatible)
-  -> 10_video/video_analysis_pack.md or source_analysis_pack.md when allowed
   -> knowledge-document-composer
 ```
 
-Local file route:
+`knowledge-video-decomposer` is an internal script library used by the evidence
+layer. Do not route users to it as an alternative workflow.
 
-```text
-local transcript/subtitle/audio/video
-  -> local acquisition bundle
-  -> source-gated-evidence-layer
-```
+## Select the Task Target
 
-Existing complete pack route:
+| Input/task | Target | Operation |
+| --- | --- | --- |
+| YouTube/Bilibili/local media content | `video_content` | `extract_transcript` |
+| X/Xiaohongshu post body | `social_post` | `read` |
+| Ordinary web article | `web_article` | `read` |
+| GitHub repository document | `repository` | `read` |
+| Open-web query | `search_triage` | `search` |
 
-```text
-video_analysis_pack.md or source_analysis_pack.md
-  -> knowledge-document-composer
-```
+Ask or infer the target from the requested analysis, not only the URL host. A
+social post containing a video is ambiguous: post analysis and video analysis
+require different scopes.
 
-Blocked or degraded route:
+## Modes
 
-```text
-blocked/failed/metadata_only/secondary_only bundle
-  -> source_status.json
-  -> degraded_source_report.md
-  -> result_index.md only
-```
+- `quick`: preflight only; no evidence or final-report claim.
+- `standard`: acquire, gate, and audit when allowed; final writing is optional.
+- `audit`: acquire, gate, audit, compose, quality-check, and write a final
+  report only when every receipt is current.
 
-## Supervisor Dispatch Layer
+## URL and Query Route
 
-subagent-supervisor is an optional enhancement layer, not a dependency of the released three-skill package.
+1. Run preflight with a redacted input record.
+2. Run Agent-Reach doctor.
+3. Write a route plan for the selected target and operation.
+4. Require backend health plus implemented operation support.
+5. Create a staged Bundle v2 attempt and promote only after validation.
+6. Ingest through the target/scope source gate.
+7. Stop degraded when the matching primary scope is absent.
+8. Continue to evidence and composer only with current receipts.
 
-Use subagent-supervisor only when it is installed and the user explicitly asks for subagents, delegation, a worker, a reviewer, a manager, or independent verification. If it is not installed, keep the workflow inside `knowledge-workflow-console`, `knowledge-video-decomposer`, and `knowledge-document-composer`.
+## Local Route
 
-When used, subagent-supervisor wraps the route; it does not replace web-intent-scout, Chrome, knowledge-video-decomposer, or knowledge-document-composer. The console still chooses the route and project layout, while subagent-supervisor creates bounded handoffs, coordinates parallel work, verifies returns, records acceptance, and requests rework when needed.
+Local transcript, subtitle, audio, and video use the same Bundle v2 contract.
+The local source fingerprint includes file content SHA-256. Audio/video remains
+degraded until ASR produces a usable transcript bound into the gate receipt.
 
-Do not use subagent-supervisor for simple single-stage routing unless the user asks for delegated work.
+## Resume
 
-When the task is a small rules patch, progress audit, route choice, artifact check, or low-cost test run, keep it supervisor-owned unless an independent reviewer would clearly reduce risk. Do not spawn a new subagent just because the workflow-console or subagent-supervisor skill is active.
+Default to a new project root. `--resume` is valid only for the same source
+fingerprint, target, and operation. A resume is a new attempt, not permission
+to reuse output files. Old bundles and downstream outputs move to history.
 
-Before spawning, check whether an existing same-chain subagent should be reused. Prefer reuse for follow-up rework on the same artifact family, and prefer supervisor-only for bounded edits that the main agent can verify directly.
+## Browser and Chrome
 
-Subagent budget rules:
-- Default to 0 subagents.
-- For an ordinary delegated stage, use at most 1 worker.
-- Add at most 1 reviewer only when independent verification is necessary.
-- Do not expand worker or reviewer count to bypass source, Chrome, or document handoff gates.
+Use OpenCLI only when Agent-Reach doctor reports it ready. A Codex Chrome
+session can inspect or export authorized visible material, but the export must
+become a bundle artifact. Browser metadata, screenshots, page shell, and login
+state are not source evidence by themselves.
 
-## Entry Types
+## Optional Independent Review
 
-## Product Modes
+When the user explicitly asks for a subagent or independent verification,
+`subagent-supervisor` may review route decisions or outputs. It does not replace
+any workflow layer and must not approve evidence without the same receipts.
 
-Choose the lightest mode that satisfies the user's request. Do not force every
-task through the audit path.
+## Completion Summary
 
-### Quick Triage Mode
+Always report:
 
-Use when the user asks whether a video/page is worth watching, what the page
-appears to be about, or requests a low-cost first look.
-
-- Allowed sources: title, description, chapters, visible metadata, screenshots,
-  and secondary context.
-- Required label: non-primary / degraded / quick triage.
-- Prohibited: complete speaker logic reconstruction, complete claims inventory,
-  or `video_analysis_pack.md`.
-- Output: short triage, uncertainty, and what primary material is needed for a
-  full analysis.
-
-### Standard Video Analysis Mode
-
-Use when the user wants the video content analyzed.
-
-- Required sources: transcript, subtitles, browser-visible transcript, or local
-  audio/video that ASR can transcribe.
-- Output: transcript artifacts, decomposition artifacts, and
-  `video_analysis_pack.md` when source gates allow.
-- If no primary material exists, stop at degraded acquisition output.
-
-### Audit Report Mode
-
-Use when the user wants a research-grade report, article, briefing, or reusable
-knowledge asset.
-
-- Required path: source gate -> evidence audit -> video_analysis_pack ->
-  document planning -> final report quality gate.
-- Output: Source / Inference / Extension separated report, `quality_gate.json`,
-  and `final_report.md` only when approved.
-
-## Preflight Stage
-
-Before long URL/media runs, uncertain platform runs, or any run where the user
-may expect "drop a link and get a report", run:
-
-```powershell
-python scripts/workflow_preflight.py --input <url-or-file> --mode quick|standard|audit --pretty
-```
-
-Preflight must explain:
-
-- estimated success,
-- likely route,
-- whether cookies/local media/transcript may be needed,
-- whether a full report is possible,
-- what output is allowed if only metadata is available.
-
-Preflight is advisory. It must not create `10_video`, `20_document`, or claim
-source confirmation.
-
-### 1. Topic Discovery
-
-Use when the user gives a topic, person, direction, or question instead of a specific video.
-
-Examples:
-- "帮我找几个讲 AI agent workflow 的视频"
-- "找黄仁勋讲 AI factory 的高质量视频"
-- "找几个适合拆解 prompt 到 loop 的视频"
-
-Route:
-1. web-intent-scout
-2. candidate_videos.json
-3. User confirmation or highest-priority video selection
-4. knowledge-video-decomposer
-5. knowledge-document-composer
-
-### 2. Direct Video URL
-
-Use when the user gives a YouTube, X, Bilibili, course site, public video page, conference page, podcast page, or other video page link.
-
-Route:
-1. `agent-reach-console` creates `00_acquisition/manifest.json`.
-2. `source-gated-evidence-layer` validates the bundle and writes `source_status.json`.
-3. Continue to full or partial decomposition only when the source gate allows it.
-4. `knowledge-document-composer` only after the Source Status Handoff Gate below allows the requested report type.
-5. Stop at transcript artifacts if the user only wants a transcript.
-
-If the user asks for a low-cost or quick validation run, use the Low-Cost / Fast Pass Mode below before doing the full route.
-
-### 3. Existing Transcript Or Subtitle
-
-Use when the user gives an existing transcript, subtitle file, json3, vtt, srt, Markdown, or plain text.
-
-Route:
-1. Build a local `00_acquisition/manifest.json`.
-2. `source-gated-evidence-layer` validates and ingests it.
-3. `knowledge-document-composer` runs only after evidence audit and pack gates allow.
-
-Productized runner:
-
-- `kw.py run` is the primary route and uses the acquisition bundle handoff.
-- `scripts/end_to_end_runner.py` remains available as a legacy compatibility
-  runner. Do not use it as the primary URL acquisition route for new work.
-
-If the user explicitly only wants an article or report, route directly to knowledge-document-composer.
-
-### 4. Existing Video Analysis Pack
-
-Use when the user gives structured materials such as `source_analysis_pack.md`,
-`video_analysis_pack.md`, `logic_graph.json`, `claims.json`, or
-`source_logic.md`.
-
-Route:
-1. knowledge-document-composer
-
-### 5. Existing Draft Or Report Revision
-
-Use when the user wants to revise, expand, rewrite, or convert an existing report into a script, research note, or presentation outline.
-
-Route:
-1. knowledge-document-composer
-
-### 6. Page Verification / Browser-State Task
-
-Use when the user needs to confirm real page state, login state, dynamic content, visible transcript, subtitle controls, expand buttons, comments, description, screenshots, or webpage context.
-
-Route:
-1. Chrome plugin or browser control for observation/export only.
-2. Save any user-approved transcript, subtitle, page text, media file, or
-   observation into an acquisition bundle.
-3. Continue through `source-gated-evidence-layer`.
-
-## Chrome Calling Rules
-
-Chrome is a visual page reconnaissance and user-approved export tool. Prefer Chrome when the task involves real webpage state, video pages, platform pages, visible subtitles, login state, interactive buttons, screenshots, or page context judgment.
-
-For new video URL and platform page runs, Chrome observations must be converted
-into acquisition bundle artifacts before evidence-layer ingest. Do not let
-Chrome metadata bypass the source gate.
-
-Prioritize Chrome when:
-- The user gives a YouTube, X, Bilibili, course site, public video page, conference page, podcast page, or product launch page.
-- The user asks what is on a webpage, what a video page is, or whether the page exposes a transcript.
-- The task requires confirmation of actual visible page content.
-- The page may involve login state, region differences, dynamic loading, expand buttons, subtitle panels, comments, or descriptions.
-- The task requires judging whether a video is an original source, secondary edit, short clip, or repost.
-- The task requires saving a screenshot of page state.
-- The task requires reading page title, description, publication time, author, channel, engagement data, linked context, or surrounding page context.
-- The task requires confirming transcript availability, subtitle language, automatic captions, chapters, or timeline.
-- yt-dlp or Firecrawl metadata may differ from the visible page state.
-- The user explicitly asks to use Chrome, inspect a page, open a webpage, or confirm in the browser.
-- A platform extractor reports HTTP 429, bot/CAPTCHA checks, login requirements, permission barriers, RequestBlocked, Hearsay URL timeout on a platform URL, or similar platform obstruction.
-
-Chrome can be skipped when:
-- The user gives a local transcript, subtitle file, PDF, Markdown, or plain text.
-- yt-dlp has already reliably obtained official subtitles and complete metadata, and page context is not needed.
-- Firecrawl has already obtained complete webpage text, and page state does not affect the decision.
-- The user only wants document processing from existing text.
-- The task is offline and does not involve webpage state.
-- The user explicitly asks to conserve tokens, run quickly, or only validate the workflow, and yt-dlp can obtain enough public metadata, subtitles, chapters, or audio to proceed. In that case, record that Chrome was skipped for cost control and use Chrome only if extraction fails or page state becomes central.
-
-## Source Status Handoff Gate
-
-Before sending any source-derived task to knowledge-document-composer, inspect
-the source status produced by `source-gated-evidence-layer`. Do not infer a
-permissive status from the acquisition bundle alone, metadata, search results,
-webpage extraction, screenshots, page observations, or third-party summaries.
-
-Rules:
-
-1. `source_confirmed`: full `video_analysis_pack` and full source-faithful document composition are allowed.
-2. `source_partial`: only clearly labeled partial decomposition and partial document composition are allowed, and only when the available source range, gaps, source class, and confidence are explicit.
-3. `secondary_only`, `source_blocked`, `source_failed`, or `degraded_report_only`: full decomposition and full report writing are forbidden. Do not send the task to knowledge-document-composer for a complete report, speaker logic reconstruction, complete argument graph, complete claims inventory, or complete source logic.
-4. When no primary transcript, primary audio-derived transcript, or browser-visible transcript is available, knowledge-document-composer may only write an acquisition failure report or a degraded source report.
-5. Firecrawl, web-intent-scout, search snippets, platform metadata, screenshots, page observations, Podwise, and third-party summaries are background or degraded-report inputs only. They cannot replace first-hand transcript/audio and cannot upgrade the source status to `source_confirmed`.
-6. If a degraded report is allowed and requested, the output filename, title, summary, and source explanation must explicitly include `degraded`, for example `degraded_source_report.md` or `degraded_acquisition_report.md`.
-7. If the current source status is unknown, blocked, or ambiguous, choose the more conservative status and ask for first-hand material or permission for the next acquisition step instead of continuing to full document composition.
-
-## Low-Cost / Fast Pass Mode
-
-Trigger this mode when the user says "bie fei token", "shao hua token", "low cost", "fast pass", "quick run", "quick validation", "xian shiyan", "xian yanshou", or otherwise asks for speed or cost control.
-
-Rules:
-
-1. Default to zero subagents. Use supervisor-only unless a separate reviewer is explicitly worth the cost.
-2. Do not open Chrome first if yt-dlp can obtain enough public metadata, subtitles, chapters, or audio for the requested test.
-3. Prefer existing subtitles or transcript files. If none exist, run the direct faster-whisper fallback before Hearsay.
-4. Use Hearsay only after the direct local fallback is unavailable, fails, or the user specifically asks for Hearsay.
-5. Prefer a quick ASR model only for rough workflow validation. Mark transcript confidence clearly and avoid pretending the transcript is exact.
-6. Produce the minimum artifacts needed to close the requested stage. Do not paste a full transcript into chat unless the user explicitly asks for it.
-7. Final response should be concise: stage completed, key artifact paths, confidence or limitations, and next recommended step.
-
-## Tool Priority Principles
-
-- Acquisition readiness and routing: Agent-Reach doctor first.
-- Real webpage state judgment: Chrome when page state matters.
-- Structured subtitle, audio, and metadata extraction: upstream tools selected by Agent-Reach.
-- Webpage text and publication context: Jina Reader or another acquisition route, but only as primary when the page itself is the source being analyzed.
-- No reliable transcript: direct faster-whisper fallback first; Hearsay MCP, WhisperX, or another ASR route only as backup.
-- Early video cleanup and segmentation mode: refer to VideoLingo.
-- Document generation and reprocessing: knowledge-document-composer.
-- Large artifact writing: use file-based generation, a reusable script, or small scoped patches. Avoid putting long reports or transcripts inside one huge shell command, because Windows command length limits can corrupt the run.
-
-## Stop Conditions
-
-- If the user only asks to find videos, stop at 00_scout.
-- If the user only asks for a transcript, stop at 10_video transcript artifacts.
-- If the user asks for video content analysis, stop at video_analysis_pack.
-- If the user asks for a report, article, or script, continue to 20_document.
-- If the user asks for a final deliverable file, continue to 30_final.
-
-## User-Facing Status Summary
-
-When a project directory exists, finish by running:
-
-```powershell
-python scripts/workflow_status_summary.py --project-root <project-root> --pretty
-```
-
-Use the status summary to answer the user's practical questions:
-
-- current stage,
-- source status,
-- whether primary material exists,
-- whether full analysis is allowed,
-- whether `video_analysis_pack.md` or `final_report.md` exists,
-- failure or gate reason,
-- user action required,
-- next safe step.
+- acquisition status;
+- source status and target;
+- full-analysis permission;
+- gate/analysis/final provenance state;
+- stale output presence;
+- result index and next safe action.

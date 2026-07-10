@@ -1,35 +1,39 @@
-# Source Gate
+# Target and Scope Source Gate
 
-The first action is bundle validation. The second action is source status
-construction.
+Validate the bundle before reading artifacts.
 
-## Bundle Status Mapping
+## Target Matrix
 
-| Bundle status and artifacts | Source status |
+| Analysis target | Required primary scope |
 | --- | --- |
-| `material_acquired` + primary artifact | `source_confirmed` |
-| `partial_material_acquired` + partial primary artifact | `source_partial` |
-| `metadata_only` | `secondary_only` or `degraded_report_only` |
+| `video_content` | `video_transcript` |
+| `social_post` | `social_post_text` |
+| `web_article` | `article_body` |
+| `repository` | `repository_document` |
+| `search_triage` | no full-report scope |
+
+An artifact must be `primary` or `partial_primary`, and its `content_scope`
+must satisfy the target. Acquisition success alone is insufficient.
+
+## Status Mapping
+
+| Bundle result | Source result |
+| --- | --- |
+| `material_acquired` plus matching primary scope | `source_confirmed` |
+| `partial_material_acquired` plus matching partial scope | `source_partial` |
+| primary material with the wrong scope | `degraded_report_only` |
+| `metadata_only` | `secondary_only` |
 | `secondary_only` | `secondary_only` |
 | `blocked` | `source_blocked` |
 | `failed` | `source_failed` |
 | `unsupported` | `degraded_report_only` |
 
-Only transcript, subtitle, ASR transcript, authorized local audio-derived
-transcript, or task-primary page text can open a normal analysis path.
+Always write `source_status.json` and `gate_receipt.json`, including for
+blocked and failed outcomes. Preserve run, attempt, bundle, source,
+fingerprint, target, operation, approved/uncovered scopes, manifest hash,
+permission flags, reason, and next step.
 
-## Gate Fields
-
-`source_status.json` must preserve:
-
-- `source_status`
-- `primary_material_available`
-- `can_enter_full_decomposition`
-- `can_enter_document_composer`
-- `allowed_report_type`
-- `source_classes`
-- `status_reason`
-- `next_step`
-
-`metadata_only`, `secondary_only`, `source_blocked`, `source_failed`, and
-`degraded_report_only` must not create full decomposition directories or packs.
+The gate receipt binds the source-status hash to the manifest hash. An
+ASR-derived transcript also records its path, byte count, and SHA-256 in the
+receipt. Only a current receipt and `source_confirmed` or `source_partial` can
+enter audit.

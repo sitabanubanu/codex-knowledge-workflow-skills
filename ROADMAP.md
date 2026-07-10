@@ -1,6 +1,6 @@
 # Roadmap
 
-## v0.6 - Architecture Reset
+## v0.6 - Architecture Reset and Bundle v2 (implemented)
 
 - Split acquisition from evidence judgment.
 - Add ADR for Agent-Reach as the acquisition layer.
@@ -8,14 +8,17 @@
 - Add `agent-reach-console` and `source-gated-evidence-layer`.
 - Keep `10_video` output compatibility while documenting the future
   `10_source` migration.
+- Add run-scoped provenance, staged attempts, scope gates, integrity hashes,
+  centralized redaction, and explicit resume/history behavior.
 
-## v0.7 - Agent-Reach Shell
+## v0.7 - Browser Handoff and More Operations
 
-- Harden `kw acquire` around Agent-Reach doctor output and active backend
-  routing.
-- Expand offline mocks for YouTube, Bilibili, web pages, GitHub, and search.
-- Improve blocked/failed bundle notes and command redaction.
-- Keep old platform runners as legacy fallback only.
+- Define a first-class browser-export artifact handoff for authorized Chrome
+  and OpenCLI sessions without coupling the evidence layer to browser control.
+- Add operation adapters only when Agent-Reach exposes stable documented
+  commands, especially X single-status OpenCLI and Bilibili routes.
+- Add richer per-platform live acceptance fixtures and latency recording.
+- Keep old platform runners as internal legacy code only.
 
 ## v0.8 - Evidence Layer Migration
 

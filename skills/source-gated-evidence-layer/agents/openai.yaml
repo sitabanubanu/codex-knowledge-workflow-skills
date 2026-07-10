@@ -1,0 +1,4 @@
+interface:
+  display_name: "Source-Gated Evidence Layer"
+  short_description: "Validates source scope, evidence, and provenance."
+  default_prompt: "Use $source-gated-evidence-layer to validate this bundle, enforce the target scope, and produce audited evidence outputs."

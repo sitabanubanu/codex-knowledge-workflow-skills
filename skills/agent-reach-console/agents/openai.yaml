@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent-Reach Acquisition Controller"
+  short_description: "Plans acquisition routes and writes Bundle v2."
+  default_prompt: "Use $agent-reach-console to verify backend capability and acquire this material into a validated Bundle v2."

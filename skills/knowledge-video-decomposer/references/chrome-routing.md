@@ -1,6 +1,6 @@
 # Chrome Routing Gate
 
-This file defines when and how `knowledge-video-decomposer` must use Chrome to inspect video pages, probe for media assets, and — when the page is blocked to bare external extraction — retry yt-dlp with the user's own Chrome browser identity. It is an execution rule set for downstream agents, not a suggestion list.
+This file defines when and how `knowledge-video-decomposer` uses the authorized browser-control surface to inspect video pages and probe for media assets. For yt-dlp profile access, it must separately identify whether Edge or Chrome owns the login state. The control-plugin name is not browser identity.
 
 For the exact machine-readable fields to record after Chrome inspection, follow
 `chrome-probe-contract.md`. This routing file decides when and why Chrome is
@@ -63,25 +63,25 @@ After all layers have been tried and their results recorded:
 - If ANY layer produced an actual local subtitle file or exported media file, proceed to subtitle parsing or ASR. If a confirmed public downloadable media/subtitle URL was found, fetch and save it first; it qualifies as `browser_derived_media` only after the saved file is parsed or transcribed successfully (see `source-status.md`).
 - If ALL layers failed → record `chrome_deep_probe_exhausted: true`. The agent may now conclude that no primary media is available from the page. Proceed to request user-provided local files or enter the appropriate degraded/blocked source status.
 
-## yt-dlp with Chrome Cookies
+## yt-dlp with the actual browser profile
 
-When yt-dlp bare requests are blocked by YouTube or another platform, the agent MUST retry with the user's own Chrome browser identity:
+When yt-dlp bare requests are blocked, the agent must identify the real host browser before retrying with that authorized profile:
 
 ```
-yt-dlp --cookies-from-browser chrome <URL>
+yt-dlp --cookies-from-browser <edge|chrome> <URL>
 ```
 
-This is the user's own browser identity on their own machine. It is not a bypass, not a credential handoff to a third party, and not a bulk-scraping technique. The user is already watching the page in Chrome — yt-dlp merely uses the same identity to fetch subtitles or audio that the user is already authorized to access.
+This is the user's own browser identity on their own machine. It is not a bypass or credential handoff. The selected profile must match the Edge or Chrome process that actually owns the authorized session.
 
-After yt-dlp with Chrome cookies:
+After yt-dlp with the selected browser profile:
 
 - If subtitles (`.vtt`, `.srt`, etc.) are obtained → they qualify as `primary_transcript`. Source status may be `source_confirmed`.
 - If audio is obtained (`.m4a`, `.opus`, `.mp3`, etc.) → it qualifies as `primary_audio_asr` after local ASR succeeds. Source status may be `source_confirmed`.
-- If yt-dlp with Chrome cookies also fails → record the failure and continue the Chrome deep-probe sequence for any remaining observable page state.
+- If the selected browser profile also fails → record the actual browser and failure before continuing the browser deep-probe sequence.
 
 ### What IS allowed with yt-dlp
 
-- `--cookies-from-browser chrome` — use the user's own Chrome profile.
+- `--cookies-from-browser edge|chrome` — use the browser that actually owns the authorized session.
 - `--write-subs` / `--write-auto-subs` — download subtitles.
 - `-f bestaudio` / audio-only format selection for local ASR.
 - `--skip-download` + `--write-subs` — subtitles only, no media download.
@@ -98,7 +98,7 @@ After yt-dlp with Chrome cookies:
 Chrome route is a legitimate page-state inspection and media-probe tool. It is not an anti-bot bypass, a bulk-scraping vector, or a credential-theft bridge. Downstream agents must respect these boundaries:
 
 - Allowed: record page state, visible metadata, publicly visible transcript status, page facts the user is already authorized to see, and page assets exposed through supported plugin capabilities.
-- Allowed: use yt-dlp with `--cookies-from-browser chrome` to fetch subtitles or audio that the user's own browser identity is authorized to access.
+- Allowed: use yt-dlp with the explicitly selected Edge or Chrome profile to fetch subtitles or audio that the user is authorized to access.
 - Not allowed: require or attempt CAPTCHA solving, bot-check circumvention, paywall bypass, course-permission bypass, region-lock bypass, age-restriction bypass, or account-permission escalation.
 - Not allowed: use Chrome as a bridge to pass restricted player streams, signed playback URLs, or private tokens to yt-dlp or another extractor when the material is behind a paywall, login wall, or access-control barrier that the user has not already cleared.
 - Not allowed: batch-scrape restricted content through repeated automated navigation.
@@ -147,8 +147,8 @@ When any of the following signals appear, the agent MUST enter the Chrome route 
 After triggering:
 
 1. Record the trigger reason.
-2. Retry yt-dlp with `--cookies-from-browser chrome`. If it succeeds, record the acquired material and proceed.
-3. If yt-dlp with Chrome cookies also fails, use Chrome to open or locate the target page.
+2. Identify the real host browser and retry yt-dlp with `--cookies-from-browser edge` or `chrome`. If it succeeds, record the acquired material and proceed.
+3. If the selected browser profile also fails, use the authorized browser-control surface to open or locate the target page.
 4. Observe whether the page opens, whether the title matches, login/CAPTCHA/paywall state, visible transcript or caption entry points.
 5. Execute the Chrome deep-probe sequence (Layers 1–5) to search for media or subtitle assets.
 6. Only collect first-hand text when a visible transcript or user-authorized first-hand material is accessible.
@@ -217,7 +217,7 @@ Field rules:
 - `deep_probe_layers_executed`: list which layers were actually run.
 - `deep_probe_media_found`: `true` when any layer found a usable media or subtitle asset.
 - `browser_derived_media_exported`: `true` when a local file was actually exported and saved.
-- `yt_dlp_chrome_cookies_attempted`: `true` when yt-dlp was retried with `--cookies-from-browser chrome`.
+- `yt_dlp_chrome_cookies_attempted`: legacy field; `true` when yt-dlp was retried with the explicitly selected Edge or Chrome profile. Record the actual browser separately.
 - `yt_dlp_chrome_cookies_succeeded`: `true` when that retry produced subtitles or audio.
 - `why_chrome_was_or_was_not_used`: must include the trigger condition, bootstrap result, stop condition, or skip reason.
 
@@ -234,18 +234,18 @@ Minimum record example:
   "browser_derived_media_exported": true,
   "yt_dlp_chrome_cookies_attempted": true,
   "yt_dlp_chrome_cookies_succeeded": true,
-  "why_chrome_was_or_was_not_used": "yt-dlp bare returned HTTP 429, so yt-dlp with Chrome cookies was attempted and succeeded in downloading subtitles. Chrome deep-probe was also run and confirmed no additional visible transcript beyond what yt-dlp already captured."
+  "why_chrome_was_or_was_not_used": "yt-dlp bare returned HTTP 429, so the explicitly selected browser profile was attempted and succeeded in downloading subtitles. Browser deep-probe found no additional visible transcript."
 }
 ```
 
 ## Relationship with Source-Status Gate
 
-Chrome can confirm page state and — through the deep-probe sequence or yt-dlp with Chrome cookies — can surface primary media or transcript material. Only the following Chrome results may enter a full `video_analysis_pack`:
+The browser-control surface can confirm page state and, through deep-probe or yt-dlp with the explicitly selected browser profile, can surface primary media or transcript material. Only the following results may enter a full `video_analysis_pack`:
 
 - A visible, citable transcript on the page was captured and can form timestamps or source spans.
 - Chrome confirmed and captured platform public subtitles, an official transcript, or a first-hand transcript from a page the user is authorized to access.
 - Chrome deep-probe exported a subtitle file or media file via pageAssets, or confirmed a public downloadable media/subtitle URL that was then fetched and saved.
-- yt-dlp with `--cookies-from-browser chrome` successfully obtained subtitles or audio.
+- yt-dlp with the explicitly selected Edge or Chrome profile successfully obtained subtitles or audio.
 - Chrome helped locate a locally downloaded or user-provided first-hand transcript/audio, and subsequent transcript/audio acquisition succeeded.
 
 If Chrome only yields title, description, chapters, public summary, comments, page screenshots, or second-hand links, the result is at most `secondary_only` or `degraded_report_only` — it cannot enter full video decomposition.

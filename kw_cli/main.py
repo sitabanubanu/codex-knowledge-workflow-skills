@@ -11,11 +11,13 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import agent_reach_adapter, bundle, ingest
+from . import agent_reach_adapter, bundle, ingest, source_gate
+from .redaction import redact_text
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +32,12 @@ MEDIA_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".webm", ".wav", ".mov", ".opus"}
 TEMPLATE_NAMES = {"study_notes", "research_brief", "creator_script", "prompt_pack", "action_plan"}
 
 RUN_OPTION_DEFAULTS = {
+    "target": "auto",
+    "operation": "auto",
+    "resume": False,
+    "platform_mode": "auto",
+    "youtube_cookies": None,
+    "youtube_browser": None,
     "ytdlp": None,
     "node": None,
     "platform_timeout_seconds": 90,
@@ -50,6 +58,10 @@ RUN_OPTION_DEFAULTS = {
     "asr_compute_type": "int8",
     "asr_timeout_seconds": 0.0,
     "asr_vad": True,
+    "browser_source_url": None,
+    "browser_platform": None,
+    "content_scope": None,
+    "partial_export": False,
 }
 
 
@@ -114,7 +126,7 @@ def apply_run_option_defaults(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def timestamp_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
 
 
 def is_url(value: str) -> bool:
@@ -183,12 +195,16 @@ def slugify(value: str) -> str:
 
 
 def default_project_root(value: str) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return OUTPUT_BASE / f"{slugify(value)}-{stamp}"
+    return OUTPUT_BASE / f"{slugify(value)}-{timestamp_id()}"
 
 
 def ensure_project_root(args: argparse.Namespace) -> Path:
-    root = args.project_root.resolve() if args.project_root else default_project_root(args.input)
+    basis = (
+        getattr(args, "input", None)
+        or getattr(args, "source_url", None)
+        or str(getattr(args, "input_file", "workflow"))
+    )
+    root = args.project_root.resolve() if args.project_root else default_project_root(str(basis))
     root.mkdir(parents=True, exist_ok=True)
     (root / "logs").mkdir(parents=True, exist_ok=True)
     return root
@@ -211,7 +227,7 @@ def run_preflight(input_value: str, mode: str, project_root: Path, pretty: bool)
         sys.executable,
         str(CONSOLE / "scripts" / "workflow_preflight.py"),
         "--input",
-        input_value,
+        redact_text(input_value),
         "--mode",
         mode,
         "--output-json",
@@ -274,6 +290,7 @@ def write_run_state(
 ) -> None:
     source_status = current_source_status(project_root)
     manifest = current_acquisition_manifest(project_root)
+    provenance = ingest.current_provenance(project_root)
     payload = {
         "runner": "knowledge-workflow-cli",
         "schema_version": 3,
@@ -282,10 +299,18 @@ def write_run_state(
         "status": status,
         "workflow_outcome": workflow_outcome,
         "project_root": str(project_root),
-        "input": input_value,
+        "input": redact_text(input_value),
         "input_kind": input_kind,
         "acquisition_status": manifest.get("status") or "unknown",
         "source_status": source_status.get("source_status") or "unknown",
+        "run_id": manifest.get("run_id") or source_status.get("run_id") or "",
+        "attempt_id": manifest.get("attempt_id") or source_status.get("attempt_id") or "",
+        "bundle_id": manifest.get("bundle_id") or source_status.get("bundle_id") or "",
+        "source_fingerprint": manifest.get("source_fingerprint") or source_status.get("source_fingerprint") or "",
+        "analysis_target": manifest.get("analysis_target") or source_status.get("analysis_target") or "",
+        "gate_provenance_current": bool(provenance["gate_current"]),
+        "analysis_provenance_current": bool(provenance["analysis_current"]),
+        "final_report_provenance_current": bool(provenance["final_report_current"]),
         "current_stage": "result_index",
         "failure_reason": failure_reason,
         "degraded_reason": degraded_reason,
@@ -294,11 +319,35 @@ def write_run_state(
     write_text(project_root / "logs" / "run_state.json", json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def youtube_options_from_args(args: argparse.Namespace) -> dict[str, object]:
+    args = apply_run_option_defaults(args)
+    return {
+        "platform_mode": getattr(args, "platform_mode", "auto"),
+        "youtube_cookies": youtube_cookies_cli_value(getattr(args, "youtube_cookies", None)),
+        "youtube_browser": getattr(args, "youtube_browser", None),
+        "ytdlp": getattr(args, "ytdlp", None),
+        "node": getattr(args, "node", None),
+        "platform_timeout_seconds": getattr(args, "platform_timeout_seconds", 90),
+        "subtitle_languages": getattr(args, "subtitle_languages", "all,-live_chat"),
+        "use_js_runtime": bool(getattr(args, "use_js_runtime", False)),
+        "use_remote_components": bool(getattr(args, "use_remote_components", False)),
+        "ytdlp_extractor_args": list(getattr(args, "ytdlp_extractor_args", ()) or ()),
+        "ytdlp_player_clients": getattr(args, "ytdlp_player_clients", "default,mweb,web,android_vr"),
+        "youtube_visitor_data": getattr(args, "youtube_visitor_data", None),
+        "youtube_po_token": list(getattr(args, "youtube_po_token", ()) or ()),
+        "ytdlp_proxy": getattr(args, "ytdlp_proxy", None),
+        "ytdlp_impersonate": getattr(args, "ytdlp_impersonate", None),
+        "ytdlp_sleep_requests": getattr(args, "ytdlp_sleep_requests", None),
+        "ytdlp_retry_sleep": list(getattr(args, "ytdlp_retry_sleep", ()) or ()),
+    }
+
+
 def print_flow_summary(project_root: Path) -> None:
     manifest = current_acquisition_manifest(project_root)
     source_status = current_source_status(project_root)
+    provenance = ingest.current_provenance(project_root)
     source_state = source_status.get("source_status") or "unknown"
-    full_allowed = bool(source_status.get("can_enter_full_decomposition")) and source_state in {"source_confirmed", "source_partial"}
+    full_allowed = bool(provenance["gate_current"] and source_status.get("can_enter_full_decomposition")) and source_state in {"source_confirmed", "source_partial"}
     print(f"Acquisition status: {manifest.get('status', 'unknown')}")
     print(f"Source status: {source_state}")
     print(f"Full report allowed: {str(full_allowed).lower()}")
@@ -318,7 +367,7 @@ def run_new_flow(args: argparse.Namespace) -> int:
     try:
         if input_kind == "transcript":
             validate_local_transcript_input(input_value)
-        run_preflight(input_value, args.mode, project_root, args.pretty)
+        run_preflight(args.browser_source_url or input_value, args.mode, project_root, args.pretty)
         if args.mode == "quick":
             workflow_outcome = "preflight_only"
             write_run_state(
@@ -333,13 +382,38 @@ def run_new_flow(args: argparse.Namespace) -> int:
             print_flow_summary(project_root)
             return 0
 
-        if input_kind == "url":
+        if args.browser_source_url:
+            if not args.browser_platform:
+                raise KwError("--browser-platform is required with --browser-source-url")
+            manifest_path = bundle.build_browser_export_bundle(
+                input_path=Path(input_value),
+                source_url=args.browser_source_url,
+                platform=args.browser_platform,
+                project_root=project_root,
+                language=args.language,
+                source_class="partial_primary" if args.partial_export else "primary",
+                analysis_target=args.target,
+                operation=args.operation,
+                content_scope=args.content_scope or "",
+                resume=args.resume,
+            )
+        elif input_kind == "url":
             manifest_path = agent_reach_adapter.acquire_with_agent_reach(
                 input_value=input_value,
                 project_root=project_root,
+                analysis_target=args.target,
+                operation=args.operation,
+                resume=args.resume,
+                youtube_options=youtube_options_from_args(args),
             )
         else:
-            manifest_path = bundle.build_local_bundle(input_path=Path(input_value), project_root=project_root)
+            manifest_path = bundle.build_local_bundle(
+                input_path=Path(input_value),
+                project_root=project_root,
+                analysis_target=args.target,
+                operation=args.operation,
+                resume=args.resume,
+            )
 
         ingest_result = ingest.ingest_bundle(manifest_path=manifest_path, project_root=project_root)
         source_status = current_source_status(project_root)
@@ -463,18 +537,53 @@ def cmd_agent_reach_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_agent_reach_plan(args: argparse.Namespace) -> int:
-    return agent_reach_adapter.agent_reach_route_plan(input_value=args.input, output_json=args.output_json)
+    return agent_reach_adapter.agent_reach_route_plan(
+        input_value=args.input,
+        output_json=args.output_json,
+        analysis_target=args.target,
+        operation=args.operation,
+    )
 
 
 def cmd_acquire(args: argparse.Namespace) -> int:
+    args = apply_run_option_defaults(args)
     project_root = ensure_project_root(args)
     input_value = normalize_input(args.input) if not args.query else args.input
     try:
         manifest_path = agent_reach_adapter.acquire_with_agent_reach(
             input_value=input_value,
             project_root=project_root,
+            analysis_target=args.target,
+            operation=args.operation,
+            resume=args.resume,
+            platform_override="search" if args.query else "",
+            youtube_options=youtube_options_from_args(args),
         )
     except (bundle.BundleError, agent_reach_adapter.AgentReachAdapterError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    manifest = read_json(manifest_path)
+    print(f"Acquisition status: {manifest.get('status', 'unknown')}")
+    print(f"Manifest: {manifest_path}")
+    return 0
+
+
+def cmd_browser_import(args: argparse.Namespace) -> int:
+    project_root = ensure_project_root(args)
+    try:
+        manifest_path = bundle.build_browser_export_bundle(
+            input_path=args.input_file,
+            source_url=args.source_url,
+            platform=args.platform,
+            project_root=project_root,
+            language=args.language,
+            source_class="partial_primary" if args.partial else "primary",
+            analysis_target=args.target,
+            operation=args.operation,
+            content_scope=args.content_scope or "",
+            resume=args.resume,
+        )
+    except bundle.BundleError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     manifest = read_json(manifest_path)
@@ -538,113 +647,6 @@ def cmd_validate_bundle(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     return run_new_flow(args)
 
-    # Legacy runner kept below for compatibility reference while the v0.6
-    # acquisition-bundle route becomes the primary path.
-    args = apply_run_option_defaults(args)
-    project_root = ensure_project_root(args)
-    input_kind = classify_input(args.input)
-    input_value = normalize_input(args.input)
-    exit_code = 0
-    try:
-        if input_kind == "transcript":
-            validate_local_transcript_input(input_value)
-        run_preflight(input_value, args.mode, project_root, args.pretty)
-        if args.mode == "quick":
-            write_result(project_root, args.pretty)
-            print(f"Quick preflight complete: {project_root / 'result_index.md'}")
-            return 0
-
-        runner = [
-            sys.executable,
-            str(CONSOLE / "scripts" / "end_to_end_runner.py"),
-            "--project-root",
-            str(project_root),
-            "--language",
-            args.language,
-            "--document-goal",
-            args.document_goal,
-            "--final-language",
-            args.final_language,
-            "--audience",
-            args.audience,
-            "--video-skill-root",
-            str(VIDEO),
-            "--document-skill-root",
-            str(DOCUMENT),
-            "--asr-model",
-            args.asr_model,
-            "--platform-mode",
-            args.platform_mode,
-        ]
-        if input_kind == "url":
-            runner.extend(["--input-url", input_value])
-        elif input_kind == "media":
-            runner.extend(["--input-media", input_value])
-        else:
-            runner.extend(["--input-transcript", input_value])
-        cookies_value = youtube_cookies_cli_value(args.youtube_cookies)
-        if cookies_value:
-            runner.extend(["--youtube-cookies", cookies_value])
-        if args.ytdlp:
-            runner.extend(["--ytdlp", str(args.ytdlp)])
-        if args.node:
-            runner.extend(["--node", str(args.node)])
-        if args.platform_timeout_seconds:
-            runner.extend(["--platform-timeout-seconds", str(args.platform_timeout_seconds)])
-        if args.subtitle_languages:
-            runner.extend(["--subtitle-languages", args.subtitle_languages])
-        if args.use_js_runtime:
-            runner.append("--use-js-runtime")
-        if args.use_remote_components:
-            runner.append("--use-remote-components")
-        for extractor_arg in args.ytdlp_extractor_args or []:
-            runner.extend(["--ytdlp-extractor-args", extractor_arg])
-        if args.ytdlp_player_clients:
-            runner.extend(["--ytdlp-player-clients", args.ytdlp_player_clients])
-        if args.youtube_visitor_data:
-            runner.extend(["--youtube-visitor-data", args.youtube_visitor_data])
-        for po_token in args.youtube_po_token or []:
-            runner.extend(["--youtube-po-token", po_token])
-        if args.ytdlp_proxy:
-            runner.extend(["--ytdlp-proxy", args.ytdlp_proxy])
-        if args.ytdlp_impersonate:
-            runner.extend(["--ytdlp-impersonate", args.ytdlp_impersonate])
-        if args.ytdlp_sleep_requests is not None:
-            runner.extend(["--ytdlp-sleep-requests", str(args.ytdlp_sleep_requests)])
-        for retry_sleep in args.ytdlp_retry_sleep or []:
-            runner.extend(["--ytdlp-retry-sleep", retry_sleep])
-        if args.resume:
-            runner.append("--resume")
-        if args.pretty:
-            runner.append("--pretty")
-        run_required(runner, cwd=CONSOLE / "scripts")
-
-        if args.mode == "audit" and (project_root / "20_document" / "composer_intake.json").is_file():
-            final_writer = [
-                sys.executable,
-                str(DOCUMENT / "scripts" / "final_report_writer.py"),
-                "--document-root",
-                str(project_root / "20_document"),
-            ]
-            if args.pretty:
-                final_writer.append("--pretty")
-            run_required(final_writer, cwd=DOCUMENT / "scripts")
-    except KwError as exc:
-        exit_code = 1
-        print(str(exc), file=sys.stderr)
-    finally:
-        try:
-            if (project_root / "10_video").exists() or (project_root / "logs" / "run_state.json").exists():
-                write_status(project_root, args.pretty)
-            write_result(project_root, args.pretty)
-        except KwError as exc:
-            exit_code = 1
-            print(str(exc), file=sys.stderr)
-
-    print(f"Project: {project_root}")
-    print(f"Result index: {project_root / 'result_index.md'}")
-    return exit_code
-
 
 def cmd_status(args: argparse.Namespace) -> int:
     project_root = args.project_root.resolve()
@@ -705,8 +707,8 @@ def cmd_export(args: argparse.Namespace) -> int:
     if args.format != "md":
         print("only --format md is supported by the thin CLI export command for now", file=sys.stderr)
         return 1
-    if not source.is_file():
-        print(f"missing final report: {source}", file=sys.stderr)
+    if not ingest.current_provenance(project_root)["final_report_current"]:
+        print(f"final report is missing, stale, or does not belong to the current acquisition run: {source}", file=sys.stderr)
         return 1
     output = args.output.resolve() if args.output else (project_root / "30_final" / "final_report.md")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -740,11 +742,12 @@ def quality_check(name: str, passed: bool, evidence: str, required_action: str =
 
 
 def build_quality_review(project_root: Path) -> dict[str, object]:
+    provenance = ingest.current_provenance(project_root)
     source_status = read_json(project_root / "10_video" / "00_source" / "source_status.json")
     quality_gate = read_json(project_root / "20_document" / "quality_gate.json")
     claim_map = read_json(project_root / "20_document" / "claim_map.json")
     final_report = project_root / "20_document" / "final_report.md"
-    final_text = final_report.read_text(encoding="utf-8") if final_report.is_file() else ""
+    final_text = final_report.read_text(encoding="utf-8") if provenance["final_report_current"] else ""
     gate_names = {item.get("gate"): item for item in quality_gate.get("gates", []) if isinstance(item, dict)}
     claims = claim_map.get("claims") if isinstance(claim_map.get("claims"), list) else []
     accepted_source_claims = [
@@ -755,6 +758,12 @@ def build_quality_review(project_root: Path) -> dict[str, object]:
         and claim.get("status") == "accepted"
     ]
     checks = [
+        quality_check(
+            "current_run_provenance",
+            bool(provenance["final_report_current"]),
+            "Final report, quality gate, composer, analysis, and source gate receipts match." if provenance["final_report_current"] else "; ".join(provenance["reasons"]) or "Downstream receipt mismatch.",
+            "Rerun ingest, audit, and compose for the current acquisition bundle.",
+        ),
         quality_check(
             "source_status_known",
             bool(source_status.get("source_status")),
@@ -769,7 +778,7 @@ def build_quality_review(project_root: Path) -> dict[str, object]:
         ),
         quality_check(
             "full_report_gate_approved",
-            bool(quality_gate.get("approved_for_final_report")),
+            bool(provenance["final_report_current"] and quality_gate.get("approved_for_final_report")),
             f"approved_for_final_report={quality_gate.get('approved_for_final_report')}",
             "Inspect quality_gate.json and revise the final report.",
         ),
@@ -818,7 +827,7 @@ def build_quality_review(project_root: Path) -> dict[str, object]:
         },
         {
             "dimension": "Claim quality",
-            "passed": bool(quality_gate.get("approved_for_final_report")),
+            "passed": bool(provenance["final_report_current"] and quality_gate.get("approved_for_final_report")),
         },
         {
             "dimension": "Uncertainty",
@@ -836,7 +845,8 @@ def build_quality_review(project_root: Path) -> dict[str, object]:
         "project_root": str(project_root),
         "overall": "pass" if passed else "needs_review",
         "source_status": source_status.get("source_status", "unknown"),
-        "approved_for_final_report": bool(quality_gate.get("approved_for_final_report")),
+        "approved_for_final_report": bool(provenance["final_report_current"] and quality_gate.get("approved_for_final_report")),
+        "final_report_provenance_current": bool(provenance["final_report_current"]),
         "checks": checks,
         "dimensions": dimensions,
     }
@@ -996,13 +1006,18 @@ def render_structured_template(
 def render_template_output(project_root: Path, template_name: str) -> str:
     template_path = REPO_ROOT / "templates" / f"{template_name}.md"
     template_text = template_path.read_text(encoding="utf-8")
+    provenance = ingest.current_provenance(project_root)
     final_report = project_root / "20_document" / "final_report.md"
-    pack = project_root / "10_video" / "video_analysis_pack.md"
+    analysis_receipt = read_json(project_root / "10_video" / "analysis_receipt.json")
+    pack = project_root / "10_video" / str(analysis_receipt.get("analysis_pack") or "video_analysis_pack.md")
     source_status = read_json(project_root / "10_video" / "00_source" / "source_status.json")
     quality_gate = read_json(project_root / "20_document" / "quality_gate.json")
     claim_map = read_json(project_root / "20_document" / "claim_map.json")
-    source_text = final_report.read_text(encoding="utf-8") if final_report.is_file() else ""
-    pack_text = pack.read_text(encoding="utf-8") if pack.is_file() else ""
+    source_text = final_report.read_text(encoding="utf-8") if provenance["final_report_current"] else ""
+    pack_text = pack.read_text(encoding="utf-8") if provenance["analysis_current"] and pack.is_file() else ""
+    if not source_text and not pack_text and provenance["gate_current"]:
+        degraded = project_root / "10_video" / "00_source" / "degraded_source_report.md"
+        pack_text = degraded.read_text(encoding="utf-8") if degraded.is_file() else ""
     sections = markdown_sections(source_text or pack_text)
     draft = render_structured_template(
         template_name,
@@ -1049,11 +1064,15 @@ def cmd_template(args: argparse.Namespace) -> int:
         return 1
     source_status = read_json(project_root / "10_video" / "00_source" / "source_status.json")
     quality_gate = read_json(project_root / "20_document" / "quality_gate.json")
+    provenance = ingest.current_provenance(project_root)
     state = source_status.get("source_status")
+    if not provenance["gate_current"]:
+        print("template output refuses stale or unverified source-gate artifacts", file=sys.stderr)
+        return 1
     if state not in {"source_confirmed", "source_partial"} and not args.allow_degraded:
         print("template output requires source_confirmed/source_partial unless --allow-degraded is used", file=sys.stderr)
         return 1
-    if not quality_gate.get("approved_for_final_report") and not args.allow_degraded:
+    if not (provenance["final_report_current"] and quality_gate.get("approved_for_final_report")) and not args.allow_degraded:
         print("template output requires an approved final report unless --allow-degraded is used", file=sys.stderr)
         return 1
     output = args.output or (project_root / "30_final" / f"{args.template}.md")
@@ -1100,6 +1119,7 @@ def collect_batch_item_status(
 ) -> dict[str, str]:
     source_status = read_json(item_project / "10_video" / "00_source" / "source_status.json")
     quality_gate = read_json(item_project / "20_document" / "quality_gate.json")
+    provenance = ingest.current_provenance(item_project)
     final_report = item_project / "20_document" / "final_report.md"
     video_pack = item_project / "10_video" / "video_analysis_pack.md"
     template_output = item_project / "30_final" / f"{template_name}.md" if template_name else None
@@ -1112,9 +1132,9 @@ def collect_batch_item_status(
         "template": template_name,
         "status": status,
         "source_status": str(source_status.get("source_status") or "unknown"),
-        "full_analysis_allowed": str(bool(source_status.get("can_enter_full_decomposition"))),
-        "quality_gate_approved": str(bool(quality_gate.get("approved_for_final_report"))),
-        "final_report_exists": str(final_report.is_file()),
+        "full_analysis_allowed": str(bool(provenance["gate_current"] and source_status.get("can_enter_full_decomposition"))),
+        "quality_gate_approved": str(bool(provenance["final_report_current"] and quality_gate.get("approved_for_final_report"))),
+        "final_report_exists": str(bool(provenance["final_report_current"])),
         "template_output_exists": str(bool(template_output and template_output.is_file())),
         "project": str(item_project),
         "result_index": str(result_index),
@@ -1592,6 +1612,14 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
                 "kw_cli/bundle.py",
                 "kw_cli/agent_reach_adapter.py",
                 "kw_cli/ingest.py",
+                "kw_cli/canonicalize.py",
+                "kw_cli/redaction.py",
+                "kw_cli/run_context.py",
+                "kw_cli/source_gate.py",
+                str(CONSOLE / "scripts" / "workflow_provenance.py"),
+                str(CONSOLE / "scripts" / "workflow_preflight.py"),
+                str(CONSOLE / "scripts" / "workflow_status_summary.py"),
+                str(CONSOLE / "scripts" / "result_index_writer.py"),
                 str(VIDEO / "scripts" / "doctor.py"),
                 str(VIDEO / "scripts" / "chrome_media_probe.py"),
                 "tests/knowledge_workflow_regression.py",
@@ -1605,6 +1633,8 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
         ("agent_reach_acquire_offline", [sys.executable, "tests/test_agent_reach_acquire_offline.py"]),
         ("source_gate_from_bundle", [sys.executable, "tests/test_source_gate_from_bundle.py"]),
         ("no_fake_report_from_agent_reach_failures", [sys.executable, "tests/test_no_fake_report_from_agent_reach_failures.py"]),
+        ("run_provenance", [sys.executable, "tests/test_run_provenance.py"]),
+        ("browser_export_flow", [sys.executable, "tests/test_browser_export_flow.py"]),
     ]
     if args.include_live_platform:
         commands.append(("live_platform_smoke", [sys.executable, "tests/live_platform_smoke.py"]))
@@ -1685,6 +1715,47 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0 if passed else 1
 
 
+def add_source_target_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--target",
+        choices=sorted(source_gate.ANALYSIS_TARGETS),
+        default="auto",
+        help="Material scope that must pass the source gate.",
+    )
+    parser.add_argument(
+        "--operation",
+        choices=sorted(source_gate.OPERATIONS),
+        default="auto",
+        help="Acquisition capability required from the active backend.",
+    )
+
+
+def add_youtube_acquisition_arguments(parser: argparse.ArgumentParser, *, include_platform_mode: bool = True) -> None:
+    if include_platform_mode:
+        parser.add_argument("--platform-mode", choices=["auto", "probe", "subtitles", "audio"], default="auto")
+    access = parser.add_mutually_exclusive_group()
+    access.add_argument("--youtube-cookies", help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
+    access.add_argument(
+        "--youtube-browser",
+        choices=["edge", "chrome"],
+        help="Use the named local browser profile through yt-dlp --cookies-from-browser. Do not guess this from the control plugin name.",
+    )
+    parser.add_argument("--ytdlp", type=Path, help="Optional yt-dlp executable override.")
+    parser.add_argument("--node", type=Path, help="Optional Node.js executable override for yt-dlp JavaScript challenge handling.")
+    parser.add_argument("--platform-timeout-seconds", type=int, default=90)
+    parser.add_argument("--subtitle-languages", default="all,-live_chat")
+    parser.add_argument("--use-js-runtime", action="store_true", help="Pass Node.js to yt-dlp for YouTube player challenge handling.")
+    parser.add_argument("--use-remote-components", action="store_true", help="Allow yt-dlp remote EJS solver components.")
+    parser.add_argument("--ytdlp-extractor-args", action="append", default=[], help="Raw yt-dlp --extractor-args value, e.g. youtube:fetch_pot=auto.")
+    parser.add_argument("--ytdlp-player-clients", default="default,mweb,web,android_vr", help="Comma-separated YouTube player_client list. Use an empty string to disable.")
+    parser.add_argument("--youtube-visitor-data", help="Visitor Data passed to yt-dlp; never persisted in clear text.")
+    parser.add_argument("--youtube-po-token", action="append", default=[], help="PO Token passed to yt-dlp; never persisted in clear text.")
+    parser.add_argument("--ytdlp-proxy", help="Proxy URL passed to yt-dlp --proxy.")
+    parser.add_argument("--ytdlp-impersonate", help="Client passed to yt-dlp --impersonate, e.g. chrome.")
+    parser.add_argument("--ytdlp-sleep-requests", type=float, help="Seconds passed to yt-dlp --sleep-requests.")
+    parser.add_argument("--ytdlp-retry-sleep", action="append", default=[], help="Repeatable yt-dlp --retry-sleep expression.")
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Knowledge Workflow product CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1719,13 +1790,32 @@ def make_parser() -> argparse.ArgumentParser:
     agent_reach_plan = agent_reach_sub.add_parser("plan", help="Show Agent-Reach route plan for an input.")
     agent_reach_plan.add_argument("--input", required=True)
     agent_reach_plan.add_argument("--output-json", type=Path)
+    add_source_target_arguments(agent_reach_plan)
     agent_reach_plan.set_defaults(func=cmd_agent_reach_plan)
 
     acquire = subparsers.add_parser("acquire", help="Acquire URL/query material into 00_acquisition/manifest.json.")
     acquire.add_argument("--input", required=True, help="URL or query to acquire.")
     acquire.add_argument("--project-root", type=Path)
     acquire.add_argument("--query", action="store_true", help="Treat --input as a query rather than a path.")
+    add_source_target_arguments(acquire)
+    add_youtube_acquisition_arguments(acquire)
+    acquire.add_argument("--resume", action="store_true", help="Retry the same source and target in this project root.")
     acquire.set_defaults(func=cmd_acquire)
+
+    browser_import = subparsers.add_parser(
+        "browser-import",
+        help="Import a local artifact exported from an authorized browser session into Bundle v2.",
+    )
+    browser_import.add_argument("--input-file", type=Path, required=True)
+    browser_import.add_argument("--source-url", required=True)
+    browser_import.add_argument("--platform", choices=["bilibili", "github", "web", "x", "xiaohongshu", "youtube"], required=True)
+    browser_import.add_argument("--project-root", type=Path)
+    browser_import.add_argument("--language", default="unknown")
+    browser_import.add_argument("--content-scope", choices=sorted(source_gate.CONTENT_SCOPES - {"unknown"}))
+    browser_import.add_argument("--partial", action="store_true")
+    add_source_target_arguments(browser_import)
+    browser_import.add_argument("--resume", action="store_true")
+    browser_import.set_defaults(func=cmd_browser_import)
 
     ingest_cmd = subparsers.add_parser("ingest", help="Validate and ingest an acquisition bundle.")
     ingest_cmd.add_argument("--bundle", type=Path, required=True, help="Path to 00_acquisition/manifest.json.")
@@ -1758,6 +1848,11 @@ def make_parser() -> argparse.ArgumentParser:
     run.add_argument("--final-language", default="current conversation language")
     run.add_argument("--document-goal", default="source-faithful knowledge report")
     run.add_argument("--audience", default="reader who needs an auditable source-faithful explanation")
+    add_source_target_arguments(run)
+    run.add_argument("--browser-source-url", help="Original URL for a local artifact exported from an authorized browser session.")
+    run.add_argument("--browser-platform", choices=["bilibili", "github", "web", "x", "xiaohongshu", "youtube"])
+    run.add_argument("--content-scope", choices=sorted(source_gate.CONTENT_SCOPES - {"unknown"}))
+    run.add_argument("--partial-export", action="store_true", help="Mark a browser export as partial primary material.")
     run.add_argument("--asr-model", default="base")
     run.add_argument("--asr-jsonl", type=Path, help="Existing ASR JSONL to normalize instead of running faster-whisper.")
     run.add_argument("--asr-python", help="Python runtime that can import faster_whisper.")
@@ -1768,22 +1863,7 @@ def make_parser() -> argparse.ArgumentParser:
     asr_vad.add_argument("--asr-vad", dest="asr_vad", action="store_true", help="Enable VAD filtering for ASR.")
     asr_vad.add_argument("--no-asr-vad", dest="asr_vad", action="store_false", help="Disable VAD filtering for ASR.")
     run.set_defaults(asr_vad=True)
-    run.add_argument("--platform-mode", choices=["auto", "probe", "subtitles", "audio"], default="auto")
-    run.add_argument("--youtube-cookies", help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
-    run.add_argument("--ytdlp", type=Path, help="Optional yt-dlp executable override.")
-    run.add_argument("--node", type=Path, help="Optional Node.js executable override for yt-dlp JavaScript challenge handling.")
-    run.add_argument("--platform-timeout-seconds", type=int, default=90)
-    run.add_argument("--subtitle-languages", default="all,-live_chat")
-    run.add_argument("--use-js-runtime", action="store_true", help="Pass Node.js to yt-dlp for YouTube player challenge handling.")
-    run.add_argument("--use-remote-components", action="store_true", help="Allow yt-dlp remote EJS solver components.")
-    run.add_argument("--ytdlp-extractor-args", action="append", default=[], help="Raw yt-dlp --extractor-args value, e.g. youtube:fetch_pot=auto.")
-    run.add_argument("--ytdlp-player-clients", default="default,mweb,web,android_vr", help="Comma-separated YouTube player_client probe matrix, e.g. default,mweb,web,android_vr. Use an empty string to disable.")
-    run.add_argument("--youtube-visitor-data", help="Visitor Data passed to yt-dlp as youtube:visitor_data=...; never logged.")
-    run.add_argument("--youtube-po-token", action="append", default=[], help="PO Token passed to yt-dlp, e.g. web.gvs+XXX or web.subs+XXX; never logged.")
-    run.add_argument("--ytdlp-proxy", help="Proxy URL passed to yt-dlp --proxy.")
-    run.add_argument("--ytdlp-impersonate", help="Client passed to yt-dlp --impersonate, e.g. chrome.")
-    run.add_argument("--ytdlp-sleep-requests", type=float, help="Seconds passed to yt-dlp --sleep-requests.")
-    run.add_argument("--ytdlp-retry-sleep", action="append", default=[], help="Repeatable yt-dlp --retry-sleep expression.")
+    add_youtube_acquisition_arguments(run)
     run.add_argument("--resume", action="store_true")
     run.add_argument("--pretty", action="store_true")
     run.set_defaults(func=cmd_run)

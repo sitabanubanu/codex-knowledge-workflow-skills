@@ -1,8 +1,6 @@
 # Troubleshooting
 
-## `agent-reach` Not Found
-
-Run:
+## Agent-Reach Is Missing
 
 ```powershell
 python -m pip install https://github.com/Panniantong/Agent-Reach/archive/main.zip
@@ -10,86 +8,140 @@ agent-reach install --env=auto --safe
 agent-reach doctor --json
 ```
 
-Or through the wrapper:
+Or:
 
 ```powershell
 python .\kw.py agent-reach install --safe
 python .\kw.py agent-reach doctor
 ```
 
-If still missing, the acquisition layer should write a `failed` bundle. Ingest
-will produce `source_failed` and no final report.
+Missing Agent-Reach produces a failed bundle and `source_failed`; it never
+falls through to a fake successful report.
 
-## Acquisition Succeeded But No Report Was Written
+## Active Backend Exists but Acquisition Is Blocked
 
-Check:
+An active backend name is not enough. Check:
+
+```powershell
+python .\kw.py agent-reach plan --input <url> --target <target> --operation <operation>
+```
+
+The route needs both `active_backend_ready: true` and
+`operation_supported: true`. Typical mismatches:
+
+- Bilibili search API cannot extract a transcript;
+- X OpenCLI search support is not a stable single-status reader;
+- a web reader cannot satisfy a login-required platform route.
+
+Use a supported backend or provide task-primary local material.
+
+## OpenCLI Reports `warn`
+
+Agent-Reach commonly reports `warn` when OpenCLI is installed but its Chrome
+extension is absent or disconnected.
+
+1. Install the OpenCLI Chrome extension from the URL shown by doctor.
+2. Keep Chrome open.
+3. Sign in to the platform with your own authorized account.
+4. Run `opencli doctor` and `agent-reach doctor --json` again.
+
+The control plugin may be named Chrome while the extension and login state are
+actually running in Microsoft Edge. Check the real browser process before
+using yt-dlp. Use `--youtube-browser edge` for Edge and
+`--youtube-browser chrome` for Chrome. If yt-dlp reports that it cannot copy
+the cookie database, the selected browser is still running and holding the
+profile lock; do not call the cookies stale and do not close the browser
+without user approval.
+
+The workflow remains blocked until doctor reports `status: ok`. It does not
+bypass CAPTCHA, account permissions, private content, or paywalls.
+
+## Acquisition Succeeded but No Full Report Exists
+
+Inspect:
 
 ```text
 00_acquisition/manifest.json
 10_video/00_source/source_status.json
+10_video/00_source/gate_receipt.json
 result_index.md
 ```
 
-Common safe outcomes:
+Safe stopping states include:
 
-- `metadata_only` -> `secondary_only`
-- `blocked` -> `source_blocked`
-- `failed` -> `source_failed`
-- `unsupported` -> `degraded_report_only`
+- `metadata_only` -> `secondary_only`;
+- `blocked` -> `source_blocked`;
+- `failed` -> `source_failed`;
+- target/scope mismatch -> `degraded_report_only`.
 
-These states intentionally block normal `final_report.md`.
+For example, an X or Xiaohongshu caption may be valid `social_post_text` but
+still cannot satisfy `video_content`.
 
-## YouTube Bot Check Or Sign-In
+## Old Report Exists but Status Is Not Success
 
-Do not loop over private browser profiles and do not read cookie values.
-
-Allowed next actions:
-
-- provide an authorized subtitle/transcript;
-- provide local audio/video for ASR;
-- configure Agent-Reach or an upstream tool outside the repository;
-- record `blocked` and write degraded output.
-
-`manifest.json` may record `cookies_used=true`, but never cookie contents.
-
-## Bilibili Metadata Only
-
-Bilibili metadata or page details are not a transcript. They cannot support a
-complete video analysis. Provide subtitles, transcript, or local media for ASR.
-
-## Empty Transcript
-
-An empty transcript should become `source_failed` or degraded. It must not
-create `video_analysis_pack.md` or `final_report.md`.
-
-## Local Audio Without ASR
-
-The bundle can record local audio/video, but the evidence layer needs a
-transcript before full analysis. Run ASR or provide a transcript/subtitle.
-
-## Result Index Looks Degraded
-
-That usually means the gate worked. Read the next action in:
+This is expected when provenance is stale. `status_summary.json` and
+`result_index.md` report:
 
 ```text
-result_index.md
-10_video/00_source/degraded_source_report.md
+stale_output_files_present: true
+final_report_provenance_current: false
 ```
 
-## Do Not Commit
+Run ingest, audit, and compose for the current bundle. Do not rename an old
+report back into place. Previous results are preserved under `run_history/`.
 
-Before committing, check:
+## Project Root Already Belongs to a Run
+
+Use a new project root, or retry only the exact same source, target, and
+operation:
+
+```powershell
+python .\kw.py run ... --project-root <same-project> --resume
+```
+
+Resume fails after a local file changes, or when target/operation differs. This
+prevents output mixing.
+
+## YouTube Bot Check, Sign-In, or Missing Subtitles
+
+Allowed options include an authorized Netscape cookies file, Node.js runtime,
+remote EJS components, client/extractor parameters, proxy, impersonation, and
+Agent-Reach transcription fallback. See `kw run --help`.
+
+Never paste cookie or token contents into logs or reports. The CLI passes
+sensitive values to the upstream process but redacts persisted commands,
+manifests, preflight, run state, and errors.
+
+If access still fails, provide subtitles, transcript, or authorized local
+media. Record blocked status rather than looping around platform controls.
+
+## Bilibili Is Search-Only
+
+The default public search API can find videos but cannot obtain their content.
+For transcript extraction, Agent-Reach doctor must select a ready OpenCLI or
+bili-cli route implemented by this adapter. Otherwise provide subtitles or
+local media.
+
+## Empty Transcript or Local Media Without ASR
+
+An empty transcript becomes failed/degraded and cannot create an analysis pack.
+Local media remains degraded until ASR produces a non-empty hashed transcript.
+
+## Bundle Validation Fails
+
+```powershell
+python .\kw.py validate-bundle --bundle <project>\00_acquisition\manifest.json
+```
+
+Common causes are an escaping/absolute artifact path, missing file, byte/hash
+mismatch, missing v2 identity fields, status invariant violation, or
+unredacted secret-like manifest data. Do not hand-edit hashes; rerun acquisition.
+
+## Do Not Commit
 
 ```powershell
 git status --short
 ```
 
-Do not commit:
-
-- `work/`
-- cookies
-- tokens
-- `outputs/`
-- `test_outputs/`
-- `__pycache__/`
-- private logs
+Keep `work/`, cookies, tokens, outputs, test outputs, caches, and private logs
+out of Git.

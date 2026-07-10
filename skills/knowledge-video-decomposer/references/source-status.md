@@ -30,7 +30,7 @@ Source classes describe the type of material backing the analysis. Each source c
 
 ### Primary Source Classes (support full decomposition)
 
-- `primary_transcript`: official subtitles, platform transcript, user-provided transcript, reliable subtitle file, or subtitles acquired via yt-dlp (bare or with `--cookies-from-browser chrome`).
+- `primary_transcript`: official subtitles, platform transcript, user-provided transcript, reliable subtitle file, or subtitles acquired via yt-dlp (bare or with the explicitly selected Edge/Chrome profile).
 - `primary_audio_asr`: ASR transcript derived from a user-provided or legitimately acquired audio/video file.
 - `browser_visible_transcript`: Chrome page-visible, copyable, citable transcript or subtitle text.
 - `browser_derived_media`: a subtitle or media file exported from Chrome via pageAssets, or fetched from a confirmed public downloadable media/subtitle URL discovered during the Chrome deep-probe, which then passed through ASR or subtitle parsing successfully.
@@ -131,7 +131,7 @@ Prohibited outputs:
 Entry conditions:
 
 - The platform or page explicitly blocks first-hand source acquisition: HTTP 429, bot check, CAPTCHA, login required, paywall, permission required, private video, region block, age restriction, course permission, or account permission.
-- yt-dlp with Chrome cookies also failed.
+- yt-dlp with the explicitly selected browser profile also failed.
 - All five layers of the Chrome deep-probe sequence have been exhausted without finding primary media.
 - Continuing would require bypassing access controls, passing cookies to a third party, circumventing CAPTCHA/paywall, or violating the user's authorization boundary.
 
@@ -195,8 +195,8 @@ Each source acquisition probe must have a maximum time, retry count, path switch
 Default limits:
 
 - Platform metadata/caption quick check: at most 1 normal attempt per tool, at most 1 parameter-correction retry; total duration target ≤ 2 minutes.
-- `yt-dlp` (bare): on HTTP 429, bot confirmation, CAPTCHA, login required, RequestBlocked, immediately stop bare requests and switch to `yt-dlp --cookies-from-browser chrome`; do not repeatedly retry the same URL bare.
-- `yt-dlp` (with `--cookies-from-browser chrome`): at most 1 normal attempt + 1 parameter-correction retry; if it also fails, continue to Chrome deep-probe.
+- `yt-dlp` (bare): on HTTP 429, bot confirmation, CAPTCHA, login required, RequestBlocked, stop bare requests, identify the real host browser, and switch to `--cookies-from-browser edge` or `chrome`; do not repeatedly retry the same URL bare.
+- `yt-dlp` (with the selected browser profile): at most 1 normal attempt + 1 parameter-correction retry; if it also fails, continue to browser deep-probe.
 - `youtube_transcript_api`: on blocked, TooManyRequests, TranscriptsDisabled, login/consent/region/bot related failure, record at most 1 time; do not loop.
 - Chrome route: per `chrome-routing.md`, execute the full deep-probe sequence once; stop when the page cannot open, no visible transcript, all deep-probe layers exhausted, or CAPTCHA/paywall/permission is triggered.
 - Hearsay URL ingestion: on platform URL metadata fetch timeout, record at most 1 time; if a platform block signal already exists, do not repeat Hearsay URL ingestion.

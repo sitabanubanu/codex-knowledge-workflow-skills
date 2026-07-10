@@ -1,64 +1,47 @@
 ---
 name: agent-reach-console
-description: Acquisition controller for Agent-Reach-backed URL, query, platform, and local-file intake. Generates acquisition bundles only; does not perform source gate, evidence audit, claim production, or final report writing.
+description: Acquire authorized URL, query, platform, and local material through Agent-Reach capability routing and write Acquisition Bundle v2. Use for doctor, route planning, staged attempts, retries, and bundle validation; never perform source judgment or report writing.
 ---
 
 # Agent-Reach Console
 
-Use this skill as the acquisition controller.
+Use this skill only for acquisition.
 
-Core rule: Agent-Reach gets material; Knowledge Workflow judges whether it can
-be trusted.
+Core rule: Agent-Reach gets material; the evidence layer decides whether it is
+task-primary and sufficient.
 
-Workflow:
+1. Resolve `analysis_target` and required `operation` before choosing a route.
+2. Run `agent-reach doctor --json` and write the result under the attempt logs.
+3. Require both `status: ok` and implemented operation support. An active
+   search backend is not automatically a transcript backend.
+4. Write `route_plan.json` before executing a platform command.
+5. Acquire inside `.kw_staging/<attempt_id>/`; never assemble the current
+   bundle in place.
+6. Canonicalize backend JSON into a task-readable artifact. Keep redacted raw
+   output as metadata only when useful.
+7. Write Bundle v2 with run/attempt/bundle ids, target, operation, content
+   scopes, byte counts, hashes, privacy flags, limits, and failures.
+8. Validate before promotion. On resume, archive the prior bundle.
+9. Hand only the promoted manifest path to `source-gated-evidence-layer`.
 
-1. Check whether `agent-reach` is installed before platform acquisition.
-2. For multi-platform tasks, or whenever platform readiness is unclear, run
-   `agent-reach doctor --json` and save the result under
-   `00_acquisition/logs/agent_reach_doctor.json`.
-3. Identify the platform and active backend from the doctor output when
-   available.
-4. Write `00_acquisition/logs/route_plan.json` before acquisition. The plan
-   must explain the doctor channel, active backend, preferred command family,
-   anonymous fallback policy, and authorized setup action when a backend is
-   missing.
-5. Call the current supported upstream route for the platform. For login or
-   browser-session platforms, follow Agent-Reach's active backend instead of
-   retrying anonymous page readers.
-6. Write every result into `00_acquisition/manifest.json` following
-   `references/acquisition-bundle.md`.
-7. Write `00_acquisition/logs/commands.jsonl` with command summaries and exit
-   codes only. Redact secrets.
-8. If acquisition fails, still write a `blocked`, `failed`, or `unsupported`
-   bundle.
-9. Hand the manifest path to `source-gated-evidence-layer`.
-
-Do not:
-
-- perform source gate decisions;
-- mark material `source_confirmed`;
-- run evidence audit;
-- generate `video_analysis_pack.md`, `source_analysis_pack.md`, or
-  `final_report.md`;
-- read, display, copy, or log cookie values, tokens, Authorization headers, or
-  private browser session material;
-- bypass CAPTCHA, paywalls, private content, region limits, account permissions,
-  or platform access controls.
-
-CLI wrappers:
+Never mark `source_confirmed`, run claims/evidence audit, or write a final
+report. Never bypass CAPTCHA, paywalls, private access, region restrictions, or
+account permissions. Never persist cookies, authorization headers, session
+ids, tokens, visitor data, PO tokens, passwords, or proxy credentials.
 
 ```powershell
 python kw.py agent-reach doctor
-python kw.py agent-reach plan --input <url-or-query>
-python kw.py agent-reach install --channels opencli
-python kw.py agent-reach install --channels twitter
-python kw.py acquire --input <url-or-query> --project-root <project>
+python kw.py agent-reach plan --input <url> --target <target> --operation <operation>
+python kw.py acquire --input <url-or-query> --target <target> --operation <operation> --project-root <project>
+python kw.py acquire --input <same-input> --target <same-target> --operation <same-operation> --project-root <project> --resume
+python kw.py browser-import --input-file <exported-file> --source-url <original-url> --platform <platform> --target <target> --operation <operation> --project-root <project>
 python kw.py validate-bundle --bundle <project>\00_acquisition\manifest.json
 ```
 
-Required references:
+Use `browser-import` only after a browser-capable agent has saved actual
+visible text, subtitles, audio, or video to a local file. A playable page,
+screenshot, metadata record, or restricted signed URL cannot pass this
+handoff.
 
-1. `references/install.md`
-2. `references/platform-routing.md`
-3. `references/acquisition-bundle.md`
-4. `references/usage.md`
+Read `references/platform-routing.md`, `references/acquisition-bundle.md`, and
+`references/usage.md`. Read `references/install.md` for setup only.

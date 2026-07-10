@@ -56,7 +56,7 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 REPO_ROOT=$SCRIPT_DIR
 SOURCE_ROOT=$REPO_ROOT/skills
-SKILLS="knowledge-workflow-console agent-reach-console source-gated-evidence-layer knowledge-video-decomposer knowledge-document-composer"
+SKILLS="knowledge-workflow-console agent-reach-console source-gated-evidence-layer knowledge-document-composer"
 
 if [ ! -d "$SOURCE_ROOT" ]; then
   echo "Missing source skills directory: $SOURCE_ROOT" >&2

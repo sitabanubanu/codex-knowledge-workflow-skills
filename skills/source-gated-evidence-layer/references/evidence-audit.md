@@ -1,6 +1,7 @@
 # Evidence Audit
 
-Retain the existing evidence audit rules from `knowledge-video-decomposer`.
+Reuse the internal evidence-audit scripts from `knowledge-video-decomposer`.
+That directory is a compatibility library, not a user-facing route.
 
 Required:
 
@@ -21,3 +22,7 @@ The evidence layer may reuse these scripts:
 - `video_analysis_pack_builder.py`
 
 Do not weaken evidence audit to make acquisition failures look successful.
+
+Before audit, require a current `gate_receipt.json`. After pack generation,
+write `analysis_receipt.json` with the gate-receipt hash, evidence-audit hash,
+pack filename, and pack SHA-256. A pack without a matching receipt is stale.

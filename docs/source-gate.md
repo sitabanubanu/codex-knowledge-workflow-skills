@@ -1,44 +1,42 @@
 # Source Gate Summary
 
-The source gate prevents the workflow from producing a complete analysis when
-only metadata or secondary material is available.
+The source gate prevents complete analysis when material is secondary, stale,
+or primary for the wrong task scope.
 
-## Full Analysis Allowed
+## Admission Rule
 
-Only when source status is:
+Full or explicitly partial analysis requires all of:
 
-- `source_confirmed`
+- valid Acquisition Bundle v2;
+- current manifest/artifact hashes;
+- `primary` or `partial_primary` source class;
+- artifact scope matching `analysis_target`;
+- current `gate_receipt.json`.
 
-Partial analysis is allowed only when:
+| Target | Matching scope |
+| --- | --- |
+| `video_content` | `video_transcript` |
+| `social_post` | `social_post_text` |
+| `web_article` | `article_body` |
+| `repository` | `repository_document` |
 
-- `source_partial` is explicitly scoped,
-- gaps and source coverage are documented,
-- the report visibly labels itself as partial.
+`search_triage` does not unlock a normal full report.
 
-## Full Analysis Forbidden
+## Allowed Source Status
 
-The workflow must not create a complete `video_analysis_pack.md` or full final
-report for:
+- `source_confirmed` permits full decomposition.
+- `source_partial` permits only visibly partial, gap-aware decomposition.
 
-- `secondary_only`
-- `source_blocked`
-- `source_failed`
-- `degraded_report_only`
+`secondary_only`, `source_blocked`, `source_failed`, and
+`degraded_report_only` permit degraded output only.
 
-## Primary Source Classes
+## Non-Promotable Context
 
-- `primary_transcript`
-- `primary_audio_asr`
-- `browser_visible_transcript`
-- `browser_derived_media`
+Metadata, screenshots, search snippets, comments, page shell state, third-party
+summaries, and social captions for an embedded-video task cannot be promoted
+into the missing primary scope.
 
-## Secondary Context
+## Delivery Gate
 
-These can support degraded reports only:
-
-- platform metadata,
-- screenshots,
-- search snippets,
-- Firecrawl context,
-- page observation,
-- third-party summaries.
+Source admission alone is not final delivery. Analysis, composer, quality gate,
+and final report must also have current chained receipts and hashes.

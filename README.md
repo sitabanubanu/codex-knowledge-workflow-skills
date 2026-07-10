@@ -12,17 +12,20 @@ to auditable report generation.
 
 ```text
 Agent-Reach acquisition
-  -> acquisition_bundle
-  -> source-gated evidence
-  -> auditable report generation
+  -> Acquisition Bundle v2
+  -> target/scope source gate
+  -> evidence audit
+  -> provenance-checked report
 ```
 
 ## What Changed In v0.6
 
 The old `knowledge-video-decomposer` carried too much: platform acquisition,
 cookies, yt-dlp, Chrome probes, source gate, evidence audit, and pack building.
-The architecture is now split:
+The user-facing architecture is now four layers:
 
+- `knowledge-workflow-console`: product controller for routing, preflight,
+  stages, status, and result index.
 - `agent-reach-console`: acquisition controller. It installs/checks
   Agent-Reach, calls current upstream tools, and writes `00_acquisition`.
 - `source-gated-evidence-layer`: evidence controller. It validates bundles,
@@ -30,8 +33,15 @@ The architecture is now split:
 - `knowledge-document-composer`: report controller. It writes only from
   source-gated packs and keeps Source / Inference / Extension separate.
 
-Legacy URL acquisition scripts remain available for compatibility, but they are
-not the primary route.
+`knowledge-video-decomposer` remains an internal compatibility library for
+normalization, ASR, segmentation, inventory, logic, audit, and pack building.
+It is not synced as a user-facing skill. Legacy URL acquisition scripts remain
+in that library but are not the primary route.
+
+Bundle v2 adds run identity, analysis target, operation capability checks,
+artifact scope, hashes, staged attempts, retry history, centralized redaction,
+and downstream provenance receipts. A stale report can no longer become
+`success` merely because the file still exists.
 
 ## Three-Minute Start
 
@@ -58,7 +68,7 @@ For URL acquisition:
 
 ```powershell
 python .\kw.py agent-reach doctor
-python .\kw.py run --input https://example.com/page --mode audit
+python .\kw.py run --input https://example.com/page --target web_article --operation read --mode audit
 ```
 
 Every run should tell you:
@@ -80,7 +90,11 @@ outputs/knowledge-workflow/<project>/
     logs/
   10_video/
     00_source/source_status.json
+    00_source/gate_receipt.json
+    analysis_receipt.json
   20_document/
+    composer_receipt.json
+    final_report_receipt.json
   30_final/
 ```
 
@@ -115,7 +129,8 @@ fake complete analysis.
 ```powershell
 python .\kw.py agent-reach install --safe
 python .\kw.py agent-reach doctor
-python .\kw.py acquire --input <url> --project-root <project>
+python .\kw.py agent-reach plan --input <url> --target video_content --operation extract_transcript
+python .\kw.py acquire --input <url> --target video_content --operation extract_transcript --project-root <project>
 python .\kw.py ingest --bundle <project>\00_acquisition\manifest.json --project-root <project>
 python .\kw.py audit --project-root <project>
 python .\kw.py compose --project-root <project>
@@ -125,13 +140,18 @@ python .\kw.py result --project-root <project>
 python .\kw.py validate
 ```
 
+Reuse an existing project root only for the exact same source, target, and
+operation, and only with `--resume`. Prior bundles and downstream outputs are
+archived instead of silently reused.
+
 ## Skills
 
 - `knowledge-workflow-console`: product routing, preflight, status, result index.
 - `agent-reach-console`: acquisition controller and bundle writer.
 - `source-gated-evidence-layer`: bundle validation, source gate, evidence audit.
-- `knowledge-video-decomposer`: legacy-compatible decomposition scripts and pack builder.
 - `knowledge-document-composer`: claim map, final writer, quality gate.
+
+Internal library: `knowledge-video-decomposer`.
 
 ## Safety
 
@@ -139,6 +159,27 @@ This project does not bypass CAPTCHA, paywalls, private content, region limits,
 or account permissions. It does not read, display, copy, or commit cookies,
 tokens, Authorization headers, or private login state. Bundles may record
 whether cookies were used, never their values.
+
+The Chrome control plugin name does not prove that Chrome owns the active
+login state. Select the actual browser explicitly with `--youtube-browser
+edge` or `--youtube-browser chrome`; do not infer it from the control surface.
+
+When an authorized browser session has produced a citeable local artifact,
+handoff through Bundle v2:
+
+```powershell
+python .\kw.py browser-import `
+  --input-file .\exports\visible-post.txt `
+  --source-url <original-url> `
+  --platform x `
+  --target social_post `
+  --operation read `
+  --project-root .\outputs\browser-post
+```
+
+For an end-to-end run, use `kw run --browser-source-url <original-url>
+--browser-platform <platform>`. The legacy `chrome-probe` command records an
+observation only; it is not the current acquisition handoff.
 
 Do not commit:
 
@@ -152,7 +193,7 @@ Do not commit:
 ## Tests
 
 ```powershell
-python -m py_compile kw.py kw_cli/main.py kw_cli/bundle.py kw_cli/agent_reach_adapter.py kw_cli/ingest.py
+python -m py_compile kw.py kw_cli/*.py
 python .\kw.py demo
 python .\tests\knowledge_workflow_regression.py
 python .\tests\real_workflow_acceptance.py
@@ -161,12 +202,15 @@ python .\tests\test_local_bundle_ingest.py
 python .\tests\test_agent_reach_acquire_offline.py
 python .\tests\test_source_gate_from_bundle.py
 python .\tests\test_no_fake_report_from_agent_reach_failures.py
+python .\tests\test_run_provenance.py
+python .\tests\test_browser_export_flow.py
 ```
 
 ## More Documentation
 
 - [Architecture](docs/architecture.md)
 - [ADR 0001](docs/adr/0001-agent-reach-acquisition-layer.md)
+- [ADR 0003](docs/adr/0003-acquisition-bundle-v2-run-provenance.md)
 - [Acquisition bundle protocol](docs/acquisition-bundle-protocol.md)
 - [Installation](INSTALL.md)
 - [User manual](USER_MANUAL.md)

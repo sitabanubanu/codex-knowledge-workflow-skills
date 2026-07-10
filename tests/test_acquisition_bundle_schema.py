@@ -92,6 +92,84 @@ def test_secret_fields_are_rejected(failures: list[str]) -> None:
         assert_true("secrets fields are not present", not result["valid"], failures)
 
 
+def test_path_traversal_is_rejected(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-bundle-traversal-") as tmp:
+        root = Path(tmp)
+        transcript = root / "input.txt"
+        transcript.write_text("A usable transcript line.\n", encoding="utf-8")
+        manifest_path = bundle.build_local_bundle(input_path=transcript, project_root=root / "project")
+        payload = load(manifest_path)
+        payload["artifacts"][0]["path"] = "../outside.txt"
+        bundle.write_json(manifest_path, payload)
+        result = bundle.validate_manifest(manifest_path)
+        assert_true("path traversal fails", not result["valid"], failures)
+
+
+def test_artifact_hash_tamper_is_rejected(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-bundle-hash-") as tmp:
+        root = Path(tmp)
+        transcript = root / "input.txt"
+        transcript.write_text("A usable transcript line.\n", encoding="utf-8")
+        manifest_path = bundle.build_local_bundle(input_path=transcript, project_root=root / "project")
+        payload = load(manifest_path)
+        artifact_path = manifest_path.parent / payload["artifacts"][0]["path"]
+        artifact_path.write_text("Tampered after manifest creation.\n", encoding="utf-8")
+        result = bundle.validate_manifest(manifest_path)
+        assert_true("artifact hash tamper fails", not result["valid"], failures)
+
+
+def test_browser_export_preserves_url_scope_and_privacy(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-browser-export-") as tmp:
+        root = Path(tmp)
+        export = root / "post.txt"
+        export.write_text("A browser-visible post body.\n", encoding="utf-8")
+        manifest_path = bundle.build_browser_export_bundle(
+            input_path=export,
+            source_url="https://x.com/example/status/1?token=secret",
+            platform="x",
+            project_root=root / "project",
+            analysis_target="social_post",
+            operation="read",
+        )
+        payload = load(manifest_path)
+        result = bundle.validate_manifest(manifest_path)
+        assert_true("browser export bundle passes", result["valid"], failures)
+        assert_true("browser export is page text", payload["artifacts"][0]["type"] == "page_text", failures)
+        assert_true("browser export social scope", payload["artifacts"][0]["content_scope"] == "social_post_text", failures)
+        assert_true("browser session recorded", payload["privacy"]["browser_session_used"] is True, failures)
+        persisted = manifest_path.read_text(encoding="utf-8")
+        assert_true("browser URL token redacted", "token=secret" not in persisted and "%5BREDACTED%5D" in persisted, failures)
+        resumed = bundle.build_browser_export_bundle(
+            input_path=export,
+            source_url="https://x.com/example/status/1?token=rotated",
+            platform="x",
+            project_root=root / "project",
+            analysis_target="social_post",
+            operation="read",
+            resume=True,
+        )
+        assert_true("browser token rotation can resume", bundle.validate_manifest(resumed)["valid"], failures)
+
+
+def test_browser_export_rejects_wrong_scope(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-browser-scope-") as tmp:
+        root = Path(tmp)
+        export = root / "post.txt"
+        export.write_text("A browser-visible post body.\n", encoding="utf-8")
+        try:
+            bundle.build_browser_export_bundle(
+                input_path=export,
+                source_url="https://x.com/example/status/1",
+                platform="x",
+                project_root=root / "project",
+                analysis_target="social_post",
+                content_scope="article_body",
+            )
+        except bundle.BundleError:
+            return
+        failures.append("browser export wrong scope rejected")
+
+
 def main() -> int:
     failures: list[str] = []
     test_valid_local_transcript_bundle(failures)
@@ -99,6 +177,10 @@ def main() -> int:
     test_invalid_status_fails(failures)
     test_metadata_only_cannot_be_primary(failures)
     test_secret_fields_are_rejected(failures)
+    test_path_traversal_is_rejected(failures)
+    test_artifact_hash_tamper_is_rejected(failures)
+    test_browser_export_preserves_url_scope_and_privacy(failures)
+    test_browser_export_rejects_wrong_scope(failures)
     if failures:
         print("FAILURES:")
         for failure in failures:

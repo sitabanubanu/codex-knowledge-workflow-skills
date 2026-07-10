@@ -9,10 +9,22 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 RUNNER_NAME = "knowledge-workflow-preflight"
+SENSITIVE_QUERY_MARKERS = ("cookie", "password", "secret", "session", "token", "visitor_data")
+
+
+def safe_input_record(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.query:
+        return value
+    pairs = [
+        (key, "[REDACTED]" if any(marker in key.lower() for marker in SENSITIVE_QUERY_MARKERS) else item)
+        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+    ]
+    return urlunparse(parsed._replace(query=urlencode(pairs, doseq=True)))
 
 
 def detect_input_kind(value: str) -> str:
@@ -129,7 +141,7 @@ def build_preflight(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "runner": RUNNER_NAME,
-        "input": args.input,
+        "input": safe_input_record(args.input),
         "input_kind": input_kind,
         "platform": platform,
         "requested_mode": mode,

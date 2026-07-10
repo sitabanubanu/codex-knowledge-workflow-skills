@@ -4,40 +4,42 @@
 
 ### Added
 
-- ADR 0001 for using Agent-Reach as the acquisition layer.
-- `docs/acquisition-bundle-protocol.md` defining the stable handoff between
-  acquisition and evidence.
-- `agent-reach-console` skill for installation, doctor, routing, and bundle
-  creation guidance.
-- `source-gated-evidence-layer` skill for bundle validation, source gate,
-  evidence audit, claim-map rules, quality gates, and degraded outputs.
-- `kw_cli/bundle.py`, `kw_cli/agent_reach_adapter.py`, and `kw_cli/ingest.py`
-  as CLI-callable skeletons.
-- CLI commands: `kw agent-reach install`, `kw agent-reach doctor`,
-  `kw acquire`, `kw ingest`, `kw audit`, `kw compose`, and
-  `kw validate-bundle`.
-- Offline tests for acquisition bundles, local ingest, Agent-Reach acquisition
-  mocks, source-gate mapping, and no-fake-report failure paths.
+- ADR 0003 for Bundle v2, target/scope gating, immutable runs, and downstream
+  provenance.
+- Run, attempt, bundle, source-fingerprint, analysis-target, and operation
+  identifiers.
+- Artifact content scope, coverage, byte count, SHA-256, path containment, and
+  run/source binding.
+- Attempt staging, explicit `--resume`, `acquisition_history/`, and
+  `run_history/`.
+- Gate, analysis, composer, and final-report provenance receipts.
+- Canonical JSON adapters for Xiaohongshu note text and Bilibili subtitles.
+- YouTube subtitle plus Agent-Reach transcription fallback with all existing
+  CLI options wired into the new path.
+- Regression tests for operation mismatch, target/scope mismatch, path
+  traversal, hash tampering, secret persistence, run reuse, stale reports, and
+  full provenance.
 
 ### Changed
 
-- `kw run` now uses the acquisition-bundle route as the primary path.
-- Workflow console routing now sends URL/query input through
-  `agent-reach-console -> acquisition_bundle -> source-gated-evidence-layer`.
-- `knowledge-video-decomposer` platform acquisition scripts are documented as
-  legacy compatibility paths.
-- `knowledge-document-composer` recognizes `source_analysis_pack.md` before
-  falling back to legacy `video_analysis_pack.md`.
-- README, Chinese README, installation, user manual, supported-platforms,
-  troubleshooting, roadmap, architecture, and validation docs now describe the
-  v0.6 architecture reset.
+- Agent-Reach doctor readiness is now combined with operation support before a
+  backend command executes.
+- Social post text can confirm a social-post target but cannot confirm an
+  embedded-video target.
+- Status, result, export, quality, templates, and batch synthesis now require
+  current receipts instead of trusting file existence.
+- Sensitive URLs, command arguments, failures, preflight, run state, manifests,
+  and backend JSON use centralized persisted-output redaction.
+- `knowledge-video-decomposer` is now an internal compatibility library; four
+  skills remain user-facing and synced.
+- Package version is `0.6.0`.
 
 ### Validation
 
-Planned local checks:
+Required local checks:
 
 ```powershell
-python -m py_compile kw.py kw_cli/main.py kw_cli/bundle.py kw_cli/agent_reach_adapter.py kw_cli/ingest.py
+python -m py_compile kw.py kw_cli/*.py
 python .\kw.py demo
 python .\tests\knowledge_workflow_regression.py
 python .\tests\real_workflow_acceptance.py
@@ -46,6 +48,7 @@ python .\tests\test_local_bundle_ingest.py
 python .\tests\test_agent_reach_acquire_offline.py
 python .\tests\test_source_gate_from_bundle.py
 python .\tests\test_no_fake_report_from_agent_reach_failures.py
+python .\tests\test_run_provenance.py
 ```
 
 ## v0.5.0-real-world-validation

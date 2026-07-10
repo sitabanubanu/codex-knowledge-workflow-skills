@@ -14,8 +14,6 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
-CONSOLE = REPO_ROOT / "skills" / "knowledge-workflow-console"
-DOCUMENT = REPO_ROOT / "skills" / "knowledge-document-composer"
 
 
 class AcceptanceFailure(Exception):
@@ -97,14 +95,21 @@ def main() -> int:
         "failures": failures,
     }
     try:
-        e2e_result = run_ok(
+        product_result = run_ok(
             [
                 sys.executable,
-                str(CONSOLE / "scripts" / "end_to_end_runner.py"),
-                "--input-transcript",
+                str(REPO_ROOT / "kw.py"),
+                "run",
+                "--input",
                 str(FIXTURES / "transcript_sample.txt"),
                 "--project-root",
                 str(project_root),
+                "--target",
+                "video_content",
+                "--operation",
+                "extract_transcript",
+                "--mode",
+                "audit",
                 "--language",
                 "en",
                 "--document-goal",
@@ -112,51 +117,31 @@ def main() -> int:
                 "--final-language",
                 "en",
             ],
-            cwd=CONSOLE / "scripts",
+            cwd=REPO_ROOT,
             timeout=240,
         )
-        e2e_payload = parse_last_json(e2e_result["stdout"])
-        summary["e2e_steps"] = len(e2e_payload.get("steps") or [])
-
-        final_result = run_ok(
-            [
-                sys.executable,
-                str(DOCUMENT / "scripts" / "final_report_writer.py"),
-                "--document-root",
-                str(project_root / "20_document"),
-                "--pretty",
-            ],
-            cwd=DOCUMENT / "scripts",
-            timeout=120,
-        )
-        summary["final_report_writer"] = parse_last_json(final_result["stdout"])
-
-        result_index = run_ok(
-            [
-                sys.executable,
-                str(CONSOLE / "scripts" / "result_index_writer.py"),
-                "--project-root",
-                str(project_root),
-                "--pretty",
-            ],
-            cwd=CONSOLE / "scripts",
-            timeout=60,
-        )
-        summary["result_index_writer"] = parse_last_json(result_index["stdout"])
+        summary["product_run"] = product_result
+        summary["result_index_writer"] = read_json(project_root / "logs" / "result_index.json")
 
         required_files = [
             project_root / "result_index.md",
+            project_root / "logs" / "run_identity.json",
+            project_root / "00_acquisition" / "manifest.json",
             project_root / "10_video" / "00_source" / "source_status.json",
+            project_root / "10_video" / "00_source" / "gate_receipt.json",
             project_root / "10_video" / "01_transcript" / "clean_transcript.jsonl",
             project_root / "10_video" / "02_segments" / "argument_segments.json",
             project_root / "10_video" / "03_inventory" / "claims.json",
             project_root / "10_video" / "04_logic" / "logic_graph.json",
             project_root / "10_video" / "05_gap_check" / "evidence_audit.json",
             project_root / "10_video" / "video_analysis_pack.md",
+            project_root / "10_video" / "analysis_receipt.json",
             project_root / "20_document" / "composer_intake.json",
             project_root / "20_document" / "claim_map.json",
+            project_root / "20_document" / "composer_receipt.json",
             project_root / "20_document" / "quality_gate.json",
             project_root / "20_document" / "final_report.md",
+            project_root / "20_document" / "final_report_receipt.json",
         ]
         for path in required_files:
             assert_true(f"required file {path.name}", path.is_file(), str(path))
@@ -168,6 +153,9 @@ def main() -> int:
         assert_true("primary material", source_status.get("primary_material_available") is True)
         assert_true("final approved", quality_gate.get("approved_for_final_report") is True)
         assert_true("result index success", summary["result_index_writer"].get("status") == "success")
+        assert_true("gate provenance current", summary["result_index_writer"].get("gate_provenance_current") is True)
+        assert_true("analysis provenance current", summary["result_index_writer"].get("analysis_provenance_current") is True)
+        assert_true("final provenance current", summary["result_index_writer"].get("final_report_provenance_current") is True)
         assert_true("source section", "## Source" in final_text)
         assert_true("inference section", "## Inference" in final_text)
         assert_true("extension section", "## Extension" in final_text)

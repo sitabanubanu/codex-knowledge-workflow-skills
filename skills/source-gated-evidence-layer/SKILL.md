@@ -1,58 +1,37 @@
 ---
 name: source-gated-evidence-layer
-description: Validate acquisition bundles, build source_status, run source gate, evidence audit, claim production, quality gates, and degraded outputs. Does not fetch from platforms.
+description: Validate Acquisition Bundle v2, enforce analysis-target and artifact-scope gates, normalize or transcribe admitted material, produce claims and evidence audits, write provenance receipts, and degrade safely. Never fetch platform data.
 ---
 
 # Source-Gated Evidence Layer
 
-Use this skill after `agent-reach-console` or a local bundle builder has written
-an acquisition bundle.
+Use this skill only after a promoted acquisition bundle exists.
 
-Core rule: Evidence layer audits material; it does not acquire platform data.
+1. Validate schema, contained paths, byte counts, SHA-256, run/source binding,
+   privacy fields, and status invariants.
+2. Compare `analysis_target` with artifact `content_scope`. Primary post text
+   cannot satisfy an embedded-video target.
+3. Write `source_status.json` and `gate_receipt.json` for every outcome,
+   including blocked and failed outcomes.
+4. Continue only for `source_confirmed` or `source_partial` with current gate
+   provenance.
+5. Normalize admitted text or run ASR for admitted local media. Bind derived
+   transcript hashes into the gate receipt.
+6. Run segmentation, inventory, source logic, claims, evidence audit, and pack
+   building.
+7. Write `analysis_receipt.json` bound to the current gate and pack hash.
+8. Send only the current audited pack to `knowledge-document-composer`.
+9. On a new bundle, archive prior downstream trees under `run_history/`.
 
-Workflow:
-
-1. Validate `00_acquisition/manifest.json`.
-2. Build `source_status.json`.
-3. Continue only when source status is `source_confirmed` or `source_partial`.
-4. Normalize primary transcript/subtitle/text artifacts with
-   `transcript_normalizer.py`.
-5. Run segmentation, inventory extraction, source logic, evidence audit, and pack
-   building only when the source gate allows it.
-6. Keep `video_analysis_pack.md` compatibility while gradually introducing
-   `source_analysis_pack.md`.
-7. Send only audited packs to `knowledge-document-composer`.
-
-Status rules:
-
-- `source_confirmed` and `source_partial` can enter full or partial
-  decomposition.
-- `secondary_only`, `metadata_only`, `source_blocked`, `source_failed`, and
-  `degraded_report_only` can only produce degraded output.
-- Metadata, search results, snippets, titles, comments, and page context cannot
-  be upgraded into Source claims.
-
-Do not:
-
-- call Agent-Reach or platform tools;
-- fetch URLs;
-- repair or invent primary material;
-- let composer read raw acquisition output;
-- write a normal `final_report.md` for blocked, failed, metadata-only, or
-  secondary-only input.
-
-CLI wrappers:
+For `secondary_only`, `source_blocked`, `source_failed`, or
+`degraded_report_only`, write an explicit degraded report and next action. Do
+not fetch URLs, call Agent-Reach, repair missing material, promote metadata, or
+write a normal final report.
 
 ```powershell
 python kw.py ingest --bundle <project>\00_acquisition\manifest.json --project-root <project>
 python kw.py audit --project-root <project>
-python kw.py compose --project-root <project>
 ```
 
-Required references:
-
-1. `references/source-gate.md`
-2. `references/evidence-audit.md`
-3. `references/claim-map.md`
-4. `references/quality-gate.md`
-5. `references/degraded-output.md`
+Read all files under `references/` before changing gate, claim, audit, or
+degraded-output behavior.
