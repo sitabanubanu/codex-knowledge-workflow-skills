@@ -32,8 +32,28 @@ SUPPORTED_PLATFORMS = {
 }
 AGENT_REACH_INSTALL_SOURCE = "https://github.com/Panniantong/Agent-Reach/archive/main.zip"
 LOGIN_REQUIRED_PLATFORMS = {"x", "xiaohongshu"}
+BROWSER_HOSTS = {"edge", "chrome"}
+UPSTREAM_AUTO_COOKIE_CHANNELS = {"twitter", "bilibili", "xueqiu", "all"}
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_YOUTUBE_COOKIES = REPO_ROOT / "work" / "youtube-cookies" / "youtube.cookies.txt"
+
+AGENT_REACH_CHANNEL_CATALOG = {
+    "web": ("Public web pages", "structured_adapter"),
+    "youtube": ("YouTube metadata, subtitles, and transcription", "structured_adapter"),
+    "rss": ("RSS and Atom feeds", "native_export_import"),
+    "exa_search": ("Web search", "structured_adapter"),
+    "github": ("Repositories and code", "structured_adapter"),
+    "twitter": ("Twitter/X posts and discovery", "structured_adapter_and_native_export"),
+    "bilibili": ("Bilibili video detail, audio, and subtitles", "structured_adapter_and_native_export"),
+    "xiaohongshu": ("Xiaohongshu notes and comments", "structured_adapter_and_native_export"),
+    "reddit": ("Reddit posts and comments", "native_export_import"),
+    "facebook": ("Facebook search, profiles, feed, and groups", "native_export_import"),
+    "instagram": ("Instagram profiles, posts, and explore", "native_export_import"),
+    "linkedin": ("LinkedIn profiles, companies, and jobs", "native_export_import"),
+    "xiaoyuzhou": ("Xiaoyuzhou podcast transcription", "native_export_import"),
+    "v2ex": ("V2EX topics, replies, and users", "native_export_import"),
+    "xueqiu": ("Xueqiu market and community data", "native_export_import"),
+}
 
 
 PLATFORM_SETUP_HINTS = {
@@ -46,7 +66,7 @@ PLATFORM_SETUP_HINTS = {
         "manual_steps": [
             "Install twitter-cli or OpenCLI as reported by agent-reach doctor.",
             "For twitter-cli, configure TWITTER_AUTH_TOKEN and TWITTER_CT0 from a user-authorized browser session.",
-            "For OpenCLI, keep Chrome open and logged in to x.com.",
+            "For OpenCLI, keep the explicitly selected Edge or Chrome host open and logged in to x.com.",
         ],
     },
     "xiaohongshu": {
@@ -56,8 +76,8 @@ PLATFORM_SETUP_HINTS = {
             "agent-reach install --channels opencli",
         ],
         "manual_steps": [
-            "Install the OpenCLI Chrome extension when prompted by Agent-Reach.",
-            "Keep Chrome open and logged in to xiaohongshu.com.",
+            "Install the OpenCLI browser extension in the explicitly selected Edge or Chrome host.",
+            "Keep that host open and logged in to xiaohongshu.com.",
             "Use a full note URL that includes xsec_token; when missing, search/feed first and read the returned URL.",
         ],
     },
@@ -66,6 +86,26 @@ PLATFORM_SETUP_HINTS = {
 
 class AgentReachAdapterError(Exception):
     """Raised when the adapter cannot create a bundle."""
+
+
+def normalize_browser_host(value: object, *, option_name: str = "--browser-host") -> str:
+    host = str(value or "").strip().lower()
+    if not host:
+        return ""
+    if host not in BROWSER_HOSTS:
+        raise AgentReachAdapterError(f"{option_name} must be one of {sorted(BROWSER_HOSTS)}")
+    return host
+
+
+def browser_host_from_options(options: dict[str, Any] | None) -> str:
+    values = options or {}
+    declared_host = normalize_browser_host(values.get("browser_host"))
+    youtube_host = normalize_browser_host(values.get("youtube_browser"), option_name="--youtube-browser")
+    if declared_host and youtube_host and declared_host != youtube_host:
+        raise AgentReachAdapterError(
+            "--browser-host and --youtube-browser must name the same browser host when both are supplied."
+        )
+    return declared_host or youtube_host
 
 
 def detect_platform(value: str) -> str:
@@ -267,6 +307,7 @@ def route_plan_for(
     *,
     analysis_target: str = "auto",
     operation: str = "auto",
+    browser_host: str = "",
 ) -> dict[str, Any]:
     item = doctor_item_for_platform(doctor, platform)
     active_backend = active_backend_from_doctor(doctor, platform)
@@ -274,6 +315,9 @@ def route_plan_for(
     chosen_operation = source_gate.infer_operation(chosen_target, operation)
     backend_ready = active_backend_is_ready(doctor, platform)
     operation_supported = backend_supports_operation(platform, active_backend, chosen_operation, input_value)
+    declared_browser_host = normalize_browser_host(browser_host)
+    browser_host_required = active_backend == "OpenCLI"
+    browser_host_ready = not browser_host_required or bool(declared_browser_host)
     plan: dict[str, Any] = {
         "platform": platform,
         "analysis_target": chosen_target,
@@ -284,9 +328,13 @@ def route_plan_for(
         "active_backend": active_backend,
         "active_backend_ready": backend_ready,
         "operation_supported": operation_supported,
-        "capability_ready": backend_ready and operation_supported,
+        "browser_host": declared_browser_host or "unknown",
+        "browser_host_identity": "declared" if declared_browser_host else "not_provided",
+        "browser_host_required": browser_host_required,
+        "browser_host_ready": browser_host_ready,
+        "capability_ready": backend_ready and operation_supported and browser_host_ready,
         "backend_order": item.get("backends") or [],
-        "uses_agent_reach_active_backend": backend_ready and operation_supported,
+        "uses_agent_reach_active_backend": backend_ready and operation_supported and browser_host_ready,
         "anonymous_web_fallback_allowed": platform not in LOGIN_REQUIRED_PLATFORMS,
         "install_commands": [],
         "preferred_commands": [],
@@ -298,7 +346,16 @@ def route_plan_for(
     if hints and not active_backend_is_ready(doctor, platform):
         plan["install_commands"] = hints["install_commands"]
         plan["manual_steps"] = hints["manual_steps"]
-    if active_backend and not active_backend_is_ready(doctor, platform):
+    if browser_host_required and not declared_browser_host:
+        plan["blocked_until_ready_reason"] = (
+            "Agent-Reach selected OpenCLI, but the actual Edge or Chrome host was not declared. "
+            "Do not infer it from an extension or control-plugin name."
+        )
+        plan["manual_steps"] = [
+            *plan.get("manual_steps", []),
+            "Identify the browser that actually hosts the OpenCLI extension and login, then retry with --browser-host edge or --browser-host chrome.",
+        ]
+    elif active_backend and not active_backend_is_ready(doctor, platform):
         plan["blocked_until_ready_reason"] = "Agent-Reach selected this backend, but doctor did not report status ok."
     elif active_backend and not operation_supported:
         plan["blocked_until_ready_reason"] = f"The active backend does not support operation {chosen_operation!r} for this input."
@@ -854,7 +911,12 @@ def _youtube_common_options(options: dict[str, Any]) -> tuple[list[str], dict[st
     }
 
     cookies_value = str(options.get("youtube_cookies") or "").strip()
-    browser_value = str(options.get("youtube_browser") or "").strip().lower()
+    browser_value = normalize_browser_host(options.get("youtube_browser"), option_name="--youtube-browser")
+    declared_browser_host = normalize_browser_host(options.get("browser_host"))
+    if declared_browser_host and browser_value and declared_browser_host != browser_value:
+        raise AgentReachAdapterError(
+            "--browser-host and --youtube-browser must name the same browser host when both are supplied."
+        )
     if cookies_value and browser_value:
         raise AgentReachAdapterError("Use only one of --youtube-cookies or --youtube-browser.")
     if cookies_value:
@@ -866,10 +928,13 @@ def _youtube_common_options(options: dict[str, Any]) -> tuple[list[str], dict[st
         command_options.extend(["--cookies", str(cookies_path)])
         applied["access_file_used"] = True
     if browser_value:
-        if browser_value not in {"edge", "chrome"}:
-            raise AgentReachAdapterError("--youtube-browser must be edge or chrome")
         command_options.extend(["--cookies-from-browser", browser_value])
         applied["browser_name"] = browser_value
+        applied["browser_host"] = browser_value
+        applied["browser_host_identity"] = "declared_and_used_by_yt_dlp"
+    elif declared_browser_host:
+        applied["browser_host"] = declared_browser_host
+        applied["browser_host_identity"] = "declared_not_used_by_yt_dlp"
 
     if bool(options.get("use_js_runtime")):
         node_value = options.get("node")
@@ -1437,6 +1502,7 @@ def _acquire_with_agent_reach_into(
             source_fingerprint=source_fingerprint,
         )
 
+    browser_host = browser_host_from_options(youtube_options)
     doctor = write_doctor(project_root, command_log)
     active_backend = active_backend_from_doctor(doctor, platform)
     route_plan = route_plan_for(
@@ -1445,6 +1511,7 @@ def _acquire_with_agent_reach_into(
         input_value,
         analysis_target=analysis_target,
         operation=operation,
+        browser_host=browser_host,
     )
     write_route_plan(project_root, route_plan)
     privacy_flags: dict[str, bool] = {
@@ -1464,7 +1531,12 @@ def _acquire_with_agent_reach_into(
                     or f"No ready backend supports operation {operation!r} for {platform!r}.",
                 }
             ],
-            "Configure a ready backend that supports the requested operation, or provide task-primary local material.",
+            (
+                "Identify the actual browser host and retry with --browser-host edge or --browser-host chrome. "
+                "Do not infer it from the OpenCLI extension name."
+                if route_plan.get("browser_host_required") and not route_plan.get("browser_host_ready")
+                else "Configure a ready backend that supports the requested operation, or provide task-primary local material."
+            ),
         )
     elif platform == "web":
         status, artifacts, metadata, failures, next_action = acquire_web(input_value, project_root, command_log, analysis_target=analysis_target)
@@ -1505,7 +1577,12 @@ def _acquire_with_agent_reach_into(
             "Provide local primary material.",
         )
     if isinstance(metadata, dict):
-        metadata = {**metadata, "route_plan": route_plan}
+        metadata = {
+            **metadata,
+            "route_plan": route_plan,
+            "browser_host": route_plan["browser_host"],
+            "browser_host_identity": route_plan["browser_host_identity"],
+        }
 
     manifest = bundle.make_manifest(
         project_root=project_root,
@@ -1539,6 +1616,7 @@ def _acquire_with_agent_reach_into(
         f"- Input: `{redact_value_for_record(input_value)}`",
         f"- Platform: `{platform}`",
         f"- Active backend: `{active_backend or 'unknown'}`",
+        f"- Browser host: `{route_plan['browser_host']}` ({route_plan['browser_host_identity']})",
         f"- Status: `{status}`",
         f"- Next action: {next_action}",
         f"- Route plan: `00_acquisition/logs/route_plan.json`",
@@ -1613,6 +1691,10 @@ def _channel_set(channels: str) -> set[str]:
     return {item.strip().lower() for item in channels.split(",") if item.strip()}
 
 
+def channels_may_auto_import_cookies(channels: str) -> bool:
+    return bool(_channel_set(channels) & UPSTREAM_AUTO_COOKIE_CHANNELS)
+
+
 def npm_command() -> str:
     if sys.platform == "win32":
         return shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
@@ -1656,7 +1738,21 @@ def remediate_windows_agent_reach_install(channels: str) -> int:
     return status
 
 
-def agent_reach_install(*, safe: bool = False, dry_run: bool = False, channels: str = "") -> int:
+def agent_reach_install(
+    *,
+    safe: bool = False,
+    dry_run: bool = False,
+    channels: str = "",
+    allow_upstream_cookie_import: bool = False,
+) -> int:
+    if channels_may_auto_import_cookies(channels) and not (safe or dry_run or allow_upstream_cookie_import):
+        print(
+            "Selected upstream channels may trigger Agent-Reach's own automatic Chrome/Firefox cookie import. "
+            "Use --safe to review, or pass --allow-upstream-cookie-import only after selecting that host explicitly. "
+            "For Edge, configure cookies explicitly with `agent-reach configure --from-browser edge` after user authorization.",
+            file=sys.stderr,
+        )
+        return 2
     if shutil.which("agent-reach") is None:
         bootstrap = [sys.executable, "-m", "pip", "install", AGENT_REACH_INSTALL_SOURCE]
         if dry_run:
@@ -1706,12 +1802,105 @@ def agent_reach_doctor(*, output_json: Path | None = None) -> int:
     return completed.returncode
 
 
+def capability_matrix_payload(doctor: dict[str, Any]) -> dict[str, Any]:
+    channels: list[dict[str, Any]] = []
+    for name, (capability, integration_mode) in AGENT_REACH_CHANNEL_CATALOG.items():
+        item = doctor.get(name)
+        state = item if isinstance(item, dict) else {}
+        channels.append(
+            {
+                "channel": name,
+                "capability": capability,
+                "doctor_status": str(state.get("status") or "not_reported"),
+                "active_backend": str(state.get("active_backend") or ""),
+                "doctor_message": str(state.get("message") or ""),
+                "integration_mode": integration_mode,
+                "auditable_handoff": "kw agent-reach import",
+            }
+        )
+    return {
+        "schema_version": 1,
+        "channel_count": len(channels),
+        "channels": channels,
+        "notes": [
+            "Agent-Reach remains the owner of native platform commands and backend routing.",
+            "Structured adapters can acquire directly through kw acquire; native routes hand off saved primary material through kw agent-reach import.",
+            "A doctor status is acquisition readiness, not source-gate approval.",
+        ],
+    }
+
+
+def render_capability_matrix(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Agent-Reach Capability Matrix",
+        "",
+        "This matrix lists every Agent-Reach channel known to this integration.",
+        "`doctor_status` reports upstream readiness; it is not a source-gate decision.",
+        "",
+        "| Channel | Doctor | Active Backend | Integration |",
+        "| --- | --- | --- | --- |",
+    ]
+    for item in payload.get("channels") or []:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(item.get("channel") or ""),
+                    str(item.get("doctor_status") or ""),
+                    str(item.get("active_backend") or "-") or "-",
+                    str(item.get("integration_mode") or ""),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Handoff",
+            "",
+            "- `structured_adapter`: use `kw acquire` or `kw run` when the requested operation is implemented.",
+            "- `native_export_import`: use the native Agent-Reach channel command, save task-primary text, subtitle, or media locally, then use `kw agent-reach import`.",
+            "- `structured_adapter_and_native_export`: use the structured route when it fits; otherwise use the native command and formal import path.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def agent_reach_capability_matrix(*, output_json: Path | None = None, output_md: Path | None = None) -> int:
+    command = ["agent-reach", "doctor", "--json"]
+    try:
+        completed = run_capture(command, timeout=90)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"agent-reach doctor failed: {exc}", file=sys.stderr)
+        return 1
+    if completed.returncode != 0:
+        print(completed.stderr or completed.stdout, file=sys.stderr, end="")
+        return completed.returncode
+    try:
+        doctor = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        print(f"agent-reach doctor returned invalid JSON: {exc}", file=sys.stderr)
+        return 1
+    payload = capability_matrix_payload(doctor if isinstance(doctor, dict) else {})
+    rendered = render_capability_matrix(payload)
+    if output_json:
+        bundle.write_json(output_json, sanitize_data(payload))
+    if output_md:
+        bundle.write_text(output_md, rendered)
+    print(rendered)
+    return 0
+
+
 def agent_reach_route_plan(
     *,
     input_value: str,
     output_json: Path | None = None,
     analysis_target: str = "auto",
     operation: str = "auto",
+    browser_host: str = "",
 ) -> int:
     platform = detect_platform(input_value)
     command = ["agent-reach", "doctor", "--json"]
@@ -1734,6 +1923,7 @@ def agent_reach_route_plan(
         input_value,
         analysis_target=analysis_target,
         operation=operation,
+        browser_host=browser_host,
     )
     payload = {"input": redact_value_for_record(input_value), "platform": platform, "route_plan": plan}
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

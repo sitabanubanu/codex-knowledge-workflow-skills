@@ -32,6 +32,7 @@ def main() -> int:
             project_root=project,
             analysis_target="video_content",
             operation="extract_transcript",
+            browser_host="edge",
         )
         result = ingest.ingest_bundle(manifest_path=manifest, project_root=project)
         status = ingest.read_json(project / "10_video" / "00_source" / "source_status.json")
@@ -40,6 +41,7 @@ def main() -> int:
         assert_true("browser transcript target scope", status.get("analysis_target") == "video_content", failures)
         assert_true("browser transcript can decompose", status.get("can_enter_full_decomposition") is True, failures)
         assert_true("browser transcript receipt", bool(receipt.get("bundle_id")), failures)
+        assert_true("browser transcript records Edge", ingest.read_json(manifest).get("metadata", {}).get("browser_host") == "edge", failures)
 
         social = root / "social.txt"
         social.write_text(
@@ -54,6 +56,7 @@ def main() -> int:
             project_root=social_project,
             analysis_target="social_post",
             operation="read",
+            browser_host="edge",
         )
         ingest.ingest_bundle(manifest_path=social_manifest, project_root=social_project)
         audit = ingest.run_audit_pipeline(
@@ -76,6 +79,7 @@ def main() -> int:
             project_root=media_project,
             analysis_target="video_content",
             operation="extract_transcript",
+            browser_host="edge",
         )
         media_payload = ingest.read_json(media_manifest)
         media_ingest = ingest.ingest_bundle(manifest_path=media_manifest, project_root=media_project)

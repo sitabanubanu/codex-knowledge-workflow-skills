@@ -26,6 +26,29 @@ CONTENT_SCOPES = {
     "video_transcript",
 }
 
+VIDEO_PLATFORMS = {"youtube", "bilibili", "xiaoyuzhou", "local_file"}
+SOCIAL_PLATFORMS = {"x", "twitter", "xiaohongshu", "reddit", "facebook", "instagram", "v2ex", "xueqiu"}
+REPOSITORY_PLATFORMS = {"github"}
+SEARCH_PLATFORMS = {"search", "exa_search"}
+UPSTREAM_AGENT_REACH_PLATFORMS = {
+    "web",
+    "youtube",
+    "rss",
+    "exa_search",
+    "github",
+    "twitter",
+    "x",
+    "bilibili",
+    "reddit",
+    "facebook",
+    "instagram",
+    "xiaohongshu",
+    "linkedin",
+    "xiaoyuzhou",
+    "v2ex",
+    "xueqiu",
+}
+
 TARGET_PRIMARY_SCOPES = {
     "video_content": {"video_transcript"},
     "social_post": {"social_post_text"},
@@ -40,13 +63,13 @@ def infer_analysis_target(platform: str, requested: str = "auto") -> str:
         if requested not in ANALYSIS_TARGETS:
             raise ValueError(f"unsupported analysis target: {requested}")
         return requested
-    if platform in {"youtube", "bilibili", "local_file"}:
+    if platform in VIDEO_PLATFORMS:
         return "video_content"
-    if platform in {"x", "xiaohongshu"}:
+    if platform in SOCIAL_PLATFORMS:
         return "social_post"
-    if platform == "github":
+    if platform in REPOSITORY_PLATFORMS:
         return "repository"
-    if platform == "search":
+    if platform in SEARCH_PLATFORMS:
         return "search_triage"
     return "web_article"
 
@@ -75,9 +98,9 @@ def infer_content_scope(artifact_type: str, platform: str) -> str:
     if artifact_type == "comments":
         return "comments"
     if artifact_type in {"page_text", "page_markdown"}:
-        if platform in {"x", "xiaohongshu"}:
+        if platform in SOCIAL_PLATFORMS:
             return "social_post_text"
-        if platform == "github":
+        if platform in REPOSITORY_PLATFORMS:
             return "repository_document"
         return "article_body"
     return "unknown"

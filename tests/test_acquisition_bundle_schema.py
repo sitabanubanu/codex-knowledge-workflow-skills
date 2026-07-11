@@ -130,6 +130,7 @@ def test_browser_export_preserves_url_scope_and_privacy(failures: list[str]) -> 
             project_root=root / "project",
             analysis_target="social_post",
             operation="read",
+            browser_host="edge",
         )
         payload = load(manifest_path)
         result = bundle.validate_manifest(manifest_path)
@@ -137,6 +138,7 @@ def test_browser_export_preserves_url_scope_and_privacy(failures: list[str]) -> 
         assert_true("browser export is page text", payload["artifacts"][0]["type"] == "page_text", failures)
         assert_true("browser export social scope", payload["artifacts"][0]["content_scope"] == "social_post_text", failures)
         assert_true("browser session recorded", payload["privacy"]["browser_session_used"] is True, failures)
+        assert_true("browser host recorded", payload["metadata"].get("browser_host") == "edge", failures)
         persisted = manifest_path.read_text(encoding="utf-8")
         assert_true("browser URL token redacted", "token=secret" not in persisted and "%5BREDACTED%5D" in persisted, failures)
         resumed = bundle.build_browser_export_bundle(
@@ -146,6 +148,7 @@ def test_browser_export_preserves_url_scope_and_privacy(failures: list[str]) -> 
             project_root=root / "project",
             analysis_target="social_post",
             operation="read",
+            browser_host="edge",
             resume=True,
         )
         assert_true("browser token rotation can resume", bundle.validate_manifest(resumed)["valid"], failures)

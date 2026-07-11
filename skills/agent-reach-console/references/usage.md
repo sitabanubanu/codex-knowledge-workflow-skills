@@ -4,6 +4,7 @@
 
 ```powershell
 python kw.py agent-reach doctor
+python kw.py agent-reach matrix
 python kw.py agent-reach plan --input <url> --target <target> --operation <operation>
 ```
 
@@ -23,7 +24,22 @@ python kw.py acquire --input <youtube-url> --target video_content --operation ex
 ```
 
 Use `chrome` only when Chrome is the real host browser. A control plugin named
-Chrome may still be installed and running inside Edge.
+Chrome can be running inside Edge, so declare `--browser-host edge` for
+OpenCLI and never infer the host from a tool label.
+
+## Full Upstream Channels
+
+The structured adapter is intentionally not a duplicate of every Agent-Reach
+native command. For any ready channel shown as `native_export_import` by
+`kw agent-reach matrix`, use the installed `$agent-reach` skill's current
+native command, save task-primary material locally, then hand it off:
+
+```powershell
+python kw.py agent-reach import --input-file .\exports\primary.txt --source-url <original-url> --platform reddit --target social_post --operation read --browser-host edge --credentialed-session --project-root <project>
+```
+
+This route accepts all 15 Agent-Reach channel platform ids and still enforces
+Bundle v2, target/scope source gating, and evidence audit.
 
 For queries:
 

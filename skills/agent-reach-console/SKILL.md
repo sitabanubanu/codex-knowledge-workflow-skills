@@ -14,15 +14,18 @@ task-primary and sufficient.
 2. Run `agent-reach doctor --json` and write the result under the attempt logs.
 3. Require both `status: ok` and implemented operation support. An active
    search backend is not automatically a transcript backend.
-4. Write `route_plan.json` before executing a platform command.
-5. Acquire inside `.kw_staging/<attempt_id>/`; never assemble the current
+4. For OpenCLI, browser cookies, or a browser export, load
+   `$browser-host-identity`, select the actual Edge or Chrome host, and record
+   it before executing a platform command.
+5. Write `route_plan.json` before executing a platform command.
+6. Acquire inside `.kw_staging/<attempt_id>/`; never assemble the current
    bundle in place.
-6. Canonicalize backend JSON into a task-readable artifact. Keep redacted raw
+7. Canonicalize backend JSON into a task-readable artifact. Keep redacted raw
    output as metadata only when useful.
-7. Write Bundle v2 with run/attempt/bundle ids, target, operation, content
+8. Write Bundle v2 with run/attempt/bundle ids, target, operation, content
    scopes, byte counts, hashes, privacy flags, limits, and failures.
-8. Validate before promotion. On resume, archive the prior bundle.
-9. Hand only the promoted manifest path to `source-gated-evidence-layer`.
+9. Validate before promotion. On resume, archive the prior bundle.
+10. Hand only the promoted manifest path to `source-gated-evidence-layer`.
 
 Never mark `source_confirmed`, run claims/evidence audit, or write a final
 report. Never bypass CAPTCHA, paywalls, private access, region restrictions, or
@@ -31,10 +34,12 @@ ids, tokens, visitor data, PO tokens, passwords, or proxy credentials.
 
 ```powershell
 python kw.py agent-reach doctor
+python kw.py agent-reach matrix
 python kw.py agent-reach plan --input <url> --target <target> --operation <operation>
-python kw.py acquire --input <url-or-query> --target <target> --operation <operation> --project-root <project>
+python kw.py acquire --input <url-or-query> --target <target> --operation <operation> --browser-host edge --project-root <project>
 python kw.py acquire --input <same-input> --target <same-target> --operation <same-operation> --project-root <project> --resume
-python kw.py browser-import --input-file <exported-file> --source-url <original-url> --platform <platform> --target <target> --operation <operation> --project-root <project>
+python kw.py browser-import --input-file <exported-file> --source-url <original-url> --platform <platform> --target <target> --operation <operation> --browser-host edge --project-root <project>
+python kw.py agent-reach import --input-file <native-export.txt> --source-url <original-url> --platform reddit --target social_post --operation read --browser-host edge --credentialed-session --project-root <project>
 python kw.py validate-bundle --bundle <project>\00_acquisition\manifest.json
 ```
 
@@ -43,5 +48,6 @@ visible text, subtitles, audio, or video to a local file. A playable page,
 screenshot, metadata record, or restricted signed URL cannot pass this
 handoff.
 
-Read `references/platform-routing.md`, `references/acquisition-bundle.md`, and
-`references/usage.md`. Read `references/install.md` for setup only.
+Read `references/platform-routing.md`, `references/acquisition-bundle.md`,
+`references/usage.md`, and `references/native-handoff.md`. Read
+`references/install.md` for setup only.

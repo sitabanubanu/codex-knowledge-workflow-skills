@@ -29,6 +29,32 @@ authorized visible material. The exported text, subtitle, or media must still
 enter through a bundle artifact. Browser metadata, screenshots, and page shell
 state do not become Source automatically.
 
+## Full Agent-Reach Upstream Coverage
+
+The table above describes only bespoke `kw acquire` adapters. It is not a
+list of everything available through Agent-Reach. The upstream layer currently
+owns 15 channels: web, YouTube, RSS, Exa search, GitHub, Twitter/X, Bilibili,
+Xiaohongshu, Reddit, Facebook, Instagram, LinkedIn, Xiaoyuzhou, V2EX, and
+Xueqiu.
+
+Run the live inventory instead of relying on this static file:
+
+```powershell
+python .\kw.py agent-reach matrix
+```
+
+For a channel without a bespoke adapter, use the native Agent-Reach command
+selected by doctor, save primary material locally, then use:
+
+```powershell
+python .\kw.py agent-reach import --input-file <primary.txt> --source-url <original-url> --platform <upstream-platform> --target <target> --operation <operation> --project-root <project>
+```
+
+Pass `--browser-host edge|chrome` and `--credentialed-session` when the native
+route used OpenCLI or another authorized session. Native availability is still
+subject to platform limits and the imported artifact still needs to pass the
+source gate.
+
 ## Deliberately Unsupported
 
 - CAPTCHA bypass;

@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from urllib.parse import urlparse
 
 RUNNER_NAME = "knowledge-workflow-end-to-end-runner"
 RUN_STATE_SCHEMA_VERSION = 2
+ATOMIC_REPLACE_ATTEMPTS = 6
 STAGE_ORDER = [
     "platform_media_runner",
     "transcript_normalizer",
@@ -178,7 +180,18 @@ def write_text(path: Path, text: str) -> dict[str, Any]:
     data = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
     temp_path = target.parent / f".{target.name}.{os.getpid()}.tmp"
     temp_path.write_bytes(data)
-    os.replace(temp_path, target)
+    try:
+        for attempt in range(ATOMIC_REPLACE_ATTEMPTS):
+            try:
+                os.replace(temp_path, target)
+                break
+            except PermissionError as exc:
+                if attempt == ATOMIC_REPLACE_ATTEMPTS - 1:
+                    raise EndToEndRunnerError(f"could not atomically replace {target}: {exc}") from exc
+                time.sleep(0.05 * (attempt + 1))
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
     if target.read_bytes() != data:
         raise EndToEndRunnerError(f"readback mismatch after writing {target}")
     return {"path": str(target), "bytes": len(data), "encoding": "utf-8"}

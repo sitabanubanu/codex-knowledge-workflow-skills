@@ -33,6 +33,22 @@ flowchart TD
 normalizer, ASR, segmenter, inventory, source-logic, evidence-audit, and pack
 scripts are reused by the evidence layer. It is not a user-facing route.
 
+`browser-host-identity` is a cross-cutting policy skill rather than an extra
+workflow stage. It protects Edge/Chrome identity before a browser-backed route
+reaches the acquisition layer.
+
+Agent-Reach's full native surface also has a formal path into the workflow:
+
+```text
+Agent-Reach native channel command
+  -> saved task-primary text, subtitle, or media
+  -> kw agent-reach import
+  -> Acquisition Bundle v2
+```
+
+This avoids reimplementing the upstream's moving platform commands while
+keeping every imported artifact inside the same evidence boundary.
+
 ## Stable Handoff
 
 The only acquisition-to-evidence interface is:
@@ -51,6 +67,11 @@ The composer never reads an acquisition bundle directly.
 Before acquisition, doctor must report `status: ok`, and the adapter must
 implement the requested operation for the active backend. A healthy search
 backend cannot be used as a transcript backend.
+
+When the active backend is OpenCLI, the route also requires an explicit
+`edge` or `chrome` host identity. An extension label, generic profile ID, or
+browser-control tool name is never sufficient evidence, and the workflow does
+not fall back from one host to the other.
 
 ### Evidence target gate
 

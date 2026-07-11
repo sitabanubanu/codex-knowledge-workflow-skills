@@ -561,7 +561,7 @@ def build_local_bundle(
         raise BundleError(str(exc)) from exc
 
 
-def build_browser_export_bundle(
+def _build_export_bundle(
     *,
     input_path: Path,
     source_url: str,
@@ -572,42 +572,56 @@ def build_browser_export_bundle(
     analysis_target: str = "auto",
     operation: str = "auto",
     content_scope: str = "",
+    browser_host: str = "",
+    credentialed_session: bool = False,
+    export_name: str,
+    acquisition_layer: str,
+    active_backend: str,
+    handoff: str,
+    artifact_description: str,
+    created_by: str,
+    browser_session_used: bool,
+    contains_user_private_data: bool,
+    limit: str,
     resume: bool = False,
 ) -> Path:
-    """Turn an authorized browser-visible export into a Bundle v2 artifact."""
+    """Turn a local upstream export into a Bundle v2 artifact."""
     input_path = input_path.resolve()
     if not input_path.is_file():
-        raise BundleError(f"browser export does not exist: {input_path}")
+        raise BundleError(f"{export_name} export does not exist: {input_path}")
     if not source_url.startswith(("http://", "https://")):
-        raise BundleError("browser export source URL must be http:// or https://")
+        raise BundleError(f"{export_name} export source URL must be http:// or https://")
     if source_class not in {"primary", "partial_primary"}:
-        raise BundleError("browser export source class must be primary or partial_primary")
+        raise BundleError(f"{export_name} export source class must be primary or partial_primary")
+    chosen_browser_host = str(browser_host or "").strip().lower()
+    if chosen_browser_host not in {"", "edge", "chrome"}:
+        raise BundleError(f"{export_name} export host must be edge or chrome when supplied")
 
     chosen_target = source_gate.infer_analysis_target(platform, analysis_target)
     chosen_operation = source_gate.infer_operation(chosen_target, operation)
     if chosen_target == "video_content":
         artifact_type = artifact_type_for(input_path)
         if artifact_type not in {"transcript", "subtitle", "audio", "video"}:
-            raise BundleError("video browser export must be transcript, subtitle, audio, or video material")
+            raise BundleError("video export must be transcript, subtitle, audio, or video material")
     else:
         if input_path.suffix.lower() not in {".txt", ".md"}:
-            raise BundleError("browser page export must be a text or Markdown file")
+            raise BundleError("page export must be a text or Markdown file")
         artifact_type = "page_markdown" if input_path.suffix.lower() == ".md" else "page_text"
 
     inferred_scope = source_gate.infer_content_scope(artifact_type, platform)
     chosen_scope = content_scope or inferred_scope
     if chosen_scope not in source_gate.CONTENT_SCOPES:
-        raise BundleError(f"unsupported browser export content scope: {chosen_scope}")
+        raise BundleError(f"unsupported export content scope: {chosen_scope}")
     if content_scope and chosen_scope != inferred_scope:
         raise BundleError(
-            f"browser export type {artifact_type!r} requires content scope {inferred_scope!r}, "
+            f"export type {artifact_type!r} requires content scope {inferred_scope!r}, "
             f"not {chosen_scope!r}"
         )
     required_scopes = source_gate.TARGET_PRIMARY_SCOPES.get(chosen_target, set())
     raw_video_media = chosen_target == "video_content" and chosen_scope == "media"
     if required_scopes and chosen_scope not in required_scopes and not raw_video_media:
         raise BundleError(
-            f"browser export scope {chosen_scope!r} cannot satisfy target {chosen_target!r}; "
+            f"export scope {chosen_scope!r} cannot satisfy target {chosen_target!r}; "
             f"expected one of {sorted(required_scopes)}"
         )
 
@@ -644,8 +658,8 @@ def build_browser_export_bundle(
         artifact_type=artifact_type,
         source_class=source_class,
         language=language,
-        description="Material visibly available through the user's authorized browser session and exported locally.",
-        created_by="build_browser_export_bundle",
+        description=artifact_description,
+        created_by=created_by,
         content_scope=chosen_scope,
         coverage="full" if source_class == "primary" else "partial",
         run_id=attempt.run_id,
@@ -658,18 +672,23 @@ def build_browser_export_bundle(
         source_url=source_url,
         source_id=source_id,
         platform=platform,
-        acquisition_layer="browser_export",
-        active_backend="authorized_browser_session",
+        acquisition_layer=acquisition_layer,
+        active_backend=active_backend,
         status=status,
         artifacts=[entry],
-        metadata={"artifact_type": artifact_type, "handoff": "browser_visible_export"},
-        privacy={
-            "cookies_used": False,
-            "browser_session_used": True,
-            "secrets_redacted": True,
-            "contains_user_private_data": True,
+        metadata={
+            "artifact_type": artifact_type,
+            "handoff": handoff,
+            "browser_host": chosen_browser_host or "unknown",
+            "browser_host_identity": "declared" if chosen_browser_host else "not_provided",
         },
-        limits=["The workflow validates the exported artifact; it does not infer completeness from page playability alone."],
+        privacy={
+            "cookies_used": credentialed_session,
+            "browser_session_used": browser_session_used,
+            "secrets_redacted": True,
+            "contains_user_private_data": contains_user_private_data,
+        },
+        limits=[limit],
         failures=[],
         next_action="ingest_bundle",
         run_id=attempt.run_id,
@@ -680,20 +699,101 @@ def build_browser_export_bundle(
     )
     write_text(
         logs_root / "acquisition_notes.md",
-        "# Browser Export Bundle\n\n"
-        "The local artifact was exported from content visible in an authorized browser session. "
+        f"# {export_name} Export Bundle\n\n"
+        "The local artifact was exported from user-authorized upstream material. "
         "No cookie values, session tokens, or restricted asset URLs were persisted.\n",
     )
     staged_manifest = write_manifest(work_root, manifest)
     validation = validate_manifest(staged_manifest)
     if not validation["valid"]:
         run_context.abandon_attempt(attempt)
-        raise BundleError("browser export bundle failed validation: " + "; ".join(validation["errors"]))
+        raise BundleError(f"{export_name} export bundle failed validation: " + "; ".join(validation["errors"]))
     try:
         return run_context.promote_attempt(attempt)
     except run_context.RunContextError as exc:
         run_context.abandon_attempt(attempt)
         raise BundleError(str(exc)) from exc
+
+
+def build_browser_export_bundle(
+    *,
+    input_path: Path,
+    source_url: str,
+    platform: str,
+    project_root: Path,
+    language: str = "unknown",
+    source_class: str = "primary",
+    analysis_target: str = "auto",
+    operation: str = "auto",
+    content_scope: str = "",
+    browser_host: str = "",
+    resume: bool = False,
+) -> Path:
+    """Turn an authorized browser-visible export into a Bundle v2 artifact."""
+    return _build_export_bundle(
+        input_path=input_path,
+        source_url=source_url,
+        platform=platform,
+        project_root=project_root,
+        language=language,
+        source_class=source_class,
+        analysis_target=analysis_target,
+        operation=operation,
+        content_scope=content_scope,
+        browser_host=browser_host,
+        credentialed_session=False,
+        export_name="Browser",
+        acquisition_layer="browser_export",
+        active_backend="authorized_browser_session",
+        handoff="browser_visible_export",
+        artifact_description="Material visibly available through the user's authorized browser session and exported locally.",
+        created_by="build_browser_export_bundle",
+        browser_session_used=True,
+        contains_user_private_data=True,
+        limit="The workflow validates the exported artifact; it does not infer completeness from page playability alone.",
+        resume=resume,
+    )
+
+
+def build_agent_reach_export_bundle(
+    *,
+    input_path: Path,
+    source_url: str,
+    platform: str,
+    project_root: Path,
+    language: str = "unknown",
+    source_class: str = "primary",
+    analysis_target: str = "auto",
+    operation: str = "auto",
+    content_scope: str = "",
+    browser_host: str = "",
+    credentialed_session: bool = False,
+    resume: bool = False,
+) -> Path:
+    """Import task-primary material acquired by an Agent-Reach native route."""
+    return _build_export_bundle(
+        input_path=input_path,
+        source_url=source_url,
+        platform=platform,
+        project_root=project_root,
+        language=language,
+        source_class=source_class,
+        analysis_target=analysis_target,
+        operation=operation,
+        content_scope=content_scope,
+        browser_host=browser_host,
+        credentialed_session=credentialed_session,
+        export_name="Agent-Reach",
+        acquisition_layer="agent_reach_export",
+        active_backend="agent-reach_native_export",
+        handoff="agent_reach_native_export",
+        artifact_description="Task-primary material acquired through an Agent-Reach native route and exported locally.",
+        created_by="build_agent_reach_export_bundle",
+        browser_session_used=bool(browser_host),
+        contains_user_private_data=credentialed_session,
+        limit="The workflow validates the exported primary material; it does not treat raw search results or metadata as source evidence.",
+        resume=resume,
+    )
 
 
 def cli_validate(manifest: Path) -> int:

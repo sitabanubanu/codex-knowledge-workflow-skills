@@ -1,0 +1,4 @@
+interface:
+  display_name: "Browser Host Identity"
+  short_description: "Keeps Edge and Chrome browser sessions distinct."
+  default_prompt: "Use $browser-host-identity to identify the actual Edge or Chrome browser host before accessing a browser session."

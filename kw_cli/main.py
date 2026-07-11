@@ -38,6 +38,7 @@ RUN_OPTION_DEFAULTS = {
     "platform_mode": "auto",
     "youtube_cookies": None,
     "youtube_browser": None,
+    "browser_host": None,
     "ytdlp": None,
     "node": None,
     "platform_timeout_seconds": 90,
@@ -325,6 +326,7 @@ def youtube_options_from_args(args: argparse.Namespace) -> dict[str, object]:
         "platform_mode": getattr(args, "platform_mode", "auto"),
         "youtube_cookies": youtube_cookies_cli_value(getattr(args, "youtube_cookies", None)),
         "youtube_browser": getattr(args, "youtube_browser", None),
+        "browser_host": getattr(args, "browser_host", None),
         "ytdlp": getattr(args, "ytdlp", None),
         "node": getattr(args, "node", None),
         "platform_timeout_seconds": getattr(args, "platform_timeout_seconds", 90),
@@ -395,6 +397,7 @@ def run_new_flow(args: argparse.Namespace) -> int:
                 analysis_target=args.target,
                 operation=args.operation,
                 content_scope=args.content_scope or "",
+                browser_host=args.browser_host or "",
                 resume=args.resume,
             )
         elif input_kind == "url":
@@ -529,11 +532,23 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
 
 def cmd_agent_reach_install(args: argparse.Namespace) -> int:
-    return agent_reach_adapter.agent_reach_install(safe=args.safe, dry_run=args.dry_run, channels=args.channels or "")
+    return agent_reach_adapter.agent_reach_install(
+        safe=args.safe,
+        dry_run=args.dry_run,
+        channels=args.channels or "",
+        allow_upstream_cookie_import=bool(args.allow_upstream_cookie_import),
+    )
 
 
 def cmd_agent_reach_doctor(args: argparse.Namespace) -> int:
     return agent_reach_adapter.agent_reach_doctor(output_json=args.output_json)
+
+
+def cmd_agent_reach_matrix(args: argparse.Namespace) -> int:
+    return agent_reach_adapter.agent_reach_capability_matrix(
+        output_json=args.output_json,
+        output_md=args.output_md,
+    )
 
 
 def cmd_agent_reach_plan(args: argparse.Namespace) -> int:
@@ -542,7 +557,34 @@ def cmd_agent_reach_plan(args: argparse.Namespace) -> int:
         output_json=args.output_json,
         analysis_target=args.target,
         operation=args.operation,
+        browser_host=args.browser_host or "",
     )
+
+
+def cmd_agent_reach_import(args: argparse.Namespace) -> int:
+    project_root = ensure_project_root(args)
+    try:
+        manifest_path = bundle.build_agent_reach_export_bundle(
+            input_path=args.input_file,
+            source_url=args.source_url,
+            platform=args.platform,
+            project_root=project_root,
+            language=args.language,
+            source_class="partial_primary" if args.partial else "primary",
+            analysis_target=args.target,
+            operation=args.operation,
+            content_scope=args.content_scope or "",
+            browser_host=args.browser_host or "",
+            credentialed_session=bool(args.credentialed_session),
+            resume=args.resume,
+        )
+    except bundle.BundleError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    manifest = read_json(manifest_path)
+    print(f"Acquisition status: {manifest.get('status', 'unknown')}")
+    print(f"Manifest: {manifest_path}")
+    return 0
 
 
 def cmd_acquire(args: argparse.Namespace) -> int:
@@ -581,6 +623,7 @@ def cmd_browser_import(args: argparse.Namespace) -> int:
             analysis_target=args.target,
             operation=args.operation,
             content_scope=args.content_scope or "",
+            browser_host=args.browser_host or "",
             resume=args.resume,
         )
     except bundle.BundleError as exc:
@@ -1631,6 +1674,7 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
         ("acquisition_bundle_schema", [sys.executable, "tests/test_acquisition_bundle_schema.py"]),
         ("local_bundle_ingest", [sys.executable, "tests/test_local_bundle_ingest.py"]),
         ("agent_reach_acquire_offline", [sys.executable, "tests/test_agent_reach_acquire_offline.py"]),
+        ("agent_reach_native_export", [sys.executable, "tests/test_agent_reach_native_export.py"]),
         ("source_gate_from_bundle", [sys.executable, "tests/test_source_gate_from_bundle.py"]),
         ("no_fake_report_from_agent_reach_failures", [sys.executable, "tests/test_no_fake_report_from_agent_reach_failures.py"]),
         ("run_provenance", [sys.executable, "tests/test_run_provenance.py"]),
@@ -1740,6 +1784,11 @@ def add_youtube_acquisition_arguments(parser: argparse.ArgumentParser, *, includ
         choices=["edge", "chrome"],
         help="Use the named local browser profile through yt-dlp --cookies-from-browser. Do not guess this from the control plugin name.",
     )
+    parser.add_argument(
+        "--browser-host",
+        choices=["edge", "chrome"],
+        help="Actual host browser for an OpenCLI session or browser export. Never infer it from a tool or extension name.",
+    )
     parser.add_argument("--ytdlp", type=Path, help="Optional yt-dlp executable override.")
     parser.add_argument("--node", type=Path, help="Optional Node.js executable override for yt-dlp JavaScript challenge handling.")
     parser.add_argument("--platform-timeout-seconds", type=int, default=90)
@@ -1783,15 +1832,37 @@ def make_parser() -> argparse.ArgumentParser:
     agent_reach_install.add_argument("--safe", action="store_true", help="Safe mode: do not auto-install system packages.")
     agent_reach_install.add_argument("--dry-run", action="store_true", help="Show what would be done.")
     agent_reach_install.add_argument("--channels", default="", help="Comma-separated optional Agent-Reach channels, e.g. opencli,twitter,xiaohongshu.")
+    agent_reach_install.add_argument("--allow-upstream-cookie-import", action="store_true", help="Allow Agent-Reach's own automatic Chrome/Firefox cookie import for selected channels.")
     agent_reach_install.set_defaults(func=cmd_agent_reach_install)
     agent_reach_doctor = agent_reach_sub.add_parser("doctor", help="Run agent-reach doctor --json.")
     agent_reach_doctor.add_argument("--output-json", type=Path)
     agent_reach_doctor.set_defaults(func=cmd_agent_reach_doctor)
+    agent_reach_matrix = agent_reach_sub.add_parser("matrix", help="Show all Agent-Reach channels and their current integration path.")
+    agent_reach_matrix.add_argument("--output-json", type=Path)
+    agent_reach_matrix.add_argument("--output-md", type=Path)
+    agent_reach_matrix.set_defaults(func=cmd_agent_reach_matrix)
     agent_reach_plan = agent_reach_sub.add_parser("plan", help="Show Agent-Reach route plan for an input.")
     agent_reach_plan.add_argument("--input", required=True)
     agent_reach_plan.add_argument("--output-json", type=Path)
     add_source_target_arguments(agent_reach_plan)
+    agent_reach_plan.add_argument("--browser-host", choices=["edge", "chrome"])
     agent_reach_plan.set_defaults(func=cmd_agent_reach_plan)
+    agent_reach_import = agent_reach_sub.add_parser(
+        "import",
+        help="Import task-primary material exported by a native Agent-Reach channel into Bundle v2.",
+    )
+    agent_reach_import.add_argument("--input-file", type=Path, required=True)
+    agent_reach_import.add_argument("--source-url", required=True)
+    agent_reach_import.add_argument("--platform", choices=sorted(source_gate.UPSTREAM_AGENT_REACH_PLATFORMS), required=True)
+    agent_reach_import.add_argument("--project-root", type=Path)
+    agent_reach_import.add_argument("--language", default="unknown")
+    agent_reach_import.add_argument("--content-scope", choices=sorted(source_gate.CONTENT_SCOPES - {"unknown"}))
+    agent_reach_import.add_argument("--partial", action="store_true")
+    agent_reach_import.add_argument("--credentialed-session", action="store_true", help="Record that the upstream export used an authorized login or cookie session.")
+    agent_reach_import.add_argument("--browser-host", choices=["edge", "chrome"], help="Actual Edge or Chrome host when the native route used OpenCLI.")
+    add_source_target_arguments(agent_reach_import)
+    agent_reach_import.add_argument("--resume", action="store_true")
+    agent_reach_import.set_defaults(func=cmd_agent_reach_import)
 
     acquire = subparsers.add_parser("acquire", help="Acquire URL/query material into 00_acquisition/manifest.json.")
     acquire.add_argument("--input", required=True, help="URL or query to acquire.")
@@ -1814,6 +1885,7 @@ def make_parser() -> argparse.ArgumentParser:
     browser_import.add_argument("--content-scope", choices=sorted(source_gate.CONTENT_SCOPES - {"unknown"}))
     browser_import.add_argument("--partial", action="store_true")
     add_source_target_arguments(browser_import)
+    browser_import.add_argument("--browser-host", choices=["edge", "chrome"], help="Actual Edge or Chrome host that produced the export.")
     browser_import.add_argument("--resume", action="store_true")
     browser_import.set_defaults(func=cmd_browser_import)
 

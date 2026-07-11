@@ -40,7 +40,7 @@ Schema v2 requires these fields:
 | `source_url` | Redacted canonical URL when applicable. |
 | `source_id` | Platform-stable source identifier. |
 | `platform` | `youtube`, `bilibili`, `x`, `xiaohongshu`, `web`, `github`, `search`, or `local_file`. |
-| `acquisition_layer` | Upstream layer: `agent-reach`, `browser_export`, or `local_file`. |
+| `acquisition_layer` | Upstream layer: `agent-reach`, `agent_reach_export`, `browser_export`, or `local_file`. |
 | `active_backend` | Doctor-selected backend actually considered. |
 | `status` | Acquisition result only; never a source-gate decision. |
 | `run_id` | Immutable project-run identifier. |
@@ -141,6 +141,9 @@ Before executing a platform command, the adapter writes
 
 1. Agent-Reach doctor reports the selected backend with `status: ok`.
 2. The adapter implements the requested operation for that backend and input.
+3. When the selected backend is OpenCLI, the actual `edge` or `chrome` host is
+   declared before execution. A generic extension/profile label is not host
+   evidence.
 
 If either check fails, write a blocked bundle. Do not fall through to an
 unrelated generic route. Examples:
@@ -205,6 +208,8 @@ Hard rules:
   acquisition notes, commands, errors, and backend JSON;
 - cookie files remain user-managed and are passed by path only;
 - browser-visible material must be exported into an artifact before ingest;
+- browser-backed routes record the declared host when known and record
+  `unknown` rather than inferring one when it is not known;
 - authorized browser exports enter through `kw browser-import` or
   `kw run --browser-source-url ... --browser-platform ...`;
 - browser exports preserve the redacted source URL, explicit platform,

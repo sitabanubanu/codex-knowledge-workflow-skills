@@ -20,9 +20,10 @@ Agent-Reach is the acquisition layer. Install it separately; do not commit
 `work/agent-reach` as a project dependency.
 
 ```powershell
-python -m pip install https://github.com/Panniantong/Agent-Reach/archive/main.zip
-agent-reach install --env=auto
+python -m pip install --upgrade "git+https://github.com/Panniantong/Agent-Reach.git@v1.5.0"
+agent-reach install --env=auto --safe
 agent-reach doctor --json
+agent-reach check-update
 ```
 
 Through this CLI:
@@ -30,17 +31,28 @@ Through this CLI:
 ```powershell
 python .\kw.py agent-reach install
 python .\kw.py agent-reach doctor
+python .\kw.py agent-reach matrix
 ```
 
 Doctor must report `status: ok` for the backend used by the requested
 operation. An installed backend in `warn` state is not considered ready.
 
-For OpenCLI routes, install its Chrome extension, keep Chrome open, sign in to
-the platform through your own authorized account, and verify with:
+For OpenCLI routes, install its extension in the actual host browser, keep that
+exact Edge or Chrome host open, sign in through your own authorized account,
+and verify with:
 
 ```powershell
 opencli doctor
 agent-reach doctor --json
+```
+
+The upstream `v1.5.0` installer can attempt automatic Chrome/Firefox cookie
+discovery for `twitter`, `bilibili`, `xueqiu`, or `all`. The `kw` wrapper
+requires `--allow-upstream-cookie-import` before that route. For Edge, use an
+explicit user-authorized upstream command instead:
+
+```powershell
+agent-reach configure --from-browser edge
 ```
 
 ## Safe Mode
@@ -56,9 +68,10 @@ python .\kw.py agent-reach install --safe
 ## Update Agent-Reach
 
 ```powershell
-python -m pip install --upgrade https://github.com/Panniantong/Agent-Reach/archive/main.zip
+python -m pip install --upgrade "git+https://github.com/Panniantong/Agent-Reach.git@v1.5.0"
 agent-reach install --env=auto
 agent-reach doctor --json
+agent-reach check-update
 ```
 
 ## Verify Bundle Output
@@ -82,7 +95,7 @@ Then ingest:
 python .\kw.py ingest --bundle .\outputs\knowledge-workflow\example\00_acquisition\manifest.json --project-root .\outputs\knowledge-workflow\example
 ```
 
-## Install the Four User-Facing Skills
+## Install Workflow Skills
 
 ```powershell
 .\sync_to_codex_skills.ps1 -DryRun
@@ -91,9 +104,24 @@ python .\kw.py ingest --bundle .\outputs\knowledge-workflow\example\00_acquisiti
 ```
 
 The managed skills are `knowledge-workflow-console`, `agent-reach-console`,
-`source-gated-evidence-layer`, and `knowledge-document-composer`.
+`browser-host-identity`, `source-gated-evidence-layer`, and
+`knowledge-document-composer`.
 `knowledge-video-decomposer` remains a repository-internal compatibility
 library and is not synced as a user-facing skill.
+
+## Full Agent-Reach Coverage
+
+Agent-Reach owns all 15 native channels. This project has direct structured
+adapters for the high-frequency routes and an auditable native handoff for the
+rest:
+
+```powershell
+python .\kw.py agent-reach matrix
+python .\kw.py agent-reach import --input-file .\exports\primary.txt --source-url <original-url> --platform reddit --target social_post --operation read --browser-host edge --credentialed-session --project-root .\outputs\knowledge-workflow\reddit
+```
+
+Read [Agent-Reach integration guide](docs/agent-reach-integration-guide.md)
+for the full channel map, current version policy, and import boundary.
 
 ## Cookie And Token Safety
 

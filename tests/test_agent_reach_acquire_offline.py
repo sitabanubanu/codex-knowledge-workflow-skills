@@ -226,6 +226,7 @@ def test_xiaohongshu_opencli_primary_artifact(failures: list[str]) -> None:
                 manifest_path = agent_reach_adapter.acquire_with_agent_reach(
                     input_value="https://www.xiaohongshu.com/explore/fixture?xsec_token=TOPSECRET_XHS_VALUE",
                     project_root=project,
+                    youtube_options={"browser_host": "edge"},
                 )
         manifest = load_manifest(manifest_path)
         assert_true("xiaohongshu OpenCLI -> material_acquired", manifest.get("status") == "material_acquired", failures)
@@ -236,6 +237,7 @@ def test_xiaohongshu_opencli_primary_artifact(failures: list[str]) -> None:
             failures,
         )
         assert_true("xiaohongshu OpenCLI records browser_session_used", manifest.get("privacy", {}).get("browser_session_used") is True, failures)
+        assert_true("xiaohongshu OpenCLI records Edge host", manifest.get("metadata", {}).get("browser_host") == "edge", failures)
         ingest_result = ingest.ingest_bundle(manifest_path=manifest_path, project_root=project)
         source_status = ingest.read_json(project / "10_video" / "00_source" / "source_status.json")
         assert_true("xiaohongshu bundle ingests end to end", ingest_result.get("source_status") == "source_confirmed", failures)
@@ -286,12 +288,38 @@ def test_xiaohongshu_opencli_warn_blocks_until_ready(failures: list[str]) -> Non
                 manifest_path = agent_reach_adapter.acquire_with_agent_reach(
                     input_value="https://www.xiaohongshu.com/explore/fixture?xsec_token=abc",
                     project_root=project,
+                    youtube_options={"browser_host": "edge"},
                 )
         manifest = load_manifest(manifest_path)
         plan = manifest.get("metadata", {}).get("route_plan", {})
         assert_true("xiaohongshu warn OpenCLI -> blocked", manifest.get("status") == "blocked", failures)
         assert_true("xiaohongshu warn backend not ready", plan.get("active_backend_ready") is False, failures)
         assert_true("xiaohongshu warn keeps active backend name", manifest.get("active_backend") == "OpenCLI", failures)
+
+
+def test_opencli_requires_declared_browser_host(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-ar-opencli-host-") as tmp:
+        project = Path(tmp) / "project"
+        executed: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs):
+            executed.append(command)
+            if command[:3] == ["agent-reach", "doctor", "--json"]:
+                return completed(command, stdout=json.dumps({"xiaohongshu": {"status": "ok", "active_backend": "OpenCLI"}}))
+            return completed(command, code=1, stderr="OpenCLI must not execute without a declared host")
+
+        with patch("kw_cli.agent_reach_adapter.shutil.which", return_value="agent-reach"):
+            with patch("kw_cli.agent_reach_adapter.run_capture", side_effect=fake_run):
+                manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+                    input_value="https://www.xiaohongshu.com/explore/fixture?xsec_token=abc",
+                    project_root=project,
+                )
+        manifest = load_manifest(manifest_path)
+        plan = manifest.get("metadata", {}).get("route_plan", {})
+        assert_true("OpenCLI without host is blocked", manifest.get("status") == "blocked", failures)
+        assert_true("OpenCLI host is required", plan.get("browser_host_required") is True, failures)
+        assert_true("OpenCLI host is unresolved", plan.get("browser_host") == "unknown", failures)
+        assert_true("OpenCLI host mismatch stops command", not any(command[:3] == ["opencli", "xiaohongshu", "note"] for command in executed), failures)
 
 
 def test_github_readme_from_clone(failures: list[str]) -> None:
@@ -501,7 +529,18 @@ def test_youtube_edge_browser_is_explicit(failures: list[str]) -> None:
         )
         assert_true("YouTube Edge records cookies used", manifest.get("privacy", {}).get("cookies_used") is True, failures)
         assert_true("YouTube Edge records browser session", manifest.get("privacy", {}).get("browser_session_used") is True, failures)
+        assert_true("YouTube Edge route plan records host", manifest.get("metadata", {}).get("route_plan", {}).get("browser_host") == "edge", failures)
         assert_true("YouTube Edge bundle valid", bundle.validate_manifest(manifest_path)["valid"], failures)
+
+
+def test_conflicting_browser_hosts_are_rejected(failures: list[str]) -> None:
+    try:
+        agent_reach_adapter.browser_host_from_options(
+            {"browser_host": "edge", "youtube_browser": "chrome"}
+        )
+    except agent_reach_adapter.AgentReachAdapterError:
+        return
+    failures.append("conflicting browser hosts are rejected")
 
 
 def main() -> int:
@@ -527,11 +566,13 @@ def main() -> int:
     test_x_twitter_cli_primary_artifact(failures)
     test_xiaohongshu_opencli_primary_artifact(failures)
     test_xiaohongshu_opencli_warn_blocks_until_ready(failures)
+    test_opencli_requires_declared_browser_host(failures)
     test_github_readme_from_clone(failures)
     test_query_search_secondary_bundle(failures)
     test_bilibili_search_backend_cannot_claim_transcript(failures)
     test_youtube_options_are_applied_and_redacted(failures)
     test_youtube_edge_browser_is_explicit(failures)
+    test_conflicting_browser_hosts_are_rejected(failures)
     if failures:
         print("FAILURES:")
         for failure in failures:

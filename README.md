@@ -33,6 +33,10 @@ The user-facing architecture is now four layers:
 - `knowledge-document-composer`: report controller. It writes only from
   source-gated packs and keeps Source / Inference / Extension separate.
 
+Cross-cutting guard: `browser-host-identity` keeps Edge and Chrome sessions
+separate for every browser-backed route. It is a shared policy skill, not a
+fifth workflow stage.
+
 `knowledge-video-decomposer` remains an internal compatibility library for
 normalization, ASR, segmentation, inventory, logic, audit, and pack building.
 It is not synced as a user-facing skill. Legacy URL acquisition scripts remain
@@ -129,8 +133,10 @@ fake complete analysis.
 ```powershell
 python .\kw.py agent-reach install --safe
 python .\kw.py agent-reach doctor
+python .\kw.py agent-reach matrix
 python .\kw.py agent-reach plan --input <url> --target video_content --operation extract_transcript
 python .\kw.py acquire --input <url> --target video_content --operation extract_transcript --project-root <project>
+python .\kw.py agent-reach import --input-file <primary.txt> --source-url <original-url> --platform reddit --target social_post --operation read --project-root <project>
 python .\kw.py ingest --bundle <project>\00_acquisition\manifest.json --project-root <project>
 python .\kw.py audit --project-root <project>
 python .\kw.py compose --project-root <project>
@@ -160,9 +166,12 @@ or account permissions. It does not read, display, copy, or commit cookies,
 tokens, Authorization headers, or private login state. Bundles may record
 whether cookies were used, never their values.
 
-The Chrome control plugin name does not prove that Chrome owns the active
-login state. Select the actual browser explicitly with `--youtube-browser
-edge` or `--youtube-browser chrome`; do not infer it from the control surface.
+A control plugin name does not prove which browser owns the active login
+state. Chrome and Edge are separate hosts. For OpenCLI, declare the real host
+with `--browser-host edge` or `--browser-host chrome`; the route blocks rather
+than guessing. For yt-dlp browser cookies, pass the same host through
+`--youtube-browser edge|chrome`. See `browser-host-identity` for the shared
+agent rule.
 
 When an authorized browser session has produced a citeable local artifact,
 handoff through Bundle v2:
@@ -174,6 +183,7 @@ python .\kw.py browser-import `
   --platform x `
   --target social_post `
   --operation read `
+  --browser-host edge `
   --project-root .\outputs\browser-post
 ```
 
@@ -200,6 +210,7 @@ python .\tests\real_workflow_acceptance.py
 python .\tests\test_acquisition_bundle_schema.py
 python .\tests\test_local_bundle_ingest.py
 python .\tests\test_agent_reach_acquire_offline.py
+python .\tests\test_agent_reach_native_export.py
 python .\tests\test_source_gate_from_bundle.py
 python .\tests\test_no_fake_report_from_agent_reach_failures.py
 python .\tests\test_run_provenance.py
@@ -211,6 +222,7 @@ python .\tests\test_browser_export_flow.py
 - [Architecture](docs/architecture.md)
 - [ADR 0001](docs/adr/0001-agent-reach-acquisition-layer.md)
 - [ADR 0003](docs/adr/0003-acquisition-bundle-v2-run-provenance.md)
+- [Agent-Reach integration guide](docs/agent-reach-integration-guide.md)
 - [Acquisition bundle protocol](docs/acquisition-bundle-protocol.md)
 - [Installation](INSTALL.md)
 - [User manual](USER_MANUAL.md)

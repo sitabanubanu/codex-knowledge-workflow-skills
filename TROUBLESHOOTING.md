@@ -37,20 +37,22 @@ Use a supported backend or provide task-primary local material.
 
 ## OpenCLI Reports `warn`
 
-Agent-Reach commonly reports `warn` when OpenCLI is installed but its Chrome
+Agent-Reach commonly reports `warn` when OpenCLI is installed but its browser
 extension is absent or disconnected.
 
-1. Install the OpenCLI Chrome extension from the URL shown by doctor.
-2. Keep Chrome open.
+1. Install the OpenCLI extension in the actual host you intend to use: Edge or
+   Chrome.
+2. Keep that exact host open.
 3. Sign in to the platform with your own authorized account.
 4. Run `opencli doctor` and `agent-reach doctor --json` again.
 
 The control plugin may be named Chrome while the extension and login state are
-actually running in Microsoft Edge. Check the real browser process before
-using yt-dlp. Use `--youtube-browser edge` for Edge and
-`--youtube-browser chrome` for Chrome. If yt-dlp reports that it cannot copy
-the cookie database, the selected browser is still running and holding the
-profile lock; do not call the cookies stale and do not close the browser
+actually running in Microsoft Edge. `opencli doctor` also does not identify
+the browser host. Check the real browser process, then pass
+`--browser-host edge|chrome`; use the same choice with
+`--youtube-browser edge|chrome` for yt-dlp. If yt-dlp reports that it cannot
+copy the cookie database, the selected browser is still running and holding
+the profile lock; do not call the cookies stale and do not close the browser
 without user approval.
 
 The workflow remains blocked until doctor reports `status: ok`. It does not

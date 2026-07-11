@@ -11,6 +11,7 @@ $sourceRoot = Join-Path $repoRoot "skills"
 $skills = @(
   "knowledge-workflow-console",
   "agent-reach-console",
+  "browser-host-identity",
   "source-gated-evidence-layer",
   "knowledge-document-composer"
 )

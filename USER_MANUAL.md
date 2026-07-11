@@ -51,6 +51,38 @@ python .\kw.py agent-reach plan --input <url> --target <target> --operation <ope
 The plan distinguishes `active_backend_ready`, `operation_supported`, and
 `capability_ready`. Acquisition executes only when capability is ready.
 
+## Full Agent-Reach Channels
+
+`kw acquire` is intentionally a structured adapter, not a duplicate of every
+moving Agent-Reach native command. Inspect the live upstream inventory first:
+
+```powershell
+python .\kw.py agent-reach matrix
+```
+
+For a ready channel shown as `native_export_import`, use the native command
+from the installed `$agent-reach` skill, save only task-primary text, subtitle,
+or media locally, then create a formal Bundle v2 handoff:
+
+```powershell
+python .\kw.py agent-reach import `
+  --input-file .\exports\primary.txt `
+  --source-url <original-url> `
+  --platform reddit `
+  --target social_post `
+  --operation read `
+  --browser-host edge `
+  --credentialed-session `
+  --project-root <project>
+```
+
+The import command accepts every Agent-Reach channel platform id. Use
+`--browser-host` only for an OpenCLI-derived export and
+`--credentialed-session` when an authorized session or cookie served it. Raw
+search output, metadata, screenshots, and page shells remain insufficient.
+Read [the integration guide](docs/agent-reach-integration-guide.md) for the
+complete 15-channel map and setup requirements.
+
 ## End-to-End Run
 
 ```powershell
@@ -105,6 +137,9 @@ The primary `kw run` and `kw acquire` paths apply these options to yt-dlp:
   authorized login state. The browser-control plugin name is not evidence of
   the host browser identity. Use only one of `--youtube-cookies` and
   `--youtube-browser`;
+- `--browser-host edge|chrome` to declare the real host for OpenCLI or a
+  browser export. OpenCLI acquisition blocks when this identity is absent;
+  Chrome and Edge never fall back to one another;
 - `--ytdlp`, `--node`, `--use-js-runtime`;
 - `--use-remote-components`;
 - `--subtitle-languages`;
