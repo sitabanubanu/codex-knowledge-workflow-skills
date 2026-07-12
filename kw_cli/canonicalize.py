@@ -22,6 +22,7 @@ TEXT_KEYS = {
     "text",
     "title",
 }
+DISPLAY_TEXT_KEYS = TEXT_KEYS | {"author", "comments", "collects", "likes", "tags"}
 ERROR_KEYS = {"error", "error_code", "error_message", "message"}
 BLOCK_MARKERS = ("auth_required", "captcha", "login required", "not authenticated", "permission denied")
 
@@ -38,6 +39,14 @@ def parse_json_output(stdout: str) -> Any:
 
 def _collect_text(value: Any, rows: list[tuple[str, str]], *, parent_key: str = "") -> None:
     if isinstance(value, dict):
+        field = value.get("field")
+        field_value = value.get("value")
+        if isinstance(field, str) and isinstance(field_value, (str, int, float)):
+            lowered_field = field.strip().lower()
+            text = str(field_value).strip()
+            if lowered_field in DISPLAY_TEXT_KEYS and text:
+                rows.append((lowered_field, text))
+                return
         for key, child in value.items():
             lowered = str(key).lower()
             if lowered in TEXT_KEYS and isinstance(child, (str, int, float)):
@@ -129,6 +138,58 @@ def canonical_subtitle_json(stdout: str) -> tuple[dict[str, Any], Any]:
     _collect_subtitle_rows(payload, rows)
     if not rows:
         raise CanonicalizationError("backend JSON contained no subtitle rows")
+    return {"segments": rows}, payload
+
+
+def _timestamp_seconds(value: Any) -> float | None:
+    numeric = _as_float(value)
+    if numeric is not None:
+        return numeric
+    if not isinstance(value, str):
+        return None
+    parts = value.strip().split(":")
+    if len(parts) not in {2, 3}:
+        return None
+    try:
+        values = [float(part) for part in parts]
+    except ValueError:
+        return None
+    if len(values) == 2:
+        minutes, seconds = values
+        return minutes * 60 + seconds
+    hours, minutes, seconds = values
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def canonical_opencli_youtube_transcript(stdout: str) -> tuple[dict[str, Any], Any]:
+    """Normalize OpenCLI timestamp/text rows into a transcript artifact."""
+    payload = parse_json_output(stdout)
+    rows_input = payload if isinstance(payload, list) else payload.get("segments") if isinstance(payload, dict) else None
+    if not isinstance(rows_input, list):
+        raise CanonicalizationError("OpenCLI YouTube transcript did not return a segment list")
+    rows: list[dict[str, Any]] = []
+    for item in rows_input:
+        if not isinstance(item, dict):
+            continue
+        text = item.get("text") or item.get("content") or item.get("subtitle")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        start = _as_float(item.get("start", item.get("from")))
+        if start is None:
+            start = _timestamp_seconds(item.get("timestamp"))
+        rows.append(
+            {
+                "start": start,
+                "end": _as_float(item.get("end", item.get("to"))),
+                "text": " ".join(text.split()),
+                "source": "opencli_youtube_transcript",
+            }
+        )
+    if not rows:
+        raise CanonicalizationError("OpenCLI YouTube transcript contained no text segments")
+    for index, row in enumerate(rows[:-1]):
+        if row["end"] is None and rows[index + 1]["start"] is not None:
+            row["end"] = rows[index + 1]["start"]
     return {"segments": rows}, payload
 
 

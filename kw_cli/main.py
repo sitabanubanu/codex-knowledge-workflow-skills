@@ -327,6 +327,9 @@ def youtube_options_from_args(args: argparse.Namespace) -> dict[str, object]:
         "youtube_cookies": youtube_cookies_cli_value(getattr(args, "youtube_cookies", None)),
         "youtube_browser": getattr(args, "youtube_browser", None),
         "browser_host": getattr(args, "browser_host", None),
+        "opencli_window": getattr(args, "opencli_window", "foreground"),
+        "opencli_site_session": getattr(args, "opencli_site_session", "persistent"),
+        "opencli_keep_tab": bool(getattr(args, "opencli_keep_tab", True)),
         "ytdlp": getattr(args, "ytdlp", None),
         "node": getattr(args, "node", None),
         "platform_timeout_seconds": getattr(args, "platform_timeout_seconds", 90),
@@ -1789,6 +1792,9 @@ def add_youtube_acquisition_arguments(parser: argparse.ArgumentParser, *, includ
         choices=["edge", "chrome"],
         help="Actual host browser for an OpenCLI session or browser export. Never infer it from a tool or extension name.",
     )
+    parser.add_argument("--opencli-window", choices=["foreground", "background"], default="foreground", help="Window mode for an authorized OpenCLI acquisition. Foreground is the stable default for interactive platforms.")
+    parser.add_argument("--opencli-site-session", choices=["persistent", "ephemeral"], default="persistent", help="OpenCLI site-session lifecycle for authorized platform acquisition.")
+    parser.add_argument("--opencli-keep-tab", action=argparse.BooleanOptionalAction, default=True, help="Keep the authorized OpenCLI tab after acquisition. Use --no-opencli-keep-tab to close it after the command.")
     parser.add_argument("--ytdlp", type=Path, help="Optional yt-dlp executable override.")
     parser.add_argument("--node", type=Path, help="Optional Node.js executable override for yt-dlp JavaScript challenge handling.")
     parser.add_argument("--platform-timeout-seconds", type=int, default=90)

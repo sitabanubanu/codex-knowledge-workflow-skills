@@ -108,6 +108,21 @@ def browser_host_from_options(options: dict[str, Any] | None) -> str:
     return declared_host or youtube_host
 
 
+def opencli_session_options(options: dict[str, Any] | None) -> tuple[list[str], dict[str, Any]]:
+    values = options or {}
+    window = str(values.get("opencli_window") or "foreground").strip().lower()
+    session = str(values.get("opencli_site_session") or "persistent").strip().lower()
+    keep_tab = bool(values.get("opencli_keep_tab", True))
+    if window not in {"foreground", "background"}:
+        raise AgentReachAdapterError("--opencli-window must be foreground or background")
+    if session not in {"persistent", "ephemeral"}:
+        raise AgentReachAdapterError("--opencli-site-session must be persistent or ephemeral")
+    return (
+        ["--site-session", session, "--window", window, "--keep-tab", "true" if keep_tab else "false"],
+        {"window": window, "site_lifecycle": session, "keep_tab": keep_tab},
+    )
+
+
 def detect_platform(value: str) -> str:
     parsed = urlparse(value)
     host = parsed.netloc.lower()
@@ -185,12 +200,26 @@ def resolve_command_for_subprocess(command: list[str]) -> list[str]:
     return command
 
 
+def quote_windows_batch_argument(value: str) -> str:
+    """Quote a batch-file argument so URLs cannot become cmd.exe operators."""
+    return '"' + value.replace("%", "%%").replace('"', '""') + '"'
+
+
+def is_windows_batch_command(command: list[str]) -> bool:
+    return bool(command) and sys.platform == "win32" and Path(command[0]).suffix.lower() in {".cmd", ".bat"}
+
+
 def run_capture(command: list[str], *, cwd: Path | None = None, timeout: int = 60) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    resolved = resolve_command_for_subprocess(command)
+    shell = is_windows_batch_command(resolved)
+    executable: list[str] | str = (
+        " ".join(quote_windows_batch_argument(str(part)) for part in resolved) if shell else resolved
+    )
     return subprocess.run(
-        resolve_command_for_subprocess(command),
+        executable,
         cwd=str(cwd) if cwd else None,
         text=True,
         encoding="utf-8",
@@ -198,6 +227,7 @@ def run_capture(command: list[str], *, cwd: Path | None = None, timeout: int = 6
         capture_output=True,
         timeout=timeout,
         env=env,
+        shell=shell,
     )
 
 
@@ -286,8 +316,11 @@ def backend_supports_operation(platform: str, backend: str, operation: str, inpu
             return operation == "extract_transcript"
         return ("bili-cli" in lowered or "bili cli" in lowered) and operation in {"read", "extract_transcript"}
     if platform == "x":
+        is_status_url = "/status/" in urlparse(input_value).path
         if "twitter-cli" in lowered:
-            return operation == "read" and "/status/" in urlparse(input_value).path
+            return operation == "read" and is_status_url
+        if backend == "OpenCLI":
+            return operation == "read" and is_status_url
         return False
     if platform == "xiaohongshu":
         return operation == "read"
@@ -367,10 +400,8 @@ def route_plan_for(
         elif active_backend == "OpenCLI":
             plan["preferred_commands"] = [
                 "opencli twitter article <URL_OR_ID> -f json",
-                "opencli twitter user-posts <USERNAME> -f json",
-                "opencli twitter search <QUERY> -f json",
             ]
-            plan["primary_scope"] = "documented OpenCLI Twitter routes; single status URLs may still require twitter-cli or browser export"
+            plan["primary_scope"] = "tweet text returned by the documented OpenCLI article route; not embedded-video transcript"
         elif not active_backend:
             plan["blocked_without_backend_reason"] = "Twitter/X is a login/session platform in Agent-Reach; do not retry anonymous Jina/curl as the main route."
     elif platform == "xiaohongshu":
@@ -396,12 +427,20 @@ def route_plan_for(
                     "This note URL has no xsec_token. Search/feed first, then read the returned full URL.",
                 ]
     elif platform == "youtube":
-        plan["preferred_commands"] = [
-            'yt-dlp --dump-json "<URL>"',
-            'yt-dlp --write-sub --write-auto-sub --sub-lang "zh-Hans,zh,en" --skip-download -o "<OUT>/%(id)s" "<URL>"',
-            'agent-reach transcribe "<URL_OR_LOCAL_AUDIO>"',
-        ]
+        plan["preferred_commands"] = []
+        if declared_browser_host:
+            plan["preferred_commands"].append(
+                'opencli youtube transcript "<URL>" -f json --site-session persistent --window foreground --keep-tab true'
+            )
+        plan["preferred_commands"].extend(
+            [
+                'yt-dlp --dump-json "<URL>"',
+                'yt-dlp --write-sub --write-auto-sub --sub-lang "zh-Hans,zh,en" --skip-download -o "<OUT>/%(id)s" "<URL>"',
+                'agent-reach transcribe "<URL_OR_LOCAL_AUDIO>"',
+            ]
+        )
         plan["manual_steps"] = [
+            "With an explicitly declared Edge or Chrome host and a connected OpenCLI bridge, the workflow tries browser-visible transcript extraction before yt-dlp.",
             "If yt-dlp reports sign-in, bot check, or cookie errors, use user-authorized YouTube cookies or provide local audio/video/transcript material.",
             "Do not bypass CAPTCHA or account permissions; only analyze material the user is authorized to access.",
         ]
@@ -632,6 +671,7 @@ def acquire_x(
     command_log: Path,
     *,
     doctor: dict[str, Any],
+    options: dict[str, Any],
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str, str, dict[str, bool]]:
     active_backend = active_backend_from_doctor(doctor, "x")
     plan = route_plan_for("x", doctor, input_value)
@@ -684,20 +724,50 @@ def acquire_x(
         return command_blocked_status(completed), [], metadata, [{"stage": "twitter_cli", "reason": reason}], "Refresh Twitter/X authorization or provide primary material.", active_backend, privacy
 
     if active_backend == "OpenCLI":
-        return (
-            "blocked",
-            [],
-            metadata,
-            [
-                {
-                    "stage": "twitter_opencli_single_status",
-                    "reason": "Agent-Reach documents OpenCLI for Twitter search/article/user-posts; this adapter does not yet treat a single status URL as a documented OpenCLI primary route.",
-                }
-            ],
-            "Use twitter-cli for single tweet URLs, or export browser-visible text/media subtitles through Chrome/OpenCLI and provide the artifact.",
-            active_backend,
-            {"cookies_used": False, "browser_session_used": True},
-        )
+        session_args, session_metadata = opencli_session_options(options)
+        command = ["opencli", "twitter", "article", input_value, "-f", "json", *session_args]
+        raw_output = artifacts_root / "x_opencli.raw.json"
+        output = artifacts_root / "x_opencli.txt"
+        privacy["browser_session_used"] = True
+        metadata["opencli_browser_options"] = session_metadata
+        try:
+            completed = run_capture(command, timeout=90)
+        except (OSError, subprocess.SubprocessError) as exc:
+            append_command_log(command_log, command=command, returncode=1, note=str(exc))
+            return "failed", [], metadata, [{"stage": "twitter_opencli", "reason": str(exc)}], "Restore OpenCLI browser connectivity or provide primary post text.", active_backend, privacy
+        append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Twitter/X OpenCLI article route")
+        if completed.returncode == 0:
+            try:
+                canonical_text, raw_payload = canonicalize.canonical_page_text(completed.stdout)
+            except canonicalize.CanonicalizationError as exc:
+                reason = str(exc)
+                return command_blocked_status(completed), [], metadata, [{"stage": "twitter_opencli_parse", "reason": reason}], "Provide a browser-visible post export or local primary material.", active_backend, privacy
+            bundle.write_json(raw_output, sanitize_data(raw_payload))
+            bundle.write_text(output, canonical_text)
+            artifacts = [
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=output,
+                    artifact_type="page_text",
+                    source_class="primary",
+                    content_scope="social_post_text",
+                    description="Canonical Twitter/X status text acquired through OpenCLI.",
+                    created_by="opencli_twitter",
+                ),
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=raw_output,
+                    artifact_type="metadata",
+                    source_class="metadata_only",
+                    content_scope="metadata",
+                    description="Redacted raw OpenCLI Twitter/X response.",
+                    created_by="opencli_twitter",
+                ),
+            ]
+            metadata["primary_scope"] = "tweet_text_not_embedded_video_transcript"
+            return "material_acquired", artifacts, metadata, [], "ingest_bundle", active_backend, privacy
+        reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "empty OpenCLI output"
+        return command_blocked_status(completed), [], metadata, [{"stage": "twitter_opencli", "reason": reason}], "Refresh Twitter/X login in the selected browser host, keep OpenCLI connected, or provide primary material.", active_backend, privacy
 
     return (
         "unsupported",
@@ -716,6 +786,7 @@ def acquire_xiaohongshu(
     command_log: Path,
     *,
     doctor: dict[str, Any],
+    options: dict[str, Any],
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str, str, dict[str, bool]]:
     active_backend = active_backend_from_doctor(doctor, "xiaohongshu")
     plan = route_plan_for("xiaohongshu", doctor, input_value)
@@ -753,10 +824,12 @@ def acquire_xiaohongshu(
                 active_backend,
                 privacy,
             )
-        command = ["opencli", "xiaohongshu", "note", input_value, "-f", "json"]
+        session_args, session_metadata = opencli_session_options(options)
+        command = ["opencli", "xiaohongshu", "note", input_value, "-f", "json", *session_args]
         raw_output = artifacts_root / "xiaohongshu_note.raw.json"
         output = artifacts_root / "xiaohongshu_note.txt"
         privacy["browser_session_used"] = True
+        metadata["opencli_browser_options"] = session_metadata
         try:
             completed = run_capture(command, timeout=120)
         except (OSError, subprocess.SubprocessError) as exc:
@@ -794,7 +867,7 @@ def acquire_xiaohongshu(
             metadata["primary_scope"] = "note_text_not_embedded_video_transcript"
             return "material_acquired", artifacts, metadata, [], "ingest_bundle", active_backend, privacy
         reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "empty OpenCLI output"
-        return command_blocked_status(completed), [], metadata, [{"stage": "xiaohongshu_opencli", "reason": reason}], "Refresh Xiaohongshu login in Chrome, keep OpenCLI extension active, or provide primary material.", active_backend, privacy
+        return command_blocked_status(completed), [], metadata, [{"stage": "xiaohongshu_opencli", "reason": reason}], "Refresh Xiaohongshu login in the selected browser host, keep OpenCLI connected, or provide primary material.", active_backend, privacy
 
     if active_backend == "xiaohongshu-mcp":
         note_id, xsec_token = xhs_note_parts(input_value)
@@ -1063,6 +1136,56 @@ def _youtube_transcribe(
     return [], {"stage": "youtube_transcribe", "reason": reason}
 
 
+def _youtube_opencli_transcript(
+    *,
+    input_value: str,
+    artifacts_root: Path,
+    bundle_root: Path,
+    command_log: Path,
+    timeout: int,
+    options: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, dict[str, Any]]:
+    session_args, session_metadata = opencli_session_options(options)
+    command = ["opencli", "youtube", "transcript", input_value, "-f", "json", *session_args]
+    raw_output = artifacts_root / "youtube_opencli_transcript.raw.json"
+    transcript_output = artifacts_root / "youtube_opencli_transcript.json"
+    try:
+        completed = run_capture(command, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as exc:
+        append_command_log(command_log, command=command, returncode=1, note=str(exc))
+        return [], {"stage": "youtube_opencli_transcript", "reason": str(exc)}, session_metadata
+    append_command_log(command_log, command=command, returncode=completed.returncode, note="OpenCLI YouTube visible transcript route")
+    if completed.returncode == 0:
+        try:
+            transcript, raw_payload = canonicalize.canonical_opencli_youtube_transcript(completed.stdout)
+        except canonicalize.CanonicalizationError as exc:
+            return [], {"stage": "youtube_opencli_transcript_parse", "reason": str(exc)}, session_metadata
+        bundle.write_json(raw_output, sanitize_data(raw_payload))
+        canonicalize.write_json(transcript_output, transcript)
+        return [
+            bundle.artifact_entry(
+                bundle_root=bundle_root,
+                path=transcript_output,
+                artifact_type="transcript",
+                source_class="primary",
+                content_scope="video_transcript",
+                description="Visible YouTube transcript acquired through OpenCLI.",
+                created_by="opencli_youtube",
+            ),
+            bundle.artifact_entry(
+                bundle_root=bundle_root,
+                path=raw_output,
+                artifact_type="metadata",
+                source_class="metadata_only",
+                content_scope="metadata",
+                description="Redacted raw OpenCLI YouTube transcript response.",
+                created_by="opencli_youtube",
+            ),
+        ], None, session_metadata
+    reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "empty OpenCLI transcript output"
+    return [], {"stage": "youtube_opencli_transcript", "reason": reason}, session_metadata
+
+
 def acquire_youtube(
     input_value: str,
     project_root: Path,
@@ -1110,6 +1233,35 @@ def acquire_youtube(
     artifacts: list[dict[str, Any]] = []
     metadata: dict[str, Any] = {"platform_mode": mode, "applied_options": applied}
     failures: list[dict[str, Any]] = []
+    privacy = _youtube_privacy(applied)
+    browser_host = browser_host_from_options(options)
+    if operation == "extract_transcript" and browser_host and shutil.which("opencli"):
+        transcript_artifacts, transcript_failure, session_metadata = _youtube_opencli_transcript(
+            input_value=input_value,
+            artifacts_root=artifacts_root,
+            bundle_root=bundle_root,
+            command_log=command_log,
+            timeout=min(timeout, 90),
+            options=options,
+        )
+        metadata["opencli_browser_bridge"] = {
+            "attempted": True,
+            "browser_host": browser_host,
+            "lifecycle": session_metadata,
+        }
+        privacy["browser_session_used"] = True
+        artifacts.extend(transcript_artifacts)
+        if transcript_artifacts:
+            metadata["primary_scope"] = "browser_visible_video_transcript"
+            metadata["execution_backend"] = "OpenCLI"
+            return "material_acquired", artifacts, metadata, failures, "ingest_bundle", privacy
+        if transcript_failure:
+            failures.append(transcript_failure)
+    else:
+        metadata["opencli_browser_bridge"] = {
+            "attempted": False,
+            "reason": "requires an installed OpenCLI bridge and explicitly declared browser host",
+        }
     try:
         meta = run_capture(metadata_command, timeout=timeout)
         append_command_log(command_log, command=metadata_command, returncode=meta.returncode, note="yt-dlp metadata")
@@ -1141,7 +1293,7 @@ def acquire_youtube(
                 failures.append({"stage": "youtube_subtitles", "reason": subs.stderr[-1000:] or subs.stdout[-1000:]})
     except (OSError, subprocess.SubprocessError) as exc:
         failures.append({"stage": "youtube", "reason": str(exc)})
-        return "failed", artifacts, metadata, failures, youtube_next_action(failures), _youtube_privacy(applied)
+        return "failed", artifacts, metadata, failures, youtube_next_action(failures), privacy
 
     subtitle_files = sorted(artifacts_root.glob("youtube*.vtt")) + sorted(artifacts_root.glob("youtube*.srt"))
     for subtitle in subtitle_files:
@@ -1157,7 +1309,8 @@ def acquire_youtube(
             )
         )
     if any(item.get("source_class") == "primary" for item in artifacts):
-        return "material_acquired", artifacts, metadata, failures, "ingest_bundle", _youtube_privacy(applied)
+        metadata["execution_backend"] = "yt-dlp"
+        return "material_acquired", artifacts, metadata, failures, "ingest_bundle", privacy
     if mode in {"auto", "audio"}:
         transcript_artifacts, transcript_failure = _youtube_transcribe(
             input_value=input_value,
@@ -1170,12 +1323,13 @@ def acquire_youtube(
         if transcript_failure:
             failures.append(transcript_failure)
         if transcript_artifacts:
-            return "material_acquired", artifacts, metadata, failures, "ingest_bundle", _youtube_privacy(applied)
+            metadata["execution_backend"] = "agent-reach_transcribe"
+            return "material_acquired", artifacts, metadata, failures, "ingest_bundle", privacy
     if artifacts:
-        return "metadata_only", artifacts, metadata, failures, youtube_next_action(failures, metadata_only=True), _youtube_privacy(applied)
+        return "metadata_only", artifacts, metadata, failures, youtube_next_action(failures, metadata_only=True), privacy
     combined_reason = "\n".join(str(item.get("reason") or "") for item in failures)
     status = blocked_status_from_reason(combined_reason) if failures else "failed"
-    return status, artifacts, metadata, failures, youtube_next_action(failures), _youtube_privacy(applied)
+    return status, artifacts, metadata, failures, youtube_next_action(failures), privacy
 
 
 def acquire_bilibili(
@@ -1560,6 +1714,7 @@ def _acquire_with_agent_reach_into(
             project_root,
             command_log,
             doctor=doctor,
+            options=youtube_options or {},
         )
     elif platform == "xiaohongshu":
         status, artifacts, metadata, failures, next_action, active_backend, privacy_flags = acquire_xiaohongshu(
@@ -1567,6 +1722,7 @@ def _acquire_with_agent_reach_into(
             project_root,
             command_log,
             doctor=doctor,
+            options=youtube_options or {},
         )
     else:
         status, artifacts, metadata, failures, next_action = (

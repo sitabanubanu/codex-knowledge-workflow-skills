@@ -34,7 +34,10 @@ it never means source-gate approval.
 Use `kw acquire` or `kw run` when the requested operation is implemented by
 the repository adapter. Current structured routes cover web pages, YouTube,
 Bilibili, GitHub repositories, X single-status reads, Xiaohongshu notes, and
-Exa search.
+Exa search. For YouTube with an explicitly declared, connected Edge or Chrome
+host, the adapter first asks OpenCLI for the browser-visible transcript before
+trying yt-dlp; this avoids treating a locked browser cookie database as the
+only path to a transcript.
 
 ### Native Export And Import
 
@@ -111,6 +114,11 @@ OpenCLI is different: install its extension in the real host browser, keep
 that host logged in, and pass `--browser-host edge` or `--browser-host chrome`
 to every Knowledge Workflow OpenCLI route. A tool label, extension manifest,
 or generic OpenCLI profile id is not host evidence.
+
+The structured OpenCLI routes use `--opencli-window foreground` and
+`--opencli-site-session persistent` by default because interactive platforms
+are more reliable when their authorized tab remains alive. Use
+`--no-opencli-keep-tab` when the tab should be released after acquisition.
 
 ## Audit Boundary
 

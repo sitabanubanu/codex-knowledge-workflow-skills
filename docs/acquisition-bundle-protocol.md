@@ -149,7 +149,7 @@ If either check fails, write a blocked bundle. Do not fall through to an
 unrelated generic route. Examples:
 
 - Bilibili search API cannot satisfy `extract_transcript`;
-- X OpenCLI search capability is not a documented single-status reader;
+- X OpenCLI search capability alone is not a single-status reader; use the documented `twitter article` route for a status URL;
 - social-post text does not satisfy embedded-video analysis.
 
 ## Source Gate Mapping

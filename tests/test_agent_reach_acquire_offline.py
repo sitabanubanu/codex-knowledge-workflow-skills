@@ -210,15 +210,61 @@ def test_x_twitter_cli_primary_artifact(failures: list[str]) -> None:
         assert_true("x twitter-cli records cookies_used", manifest.get("privacy", {}).get("cookies_used") is True, failures)
 
 
+def test_x_opencli_status_primary_artifact(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-ar-x-opencli-") as tmp:
+        project = Path(tmp) / "project"
+        executed: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs):
+            executed.append(command)
+            if command[:3] == ["agent-reach", "doctor", "--json"]:
+                return completed(command, stdout=json.dumps({"twitter": {"status": "ok", "active_backend": "OpenCLI"}}))
+            if command[:3] == ["opencli", "twitter", "article"]:
+                return completed(command, stdout=json.dumps({"author": "fixture", "content": "primary status text"}))
+            return completed(command, code=1, stderr="unexpected")
+
+        with patch("kw_cli.agent_reach_adapter.shutil.which", return_value="agent-reach"):
+            with patch("kw_cli.agent_reach_adapter.run_capture", side_effect=fake_run):
+                manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+                    input_value="https://x.com/example/status/123",
+                    project_root=project,
+                    youtube_options={"browser_host": "edge"},
+                )
+        manifest = load_manifest(manifest_path)
+        assert_true("x OpenCLI -> material_acquired", manifest.get("status") == "material_acquired", failures)
+        assert_true("x OpenCLI records Edge host", manifest.get("metadata", {}).get("browser_host") == "edge", failures)
+        assert_true("x OpenCLI records browser session", manifest.get("privacy", {}).get("browser_session_used") is True, failures)
+        assert_true(
+            "x OpenCLI executes the documented article route",
+            any(command[:3] == ["opencli", "twitter", "article"] for command in executed),
+            failures,
+        )
+        assert_true(
+            "x OpenCLI creates primary post artifact",
+            any(item.get("type") == "page_text" and item.get("content_scope") == "social_post_text" for item in manifest.get("artifacts", [])),
+            failures,
+        )
+
+
 def test_xiaohongshu_opencli_primary_artifact(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="kw-ar-xhs-opencli-") as tmp:
         project = Path(tmp) / "project"
+        executed: list[list[str]] = []
 
         def fake_run(command: list[str], **_kwargs):
+            executed.append(command)
             if command[:3] == ["agent-reach", "doctor", "--json"]:
                 return completed(command, stdout=json.dumps({"xiaohongshu": {"status": "ok", "active_backend": "OpenCLI"}}))
             if command[:3] == ["opencli", "xiaohongshu", "note"]:
-                return completed(command, stdout=json.dumps({"title": "note", "content": "primary text"}))
+                return completed(
+                    command,
+                    stdout=json.dumps(
+                        [
+                            {"field": "title", "value": "note"},
+                            {"field": "content", "value": "primary text"},
+                        ]
+                    ),
+                )
             return completed(command, code=1, stderr="unexpected")
 
         with patch("kw_cli.agent_reach_adapter.shutil.which", return_value="agent-reach"):
@@ -238,6 +284,11 @@ def test_xiaohongshu_opencli_primary_artifact(failures: list[str]) -> None:
         )
         assert_true("xiaohongshu OpenCLI records browser_session_used", manifest.get("privacy", {}).get("browser_session_used") is True, failures)
         assert_true("xiaohongshu OpenCLI records Edge host", manifest.get("metadata", {}).get("browser_host") == "edge", failures)
+        assert_true(
+            "xiaohongshu OpenCLI uses persistent foreground session",
+            any("--site-session" in command and "persistent" in command and "--window" in command and "foreground" in command for command in executed),
+            failures,
+        )
         ingest_result = ingest.ingest_bundle(manifest_path=manifest_path, project_root=project)
         source_status = ingest.read_json(project / "10_video" / "00_source" / "source_status.json")
         assert_true("xiaohongshu bundle ingests end to end", ingest_result.get("source_status") == "source_confirmed", failures)
@@ -491,6 +542,49 @@ def test_youtube_options_are_applied_and_redacted(failures: list[str]) -> None:
             assert_true(f"YouTube secret not persisted: {secret}", secret not in persisted_text, failures)
 
 
+def test_youtube_opencli_transcript_is_primary(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-ar-youtube-opencli-") as tmp:
+        project = Path(tmp) / "project"
+        executed: list[list[str]] = []
+
+        def fake_run(command: list[str], **_kwargs):
+            executed.append(command)
+            if command[:3] == ["agent-reach", "doctor", "--json"]:
+                return completed(command, stdout=json.dumps({"youtube": {"status": "ok", "active_backend": "yt-dlp"}}))
+            if command[:3] == ["opencli", "youtube", "transcript"]:
+                return completed(command, stdout=json.dumps([{"timestamp": "0:00", "text": "primary transcript"}, {"timestamp": "0:05", "text": "second segment"}]))
+            return completed(command, code=1, stderr="yt-dlp should not run after a primary OpenCLI transcript")
+
+        def fake_which(name: str) -> str | None:
+            return name if name in {"agent-reach", "opencli"} else None
+
+        with patch("kw_cli.agent_reach_adapter.shutil.which", side_effect=fake_which):
+            with patch("kw_cli.agent_reach_adapter.run_capture", side_effect=fake_run):
+                manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+                    input_value="https://www.youtube.com/watch?v=fixture",
+                    project_root=project,
+                    analysis_target="video_content",
+                    operation="extract_transcript",
+                    youtube_options={"browser_host": "edge"},
+                )
+        manifest = load_manifest(manifest_path)
+        assert_true("YouTube OpenCLI -> material_acquired", manifest.get("status") == "material_acquired", failures)
+        assert_true("YouTube OpenCLI records Edge", manifest.get("metadata", {}).get("browser_host") == "edge", failures)
+        assert_true("YouTube OpenCLI records execution backend", manifest.get("metadata", {}).get("execution_backend") == "OpenCLI", failures)
+        assert_true("YouTube OpenCLI records browser session", manifest.get("privacy", {}).get("browser_session_used") is True, failures)
+        assert_true(
+            "YouTube OpenCLI transcript is primary",
+            any(item.get("type") == "transcript" and item.get("source_class") == "primary" for item in manifest.get("artifacts", [])),
+            failures,
+        )
+        assert_true(
+            "YouTube OpenCLI precedes yt-dlp",
+            any(command[:3] == ["opencli", "youtube", "transcript"] for command in executed)
+            and not any(command and command[0] == "yt-dlp" for command in executed),
+            failures,
+        )
+
+
 def test_youtube_edge_browser_is_explicit(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="kw-ar-youtube-edge-") as tmp:
         root = Path(tmp)
@@ -543,6 +637,13 @@ def test_conflicting_browser_hosts_are_rejected(failures: list[str]) -> None:
     failures.append("conflicting browser hosts are rejected")
 
 
+def test_windows_batch_url_is_quoted(failures: list[str]) -> None:
+    quoted = agent_reach_adapter.quote_windows_batch_argument(
+        "https://www.xiaohongshu.com/explore/example?xsec_token=abc&xsec_source=pc_feed"
+    )
+    assert_true("Windows batch URL keeps ampersand inside quotes", quoted.startswith('"') and quoted.endswith('"') and "&xsec_source" in quoted, failures)
+
+
 def main() -> int:
     failures: list[str] = []
     assert_true(
@@ -564,6 +665,7 @@ def main() -> int:
     test_x_jina_block_keeps_platform(failures)
     test_xiaohongshu_fallback_keeps_platform(failures)
     test_x_twitter_cli_primary_artifact(failures)
+    test_x_opencli_status_primary_artifact(failures)
     test_xiaohongshu_opencli_primary_artifact(failures)
     test_xiaohongshu_opencli_warn_blocks_until_ready(failures)
     test_opencli_requires_declared_browser_host(failures)
@@ -571,8 +673,10 @@ def main() -> int:
     test_query_search_secondary_bundle(failures)
     test_bilibili_search_backend_cannot_claim_transcript(failures)
     test_youtube_options_are_applied_and_redacted(failures)
+    test_youtube_opencli_transcript_is_primary(failures)
     test_youtube_edge_browser_is_explicit(failures)
     test_conflicting_browser_hosts_are_rejected(failures)
+    test_windows_batch_url_is_quoted(failures)
     if failures:
         print("FAILURES:")
         for failure in failures:
