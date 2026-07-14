@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.6.0
 
 - Added Acquisition Bundle schema v2 with run, attempt, bundle, target,
   operation, scope, byte-count, and SHA-256 fields.
@@ -25,6 +25,10 @@
   repository documents.
 - Added explicit `--youtube-browser edge|chrome` routing and browser-lock
   diagnostics so the control plugin name is not mistaken for login ownership.
+- Added a shared Agent-Reach runtime boundary outside Hermes-private Python
+  environments, with resolver checks and isolation regression tests.
+- Rewrote the default README in Chinese with the project problem statement and
+  a direct comparison with Agent-Reach.
 
 ## v0.5.0-real-world-validation
 

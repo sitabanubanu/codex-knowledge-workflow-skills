@@ -92,13 +92,28 @@ obsolete command when Agent-Reach has selected a newer backend.
 
 ## Installation And Credentials
 
-Install or update the upstream package at the pinned baseline:
+Use the project wrapper so the upstream package is installed in the shared
+runtime, not in the current agent's Python environment:
 
 ```powershell
-python -m pip install --upgrade "git+https://github.com/Panniantong/Agent-Reach.git@v1.5.0"
-agent-reach install --env=auto --safe
-agent-reach doctor --json
+python .\kw.py agent-reach install --safe
+agent-reach --version
+python .\kw.py agent-reach doctor
 ```
+
+The managed layout is:
+
+```text
+C:\Users\Socrates\github-tools\
+  sources\Agent-Reach
+  runtimes\agent-reach\venv
+  bin\agent-reach.cmd
+  manifests\agent-reach.json
+```
+
+The adapter resolves the executable from this runtime and rejects paths inside
+`.hermes` or another agent-private virtual environment. `C:\Users\Socrates\.agent-reach`
+remains the separate Agent-Reach configuration directory.
 
 Review optional channel setup before applying it. The upstream `v1.5.0`
 installer may attempt Chrome/Firefox cookie discovery for `twitter`,

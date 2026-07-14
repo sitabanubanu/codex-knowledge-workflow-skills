@@ -115,6 +115,31 @@ python .\kw.py status --project-root <项目目录>
 python .\kw.py result --project-root <项目目录>
 ```
 
+## 外部工具统一目录
+
+Agent-Reach 不再安装到当前运行 CLI 的 Python 环境，也不属于 Hermes 的私有
+虚拟环境。项目统一使用：
+
+```text
+C:\Users\Socrates\github-tools\
+  sources\Agent-Reach
+  runtimes\agent-reach\venv
+  bin\agent-reach.cmd
+  manifests\agent-reach.json
+```
+
+安装或更新独立 runtime：
+
+```powershell
+python .\kw.py agent-reach install --safe
+agent-reach --version
+python .\kw.py agent-reach doctor
+```
+
+适配器会拒绝 Hermes 私有路径。Agent-Reach 的配置和授权浏览器连接仍然保留
+在独立的 `C:\Users\Socrates\.agent-reach`，不会把 cookies 或 token 复制到
+GitHub 工具目录。
+
 同一个项目目录不能被静默复用。只有来源、目标和操作完全一致时，才允许显式加 `--resume`。旧 acquisition 会进入 `acquisition_history/`，旧下游结果会进入 `run_history/`。
 
 ## Source Gate

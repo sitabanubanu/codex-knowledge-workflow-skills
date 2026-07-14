@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 
-from . import bundle, canonicalize, run_context, source_gate
+from . import agent_reach_runtime, bundle, canonicalize, run_context, source_gate
 from .redaction import redact_text, redact_url, sanitize_command as redact_command, sanitize_data
 
 
@@ -30,7 +30,7 @@ SUPPORTED_PLATFORMS = {
     "x",
     "xiaohongshu",
 }
-AGENT_REACH_INSTALL_SOURCE = "https://github.com/Panniantong/Agent-Reach/archive/main.zip"
+AGENT_REACH_INSTALL_SOURCE = agent_reach_runtime.AGENT_REACH_GIT_SOURCE
 LOGIN_REQUIRED_PLATFORMS = {"x", "xiaohongshu"}
 BROWSER_HOSTS = {"edge", "chrome"}
 UPSTREAM_AUTO_COOKIE_CHANNELS = {"twitter", "bilibili", "xueqiu", "all"}
@@ -86,6 +86,27 @@ PLATFORM_SETUP_HINTS = {
 
 class AgentReachAdapterError(Exception):
     """Raised when the adapter cannot create a bundle."""
+
+
+def standalone_agent_reach_command(*arguments: str, require_exists: bool = True) -> list[str]:
+    """Build an Agent-Reach command from the shared runtime, never from PATH alone."""
+
+    try:
+        return agent_reach_runtime.agent_reach_command(
+            *arguments,
+            require_exists=require_exists,
+            path_lookup=shutil.which,
+        )
+    except agent_reach_runtime.AgentReachRuntimeError as exc:
+        raise AgentReachAdapterError(str(exc)) from exc
+
+
+def standalone_agent_reach_available() -> bool:
+    try:
+        standalone_agent_reach_command(require_exists=True)
+    except AgentReachAdapterError:
+        return False
+    return True
 
 
 def normalize_browser_host(value: object, *, option_name: str = "--browser-host") -> str:
@@ -210,7 +231,7 @@ def is_windows_batch_command(command: list[str]) -> bool:
 
 
 def run_capture(command: list[str], *, cwd: Path | None = None, timeout: int = 60) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
+    env = agent_reach_runtime.external_tool_environment()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     resolved = resolve_command_for_subprocess(command)
@@ -233,7 +254,16 @@ def run_capture(command: list[str], *, cwd: Path | None = None, timeout: int = 6
 
 def write_doctor(project_root: Path, command_log: Path) -> dict[str, Any]:
     doctor_path = project_root / "00_acquisition" / "logs" / "agent_reach_doctor.json"
-    command = ["agent-reach", "doctor", "--json"]
+    runtime_path = project_root / "00_acquisition" / "logs" / "agent_reach_runtime.json"
+    bundle.write_json(runtime_path, agent_reach_runtime.runtime_metadata(path_lookup=shutil.which))
+    try:
+        command = standalone_agent_reach_command("doctor", "--json")
+    except AgentReachAdapterError as exc:
+        command = ["agent-reach", "doctor", "--json"]
+        append_command_log(command_log, command=command, returncode=1, note=str(exc))
+        payload = {"error": str(exc), "status": "failed"}
+        bundle.write_json(doctor_path, payload)
+        return payload
     try:
         completed = run_capture(command, timeout=90)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -1113,7 +1143,7 @@ def _youtube_transcribe(
     timeout: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     output = artifacts_root / "youtube_transcript.txt"
-    command = ["agent-reach", "transcribe", input_value, "-o", str(output)]
+    command = standalone_agent_reach_command("transcribe", input_value, "-o", str(output))
     try:
         completed = run_capture(command, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -1468,7 +1498,7 @@ def acquire_bilibili(
     if audio_files:
         audio_path = sorted(audio_files)[0]
         transcript_path = artifacts_root / "bilibili_transcript.txt"
-        transcribe_command = ["agent-reach", "transcribe", str(audio_path), "-o", str(transcript_path)]
+        transcribe_command = standalone_agent_reach_command("transcribe", str(audio_path), "-o", str(transcript_path))
         try:
             transcribed = run_capture(transcribe_command, timeout=600)
         except (OSError, subprocess.SubprocessError) as exc:
@@ -1642,13 +1672,13 @@ def _acquire_with_agent_reach_into(
             operation=operation,
             source_fingerprint=source_fingerprint,
         )
-    if shutil.which("agent-reach") is None:
+    if not standalone_agent_reach_available():
         return make_failed_manifest(
             project_root=project_root,
             input_value=input_value,
             platform=platform,
             status="failed",
-            reason="agent-reach command not found",
+            reason="standalone Agent-Reach runtime is not ready",
             run_id=run_id,
             attempt_id=attempt_id,
             analysis_target=analysis_target,
@@ -1736,6 +1766,7 @@ def _acquire_with_agent_reach_into(
         metadata = {
             **metadata,
             "route_plan": route_plan,
+            "agent_reach_runtime": agent_reach_runtime.runtime_metadata(path_lookup=shutil.which),
             "browser_host": route_plan["browser_host"],
             "browser_host_identity": route_plan["browser_host_identity"],
         }
@@ -1861,7 +1892,10 @@ def install_npm_global(package: str) -> int:
     command = [npm_command(), "install", "-g", package]
     print("Installing npm package: " + package)
     try:
-        completed = subprocess.run(resolve_command_for_subprocess(command))
+        completed = subprocess.run(
+            resolve_command_for_subprocess(command),
+            env=agent_reach_runtime.external_tool_environment(),
+        )
     except OSError as exc:
         print(f"npm install failed to start: {exc}", file=sys.stderr)
         return 1
@@ -1873,7 +1907,15 @@ def configure_exa_search() -> None:
         return
     command = ["mcporter", "config", "add", "exa", "https://mcp.exa.ai/mcp", "--scope", "home"]
     try:
-        subprocess.run(resolve_command_for_subprocess(command), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        subprocess.run(
+            resolve_command_for_subprocess(command),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            env=agent_reach_runtime.external_tool_environment(),
+        )
     except (OSError, subprocess.SubprocessError):
         pass
 
@@ -1909,29 +1951,24 @@ def agent_reach_install(
             file=sys.stderr,
         )
         return 2
-    if shutil.which("agent-reach") is None:
-        bootstrap = [sys.executable, "-m", "pip", "install", AGENT_REACH_INSTALL_SOURCE]
-        if dry_run:
-            print("[dry-run] Would install Agent-Reach CLI:")
-            print("  " + " ".join(bootstrap))
-        else:
-            print("Installing Agent-Reach CLI...")
-            completed = subprocess.run(bootstrap)
-            if completed.returncode != 0:
-                return completed.returncode
+    try:
+        runtime_executable = agent_reach_runtime.ensure_runtime(dry_run=dry_run)
+    except agent_reach_runtime.AgentReachRuntimeError as exc:
+        print(f"Agent-Reach standalone runtime setup failed: {exc}", file=sys.stderr)
+        return 1
 
-    command = ["agent-reach", "install", "--env=auto"]
+    command = [str(runtime_executable), "install", "--env=auto"]
     if channels:
         command.extend(["--channels", channels])
     if safe:
         command.append("--safe")
     if dry_run:
         command.append("--dry-run")
-        if shutil.which("agent-reach") is None:
-            print("[dry-run] Agent-Reach is not installed yet; skipping nested agent-reach install probe.")
-            return 0
+        print("[dry-run] Would run Agent-Reach from the standalone runtime:")
+        print("  " + " ".join(command))
+        return 0
     try:
-        completed = subprocess.run(resolve_command_for_subprocess(command))
+        completed = subprocess.run(command, env=agent_reach_runtime.external_tool_environment())
     except OSError as exc:
         print(f"agent-reach install failed to start: {exc}", file=sys.stderr)
         return 1
@@ -1943,12 +1980,14 @@ def agent_reach_install(
 
 
 def agent_reach_doctor(*, output_json: Path | None = None) -> int:
-    command = ["agent-reach", "doctor", "--json"]
     try:
+        command = standalone_agent_reach_command("doctor", "--json")
         completed = run_capture(command, timeout=90)
-    except (OSError, subprocess.SubprocessError) as exc:
+    except (AgentReachAdapterError, OSError, subprocess.SubprocessError) as exc:
         print(f"agent-reach doctor failed: {exc}", file=sys.stderr)
         return 1
+    runtime = agent_reach_runtime.runtime_metadata(path_lookup=shutil.which)
+    print(f"Agent-Reach runtime: {runtime['executable']}", file=sys.stderr)
     if output_json:
         output_json.parent.mkdir(parents=True, exist_ok=True)
         output_json.write_text(completed.stdout or "{}\n", encoding="utf-8")
@@ -2026,10 +2065,10 @@ def render_capability_matrix(payload: dict[str, Any]) -> str:
 
 
 def agent_reach_capability_matrix(*, output_json: Path | None = None, output_md: Path | None = None) -> int:
-    command = ["agent-reach", "doctor", "--json"]
     try:
+        command = standalone_agent_reach_command("doctor", "--json")
         completed = run_capture(command, timeout=90)
-    except (OSError, subprocess.SubprocessError) as exc:
+    except (AgentReachAdapterError, OSError, subprocess.SubprocessError) as exc:
         print(f"agent-reach doctor failed: {exc}", file=sys.stderr)
         return 1
     if completed.returncode != 0:
@@ -2059,10 +2098,10 @@ def agent_reach_route_plan(
     browser_host: str = "",
 ) -> int:
     platform = detect_platform(input_value)
-    command = ["agent-reach", "doctor", "--json"]
     try:
+        command = standalone_agent_reach_command("doctor", "--json")
         completed = run_capture(command, timeout=90)
-    except (OSError, subprocess.SubprocessError) as exc:
+    except (AgentReachAdapterError, OSError, subprocess.SubprocessError) as exc:
         print(f"agent-reach doctor failed: {exc}", file=sys.stderr)
         return 1
     if completed.returncode != 0:

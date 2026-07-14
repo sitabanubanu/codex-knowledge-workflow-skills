@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -25,13 +26,18 @@ def completed(cmd: list[str], code: int = 0, stdout: str = "", stderr: str = "")
     return subprocess.CompletedProcess(cmd, code, stdout, stderr)
 
 
+def is_agent_reach_doctor(command: list[str]) -> bool:
+    return len(command) >= 3 and Path(command[0]).stem.lower() == "agent-reach" and command[1:3] == ["doctor", "--json"]
+
+
 def test_agent_reach_missing_failed_bundle(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="kw-ar-missing-") as tmp:
-        with patch("kw_cli.agent_reach_adapter.shutil.which", return_value=None):
-            manifest_path = agent_reach_adapter.acquire_with_agent_reach(
-                input_value="https://www.youtube.com/watch?v=abc",
-                project_root=Path(tmp) / "project",
-            )
+        with patch.dict(os.environ, {"KW_GITHUB_TOOLS_ROOT": str(Path(tmp) / "isolated")}, clear=False):
+            with patch("kw_cli.agent_reach_adapter.shutil.which", return_value=None):
+                manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+                    input_value="https://www.youtube.com/watch?v=abc",
+                    project_root=Path(tmp) / "project",
+                )
         manifest = load_manifest(manifest_path)
         assert_true("agent-reach missing -> failed bundle", manifest.get("status") == "failed", failures)
 
@@ -41,7 +47,7 @@ def test_youtube_subtitle_material_acquired(failures: list[str]) -> None:
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"youtube": {"status": "ok", "active_backend": "yt-dlp"}}))
             if "--dump-single-json" in command:
                 return completed(command, stdout=json.dumps({"title": "Video"}))
@@ -72,7 +78,7 @@ def test_bilibili_metadata_only(failures: list[str]) -> None:
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"bilibili": {"status": "ok", "active_backend": "bili-cli"}}))
             if command[:2] == ["bili", "video"]:
                 return completed(command, stdout='{"title":"bili"}')
@@ -93,7 +99,7 @@ def test_web_page_markdown_artifact(failures: list[str]) -> None:
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"web": {"status": "ok", "active_backend": "Jina Reader"}}))
             if command and command[0] == "curl":
                 return completed(command, stdout="# Page\n\nBody")
@@ -116,7 +122,7 @@ def test_x_jina_block_keeps_platform(failures: list[str]) -> None:
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(
                     command,
                     stdout=json.dumps(
@@ -152,7 +158,7 @@ def test_xiaohongshu_fallback_keeps_platform(failures: list[str]) -> None:
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(
                     command,
                     stdout=json.dumps(
@@ -187,7 +193,7 @@ def test_x_twitter_cli_primary_artifact(failures: list[str]) -> None:
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"twitter": {"status": "ok", "active_backend": "twitter-cli"}}))
             if command[:2] == ["twitter", "tweet"]:
                 return completed(command, stdout="tweet: primary text from status\n")
@@ -217,7 +223,7 @@ def test_x_opencli_status_primary_artifact(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             executed.append(command)
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"twitter": {"status": "ok", "active_backend": "OpenCLI"}}))
             if command[:3] == ["opencli", "twitter", "article"]:
                 return completed(command, stdout=json.dumps({"author": "fixture", "content": "primary status text"}))
@@ -253,7 +259,7 @@ def test_xiaohongshu_opencli_primary_artifact(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             executed.append(command)
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"xiaohongshu": {"status": "ok", "active_backend": "OpenCLI"}}))
             if command[:3] == ["opencli", "xiaohongshu", "note"]:
                 return completed(
@@ -317,7 +323,7 @@ def test_xiaohongshu_opencli_warn_blocks_until_ready(failures: list[str]) -> Non
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(
                     command,
                     stdout=json.dumps(
@@ -355,7 +361,7 @@ def test_opencli_requires_declared_browser_host(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             executed.append(command)
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"xiaohongshu": {"status": "ok", "active_backend": "OpenCLI"}}))
             return completed(command, code=1, stderr="OpenCLI must not execute without a declared host")
 
@@ -378,7 +384,7 @@ def test_github_readme_from_clone(failures: list[str]) -> None:
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"github": {"status": "ok", "active_backend": "gh CLI"}}))
             if command[:4] == ["gh", "repo", "view", "cli/cli"]:
                 assert "--json" in command
@@ -411,7 +417,7 @@ def test_query_search_secondary_bundle(failures: list[str]) -> None:
         project = Path(tmp) / "project"
 
         def fake_run(command: list[str], **_kwargs):
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"exa_search": {"status": "ok", "active_backend": "Exa via mcporter"}}))
             if command[:2] == ["mcporter", "call"]:
                 return completed(command, stdout="- Search result one\n- Search result two\n")
@@ -440,7 +446,7 @@ def test_bilibili_search_backend_cannot_claim_transcript(failures: list[str]) ->
 
         def fake_run(command: list[str], **_kwargs):
             executed.append(command)
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(
                     command,
                     stdout=json.dumps(
@@ -482,7 +488,7 @@ def test_youtube_options_are_applied_and_redacted(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             executed.append(command)
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"youtube": {"status": "ok", "active_backend": "yt-dlp"}}))
             if "--dump-single-json" in command:
                 return completed(command, stdout=json.dumps({"id": "abc", "title": "Video"}))
@@ -549,7 +555,7 @@ def test_youtube_opencli_transcript_is_primary(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             executed.append(command)
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"youtube": {"status": "ok", "active_backend": "yt-dlp"}}))
             if command[:3] == ["opencli", "youtube", "transcript"]:
                 return completed(command, stdout=json.dumps([{"timestamp": "0:00", "text": "primary transcript"}, {"timestamp": "0:05", "text": "second segment"}]))
@@ -595,7 +601,7 @@ def test_youtube_edge_browser_is_explicit(failures: list[str]) -> None:
 
         def fake_run(command: list[str], **_kwargs):
             executed.append(command)
-            if command[:3] == ["agent-reach", "doctor", "--json"]:
+            if is_agent_reach_doctor(command):
                 return completed(command, stdout=json.dumps({"youtube": {"status": "ok", "active_backend": "yt-dlp"}}))
             if "--dump-single-json" in command:
                 return completed(command, stdout=json.dumps({"id": "edge", "title": "Video"}))

@@ -5,11 +5,24 @@ into this repository as formal project code.
 
 ## Install
 
+Use the Knowledge Workflow wrapper. It creates the shared runtime under
+`C:\Users\Socrates\github-tools` and never installs into the current Python or
+Hermes:
+
 ```powershell
-python -m pip install --upgrade "git+https://github.com/Panniantong/Agent-Reach.git@v1.5.0"
-agent-reach install --env=auto --safe
-agent-reach doctor --json
-agent-reach check-update
+python .\kw.py agent-reach install --safe
+agent-reach --version
+python .\kw.py agent-reach doctor
+```
+
+Managed layout:
+
+```text
+C:\Users\Socrates\github-tools\
+  sources\Agent-Reach
+  runtimes\agent-reach\venv
+  bin\agent-reach.cmd
+  manifests\agent-reach.json
 ```
 
 ## Safe Mode
@@ -17,8 +30,8 @@ agent-reach check-update
 Use safe mode when system-level changes should be reviewed first:
 
 ```powershell
-agent-reach install --env=auto --safe
-agent-reach install --env=auto --dry-run
+python .\kw.py agent-reach install --safe
+python .\kw.py agent-reach install --safe --dry-run
 ```
 
 Safe mode should report missing requirements without automatically changing the
@@ -27,10 +40,9 @@ system.
 ## Update
 
 ```powershell
-python -m pip install --upgrade "git+https://github.com/Panniantong/Agent-Reach.git@v1.5.0"
-agent-reach install --env=auto
-agent-reach doctor --json
+python .\kw.py agent-reach install --safe
 agent-reach check-update
+python .\kw.py agent-reach doctor
 ```
 
 ## Version And Doctor
@@ -43,6 +55,9 @@ agent-reach doctor --json
 `agent-reach doctor --json` is the health-check entrypoint for this project. It
 reports channel `status`, `name`, `message`, `tier`, `backends`, and
 `active_backend`.
+
+Knowledge Workflow also records the resolved executable and runtime under
+`00_acquisition/logs/agent_reach_runtime.json` for each acquisition.
 
 ## Windows Notes
 

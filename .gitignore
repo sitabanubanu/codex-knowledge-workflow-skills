@@ -8,6 +8,7 @@ tmp/
 temp/
 _tmp/
 dist/
+*.egg-info/
 build/
 .cache/
 test_outputs/

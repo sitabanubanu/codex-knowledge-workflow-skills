@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v0.6.0
 
 ### Added
 
@@ -16,6 +16,8 @@
 - Canonical JSON adapters for Xiaohongshu note text and Bilibili subtitles.
 - YouTube subtitle plus Agent-Reach transcription fallback with all existing
   CLI options wired into the new path.
+- Shared Agent-Reach runtime isolation under `github-tools`, with explicit
+  executable resolution and rejection of Hermes-private paths.
 - Regression tests for operation mismatch, target/scope mismatch, path
   traversal, hash tampering, secret persistence, run reuse, stale reports, and
   full provenance.
@@ -33,6 +35,8 @@
 - `knowledge-video-decomposer` is now an internal compatibility library; four
   skills remain user-facing and synced.
 - Package version is `0.6.0`.
+- The default repository README is now Chinese and explains the boundary and
+  value difference between Agent-Reach and Knowledge Workflow Skills.
 
 ### Validation
 

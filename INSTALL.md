@@ -20,11 +20,23 @@ Agent-Reach is the acquisition layer. Install it separately; do not commit
 `work/agent-reach` as a project dependency.
 
 ```powershell
-python -m pip install --upgrade "git+https://github.com/Panniantong/Agent-Reach.git@v1.5.0"
-agent-reach install --env=auto --safe
-agent-reach doctor --json
-agent-reach check-update
+python .\kw.py agent-reach install --safe
+agent-reach --version
+python .\kw.py agent-reach doctor
 ```
+
+The wrapper manages the standalone Agent-Reach runtime under
+`C:\Users\Socrates\github-tools`:
+
+```text
+sources\Agent-Reach
+runtimes\agent-reach\venv
+bin\agent-reach.cmd
+manifests\agent-reach.json
+```
+
+It never installs Agent-Reach into the current `sys.executable`, Hermes, or the
+Knowledge Workflow source tree. The upstream baseline is pinned to `v1.5.0`.
 
 Through this CLI:
 
@@ -60,18 +72,16 @@ agent-reach configure --from-browser edge
 Use safe mode when you want to review system changes first:
 
 ```powershell
-agent-reach install --env=auto --safe
-agent-reach install --env=auto --dry-run
 python .\kw.py agent-reach install --safe
+python .\kw.py agent-reach install --safe --dry-run
 ```
 
 ## Update Agent-Reach
 
 ```powershell
-python -m pip install --upgrade "git+https://github.com/Panniantong/Agent-Reach.git@v1.5.0"
-agent-reach install --env=auto
-agent-reach doctor --json
+python .\kw.py agent-reach install --safe
 agent-reach check-update
+python .\kw.py agent-reach doctor
 ```
 
 ## Verify Bundle Output
