@@ -1,40 +1,111 @@
 # Installation
 
-This project has three setup levels. Start with Level 1 unless you already know
-you need local media transcription or platform URL acquisition.
-
-## Level 1: Minimal Local Transcript Demo
-
-Use this level to prove the core workflow. It does not require platform URLs,
-cookies, browser state, ffmpeg, or ASR.
-
-Requirements:
-
-- Python 3.10 or newer.
-- Git.
-- Codex installed on the machine where you want to use the skills.
-
-Create and activate a virtual environment if desired:
+## Repository
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+git clone https://github.com/sitabanubanu/codex-knowledge-workflow-skills.git
+cd codex-knowledge-workflow-skills
+python -m pip install -e .
 ```
 
-macOS / Linux:
+You can also run through the wrapper without installing:
 
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+```powershell
+python .\kw.py demo
 ```
 
-Install the Codex skills.
+## Agent-Reach
 
-Windows:
+Agent-Reach is the acquisition layer. Install it separately; do not commit
+`work/agent-reach` as a project dependency.
+
+```powershell
+python .\kw.py agent-reach install --safe
+agent-reach --version
+python .\kw.py agent-reach doctor
+```
+
+The wrapper manages the standalone Agent-Reach runtime under
+`C:\Users\Socrates\github-tools`:
+
+```text
+sources\Agent-Reach
+runtimes\agent-reach\venv
+bin\agent-reach.cmd
+manifests\agent-reach.json
+```
+
+It never installs Agent-Reach into the current `sys.executable`, Hermes, or the
+Knowledge Workflow source tree. The upstream baseline is pinned to `v1.5.0`.
+
+Through this CLI:
+
+```powershell
+python .\kw.py agent-reach install
+python .\kw.py agent-reach doctor
+python .\kw.py agent-reach matrix
+```
+
+Doctor must report `status: ok` for the backend used by the requested
+operation. An installed backend in `warn` state is not considered ready.
+
+For OpenCLI routes, install its extension in the actual host browser, keep that
+exact Edge or Chrome host open, sign in through your own authorized account,
+and verify with:
+
+```powershell
+opencli doctor
+agent-reach doctor --json
+```
+
+The upstream `v1.5.0` installer can attempt automatic Chrome/Firefox cookie
+discovery for `twitter`, `bilibili`, `xueqiu`, or `all`. The `kw` wrapper
+requires `--allow-upstream-cookie-import` before that route. For Edge, use an
+explicit user-authorized upstream command instead:
+
+```powershell
+agent-reach configure --from-browser edge
+```
+
+## Safe Mode
+
+Use safe mode when you want to review system changes first:
+
+```powershell
+python .\kw.py agent-reach install --safe
+python .\kw.py agent-reach install --safe --dry-run
+```
+
+## Update Agent-Reach
+
+```powershell
+python .\kw.py agent-reach install --safe
+agent-reach check-update
+python .\kw.py agent-reach doctor
+```
+
+## Verify Bundle Output
+
+Run an acquisition:
+
+```powershell
+python .\kw.py acquire --input https://example.com --target web_article --operation read --project-root .\outputs\knowledge-workflow\example
+python .\kw.py validate-bundle --bundle .\outputs\knowledge-workflow\example\00_acquisition\manifest.json
+```
+
+Expected stable output:
+
+```text
+00_acquisition/manifest.json
+```
+
+Then ingest:
+
+```powershell
+python .\kw.py ingest --bundle .\outputs\knowledge-workflow\example\00_acquisition\manifest.json --project-root .\outputs\knowledge-workflow\example
+```
+
+## Install Workflow Skills
 
 ```powershell
 .\sync_to_codex_skills.ps1 -DryRun
@@ -42,189 +113,37 @@ Windows:
 .\sync_to_codex_skills.ps1 -VerifyOnly
 ```
 
-macOS / Linux:
+The managed skills are `knowledge-workflow-console`, `agent-reach-console`,
+`browser-host-identity`, `source-gated-evidence-layer`, and
+`knowledge-document-composer`.
+`knowledge-video-decomposer` remains a repository-internal compatibility
+library and is not synced as a user-facing skill.
 
-```bash
-./sync_to_codex_skills.sh --dry-run
-./sync_to_codex_skills.sh
-./sync_to_codex_skills.sh --verify-only
-```
+## Full Agent-Reach Coverage
 
-Run the demo:
-
-```powershell
-python .\kw.py demo
-```
-
-macOS / Linux:
-
-```bash
-python kw.py demo
-```
-
-Optional editable CLI command:
+Agent-Reach owns all 15 native channels. This project has direct structured
+adapters for the high-frequency routes and an auditable native handoff for the
+rest:
 
 ```powershell
-python -m pip install -e .
-kw demo
+python .\kw.py agent-reach matrix
+python .\kw.py agent-reach import --input-file .\exports\primary.txt --source-url <original-url> --platform reddit --target social_post --operation read --browser-host edge --credentialed-session --project-root .\outputs\knowledge-workflow\reddit
 ```
 
-The repository entry point remains supported:
+Read [Agent-Reach integration guide](docs/agent-reach-integration-guide.md)
+for the full channel map, current version policy, and import boundary.
 
-```powershell
-python .\kw.py demo
-```
+## Cookie And Token Safety
 
-Open:
+- Do not commit cookies, tokens, Authorization headers, or private logs.
+- Do not paste cookie values into issues, reports, manifests, or command logs.
+- `commands.jsonl` must record only redacted command summaries and exit codes.
+- `manifest.json` may record `cookies_used=true`, never cookie contents.
 
-```text
-outputs/knowledge-workflow/demo-transcript/result_index.md
-```
+## Windows Notes
 
-## Level 2: Local Audio / Video And ASR
-
-Use this level when you have a local audio or video file but no transcript or
-subtitle file.
-
-Additional requirements:
-
-- `ffmpeg`
-- `ffprobe`
-- `faster-whisper` in the selected ASR Python environment
-- enough local disk and compute for the chosen ASR model
-
-Example dependency installs:
-
-```powershell
-python -m pip install faster-whisper
-```
-
-macOS with Homebrew:
-
-```bash
-brew install ffmpeg
-python -m pip install faster-whisper
-```
-
-Ubuntu / Debian:
-
-```bash
-sudo apt-get update
-sudo apt-get install ffmpeg
-python -m pip install faster-whisper
-```
-
-Check the environment:
-
-```powershell
-python .\kw.py doctor
-```
-
-The default doctor output is a short route-readiness summary for humans. Use
-`--pretty` or `--json` when you need the full machine-readable diagnostic data,
-or `--output-md doctor.md` when you want a Markdown report to keep with a run.
-
-Run with a local media file:
-
-```powershell
-python .\kw.py run `
-  --input C:\path\to\video.mp4 `
-  --mode audit `
-  --language en `
-  --final-language en
-```
-
-ASR transcripts are not guaranteed verbatim. The workflow records timestamp
-coverage, missing word timestamps, speaker-label limits, and other evidence
-limits before allowing downstream reports.
-
-## Level 3: Platform URLs / YouTube
-
-Use this level only after the local transcript demo works.
-
-Platform URL support is best effort. It can fail because of missing subtitles,
-HTTP 429, bot checks, login state, cookies, player changes, region rules, or
-network conditions. Failure should produce blocked or degraded diagnostics, not
-a fake complete report.
-
-Additional tools may be useful:
-
-- `yt-dlp`
-- Node.js
-- `yt-dlp-ejs`
-- `curl_cffi`
-- user-exported Netscape `cookies.txt`, when authorized
-- Codex Chrome plugin, when Chrome page observation is needed
-
-Example installs for the Python runtime used by `yt-dlp`:
-
-```powershell
-python -m pip install yt-dlp yt-dlp-ejs curl_cffi
-```
-
-Important: install `yt-dlp-ejs` and `curl_cffi` in the same Python environment
-that actually runs `yt-dlp`. The active repository virtual environment may not
-be the same runtime if `yt-dlp` is found on PATH or from a bundled Codex tool.
-Use `python .\kw.py doctor --youtube-cookies auto --pretty` to see which
-runtime is being checked.
-
-Check the route:
-
-```powershell
-python .\kw.py doctor --youtube-cookies auto --pretty
-python .\kw.py preflight --input "https://www.youtube.com/watch?v=..." --mode audit
-```
-
-Run a platform URL:
-
-```powershell
-python .\kw.py run `
-  --input "https://www.youtube.com/watch?v=..." `
-  --mode audit `
-  --platform-mode auto `
-  --youtube-cookies auto `
-  --use-js-runtime `
-  --use-remote-components
-```
-
-`--youtube-cookies auto` only means this fixed ignored local path:
-
-```text
-work/youtube-cookies/youtube.cookies.txt
-```
-
-It does not scan Downloads, browser profiles, or the full disk. Do not paste
-cookie values into chat, issues, logs, Markdown reports, or commit history.
-
-## Boundaries
-
-This project does not attempt to bypass:
-
-- CAPTCHA
-- paywalls
-- private videos
-- region restrictions
-- account permission barriers
-- access-control systems
-- platform anti-abuse controls
-
-When primary material cannot be acquired safely, provide a transcript, subtitle
-file, local audio/video file, or authorized cookies file. Otherwise the workflow
-should stop at blocked or degraded status.
-
-## Validation
-
-Default offline checks:
-
-```powershell
-python .\kw.py demo
-python .\tests\knowledge_workflow_regression.py
-python .\tests\real_workflow_acceptance.py
-.\sync_to_codex_skills.ps1 -VerifyOnly
-```
-
-macOS / Linux sync verification:
-
-```bash
-./sync_to_codex_skills.sh --verify-only
-```
+- Use PowerShell examples from this repository.
+- Keep generated Chinese and Markdown files UTF-8 encoded.
+- Do not use `work/` as formal project code.
+- `outputs/` and `test_outputs/` are generated directories and should stay out
+  of commits.

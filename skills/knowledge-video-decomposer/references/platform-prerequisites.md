@@ -199,9 +199,11 @@ Use this order for YouTube:
 
 1. Try public metadata/subtitle discovery with yt-dlp bare.
 2. If yt-dlp bare returns `Sign in to confirm`, bot check, HTTP 429, login
-   required, or RequestBlocked, try `yt-dlp --cookies-from-browser chrome`.
-3. If `--cookies-from-browser chrome` fails with DPAPI/App-Bound decryption
-   errors, do not loop over the same Chrome profile. Switch to a user-exported
+   required, or RequestBlocked, identify the real host browser and use
+   `yt-dlp --cookies-from-browser edge` or `chrome` accordingly.
+3. If the selected profile is locked or fails DPAPI/App-Bound decryption, do
+   not loop over profiles or guess another browser from the plugin name. Ask
+   before closing the actual browser, or switch to a user-exported
    `cookies.txt` handoff.
 4. If a user-exported `cookies.txt` is available, retry yt-dlp with
    `--cookies <cookies.txt>`.
@@ -264,13 +266,14 @@ Meaning: bare yt-dlp is blocked by YouTube.
 
 Next route:
 
-1. Try `--cookies-from-browser chrome`.
+1. Try `--cookies-from-browser edge` or `chrome`, matching the actual browser.
 2. If that fails with DPAPI/App-Bound, request user-exported `cookies.txt`.
 
 ### `Failed to decrypt with DPAPI`
 
-Meaning: yt-dlp could not decrypt Chromium cookies from the local profile. On
-newer Windows Chrome versions this often indicates App-Bound cookie encryption.
+Meaning: yt-dlp could not decrypt Chromium cookies from the selected local
+Edge or Chrome profile. On newer Windows Chromium browsers this may indicate
+App-Bound cookie encryption.
 
 Next route:
 
@@ -280,8 +283,10 @@ Next route:
 
 ### `Could not copy Chrome cookie database`
 
-Meaning: the browser cookie database may be locked by a running browser process
-or unavailable to the current runtime.
+Meaning: yt-dlp uses this generic Chromium error wording for Edge as well as
+Chrome. The selected browser database may be locked by its running process or
+unavailable to the current runtime; the message does not prove Chrome is the
+host browser.
 
 Next route:
 

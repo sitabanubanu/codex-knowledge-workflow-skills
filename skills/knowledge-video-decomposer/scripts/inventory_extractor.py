@@ -210,7 +210,9 @@ def has_any(text: str, tokens: list[str]) -> bool:
     return False
 
 
-def claim_type_for(role: str, text: str) -> str:
+def claim_type_for(role: str, text: str, *, analysis_target: str = "video_content") -> str:
+    if analysis_target in {"social_post", "web_article", "repository"}:
+        return "source_claim"
     if role in {"claim", "conclusion"} or has_any(text, CLAIM_TOKENS):
         return "source_claim"
     if role in {"opening", "transition", "definition"}:
@@ -218,7 +220,12 @@ def claim_type_for(role: str, text: str) -> str:
     return "uncertain_claim"
 
 
-def extract_claims(argument_segments: list[dict[str, Any]], transcript: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def extract_claims(
+    argument_segments: list[dict[str, Any]],
+    transcript: dict[str, dict[str, Any]],
+    *,
+    analysis_target: str = "video_content",
+) -> list[dict[str, Any]]:
     claims: list[dict[str, Any]] = []
     for segment in argument_segments:
         role = str(segment.get("role") or "")
@@ -232,7 +239,7 @@ def extract_claims(argument_segments: list[dict[str, Any]], transcript: dict[str
             {
                 "id": claim_id,
                 "text": compact_quote(text, limit=240),
-                "claim_type": claim_type_for(role, text),
+                "claim_type": claim_type_for(role, text, analysis_target=analysis_target),
                 "evidence_spans": evidence_for(segment, text),
                 "confidence": "medium" if role in {"claim", "conclusion"} else "low",
                 "linked_example_ids": [],
@@ -392,7 +399,8 @@ def run_inventory(args: argparse.Namespace) -> dict[str, Any]:
     status = load_source_status(source_status_path)
     transcript = load_transcript(transcript_path)
     argument_segments = load_argument_segments(argument_segments_path)
-    claims = extract_claims(argument_segments, transcript)
+    analysis_target = str(status.get("analysis_target") or "video_content")
+    claims = extract_claims(argument_segments, transcript, analysis_target=analysis_target)
     examples = extract_examples(argument_segments, transcript, claims)
     analogies = extract_analogies(argument_segments, transcript)
     concepts = extract_concepts(argument_segments, transcript)

@@ -1,256 +1,206 @@
 # Knowledge Workflow Skills 中文说明
 
-Knowledge Workflow Skills 是一个面向 Codex / 本地 Agent 用户的本地知识工作流。
+Agent-Reach 负责拿材料。
 
-它把长视频、课程、访谈、播客、演讲、字幕、音视频和文字稿，转换成有来源、有边界、
-可审计、可复用的知识资产。
+Knowledge Workflow 负责判断材料是否属于本次任务、证据是否可靠、报告是否可以交付。
 
-它不是普通“视频总结器”，也不是平台爬虫。它最重要的规则是：
-
-**先确认一手材料，再生成完整报告。**
-
-如果只有标题、简介、截图、网页摘要、搜索片段或第三方总结，它可以写降级说明，
-但不能伪装成完整视频分析。
-
-## 这是什么
-
-这是三个 Codex skill 和一个本地 CLI 入口组成的工作流：
-
-- `knowledge-workflow-console`：识别输入、做 preflight、调度完整流程。
-- `knowledge-video-decomposer`：获取和整理一手材料，生成结构化分析包。
-- `knowledge-document-composer`：在 source gate 允许后生成最终报告。
-
-当前入口是：
-
-```powershell
-python .\kw.py demo
-python .\kw.py run --input <file-or-url> --mode audit
-```
-
-最终输出通常从这里开始看：
+没有符合任务目标的一手材料，就不生成假装完整的报告。
 
 ```text
-outputs/knowledge-workflow/<project>/result_index.md
+Agent-Reach acquisition
+  -> Acquisition Bundle v2
+  -> target/scope source gate
+  -> evidence audit
+  -> provenance-checked report
 ```
 
-## 适合谁
+## 当前定位
 
-适合这些用户：
+这是 Agent-Reach 后面的可信知识生产层，不是另一个万能爬虫。
 
-- AI 学习者
-- 研究型创作者
-- 需要拆长视频、课程、访谈、播客的知识工作者
-- 需要 Source / Inference / Extension 分层报告的人
-- 想把视频内容沉淀成笔记、研究简报、脚本、prompt 或行动计划的人
-- 使用 Codex 或本地 Agent 作为研究助手的人
+现在对用户暴露四个 skill：
 
-## 不适合谁
+1. `knowledge-workflow-console`：总控台，负责路由、preflight、阶段执行、状态和结果索引。
+2. `agent-reach-console`：只负责 doctor、能力规划、获取材料和写 acquisition bundle。
+3. `source-gated-evidence-layer`：只负责 bundle 校验、source gate、claim、证据审计和降级输出。
+4. `knowledge-document-composer`：只从通过 gate 的材料生成 claim map、quality gate 和 Source / Inference / Extension 分层报告。
 
-不适合这些场景：
+另有横切的 `browser-host-identity` 守卫：所有涉及 Edge、Chrome、OpenCLI、
+cookies、扩展或浏览器导出时，都必须区分真实宿主浏览器。它不是第五个工作流阶段，
+不负责获取、证据审计或报告生成。
 
-- 万能视频爬虫
-- CAPTCHA / 付费墙 / 私密视频 / 区域限制 / 账号权限绕过
-- 只想随手总结短视频的轻量消费场景
-- 想只靠标题、简介、搜索结果就生成完整观点拆解的场景
-- 不能接受 blocked / degraded 状态的场景
+原来的 `knowledge-video-decomposer` 不再作为用户入口。它保留为内部兼容库，继续提供 transcript normalizer、ASR、segmenter、inventory、logic、evidence audit 和 pack builder。旧平台获取脚本仍在，但不再是主路线。
 
-## 和普通视频总结器有什么区别
+## v0.6 的根本变化
 
-普通视频总结器常见问题是：拿不到原文也会给你一篇看起来完整的总结。
+Acquisition Bundle v2 新增：
 
-这个项目的策略相反：
+- `run_id`、`attempt_id`、`bundle_id`；
+- `analysis_target` 和 `operation`；
+- artifact 的 `content_scope`、字节数和 SHA-256；
+- attempt staging，校验通过后才晋升为正式 bundle；
+- `--resume` 精确匹配和历史归档；
+- manifest、preflight、run state、命令日志和错误信息的统一脱敏；
+- gate、analysis、composer、final report 四级 provenance receipt。
 
-- 有 transcript、字幕、ASR 或浏览器可见 transcript，才允许完整分析。
-- 只有 metadata 或二手资料时，只允许降级说明。
-- 报告必须区分：
-  - Source：原材料明确说了什么。
-  - Inference：基于 Source 可以合理推断什么。
-  - Extension：面向用户目标可以延伸什么建议或产物。
-- 失败时必须说明失败在哪里，以及下一步该提供什么材料。
+因此，旧的 transcript、analysis pack、quality gate 或 final report 即使还在磁盘上，只要不属于当前 bundle，就不会被显示为成功，也不能 export 或继续加工。
 
-这让输出更慢一点，但更可审计，也更适合长期知识工作。
+## 快速开始
 
-## 三分钟跑通
-
-先跑本地 transcript demo，不要先测试平台 URL：
-
-Windows：
+先用本地 transcript 验证核心工作流：
 
 ```powershell
-.\sync_to_codex_skills.ps1 -DryRun
-.\sync_to_codex_skills.ps1
-.\sync_to_codex_skills.ps1 -VerifyOnly
-
 python .\kw.py demo
 ```
 
-macOS / Linux：
-
-```bash
-./sync_to_codex_skills.sh --dry-run
-./sync_to_codex_skills.sh
-./sync_to_codex_skills.sh --verify-only
-
-python kw.py demo
-```
-
-跑完后先看：
+结果入口：
 
 ```text
 outputs/knowledge-workflow/demo-transcript/result_index.md
 ```
 
-如果 `result_index.md` 显示 `success`，说明本地 transcript 工作流已经跑通。
-
-## 支持哪些输入
-
-最稳定：
-
-- 本地 transcript：`.txt`、`.md`、`.jsonl`、`.json`
-- 本地字幕：`.srt`、`.vtt`
-
-可用但需要额外依赖：
-
-- 本地音频 / 视频：`.mp3`、`.mp4`、`.m4a`、`.webm`、`.wav`、`.mov`、`.opus`
-- 需要 ffmpeg / ffprobe 和 ASR 环境。
-
-平台 URL：
-
-- YouTube 公公开视频：best effort。
-- X / 小红书 / 抖音等平台：经常 blocked 或 degraded。
-- 私密、付费墙、CAPTCHA、区域限制、账号权限页面：不是绕过目标。
-
-平台 URL 成功时可以继续；失败时应提供 transcript、字幕、本地音视频，或在授权前提下提供
-用户导出的 cookies 文件。
-
-## 失败时会发生什么
-
-失败不等于乱写报告。
-
-工作流会写出状态，例如：
-
-- `source_confirmed`：有一手材料，可以进入完整分析。
-- `source_partial`：有一手材料但范围不完整，只能写明确标注的部分分析。
-- `secondary_only`：只有二手材料，不能写完整视频分析。
-- `source_blocked`：平台或页面阻止了一手材料获取。
-- `source_failed`：工具链失败，例如下载、解析或 ASR 失败。
-- `degraded_report_only`：只允许降级说明。
-
-用户应先看：
-
-```text
-result_index.md
-10_video/00_source/source_status.json
-```
-
-## 示例输出
-
-成功运行后，典型目录是：
-
-```text
-outputs/knowledge-workflow/<project>/
-  result_index.md
-  10_video/
-    00_source/source_status.json
-    01_transcript/clean_transcript.jsonl
-    05_gap_check/evidence_audit.json
-    video_analysis_pack.md
-  20_document/
-    claim_map.json
-    quality_gate.json
-    final_report.md
-```
-
-建议阅读顺序：
-
-1. `result_index.md`
-2. `20_document/final_report.md`
-3. `10_video/video_analysis_pack.md`
-4. `20_document/quality_gate.json`
-
-## 核心原则
-
-完整分析必须有一手材料：
-
-- transcript
-- 字幕
-- 浏览器可见 transcript
-- 可转写的本地音视频
-
-标题、简介、截图、搜索片段、第三方摘要只能做背景，不能替代一手材料。
-
-## 隐私和安全边界
-
-这个项目优先保护本地材料和账号边界：
-
-- 不自动扫描 Downloads。
-- 不自动扫描浏览器目录。
-- 不全盘搜索 cookies。
-- 不读取、展示、复制或提交 cookie 值。
-- `--youtube-cookies auto` 只代表固定忽略路径：
-
-```text
-work/youtube-cookies/youtube.cookies.txt
-```
-
-它不是自动搜索模式。
-
-项目不会尝试绕过：
-
-- CAPTCHA
-- 付费墙
-- 私密视频
-- 区域限制
-- 账号权限障碍
-- 平台访问控制
-
-## 常见问题
-
-### 为什么建议先跑本地 demo？
-
-因为本地 transcript demo 不依赖平台、cookies、浏览器登录态或 ASR 环境。
-它可以先证明核心 workflow、source gate、final report 和 result index 都能工作。
-
-### 怎么判断当前环境能跑哪条路线？
-
-先运行：
+本地文件：
 
 ```powershell
-python .\kw.py doctor
+python .\kw.py run --input .\examples\demo_transcript\input.txt --mode audit --language en --final-language en
 ```
 
-默认输出会给出简短的路线可用性摘要。需要完整 JSON 时加 `--pretty`，需要留档的 Markdown
-诊断报告时加 `--output-md doctor.md`。
+普通网页：
 
-### YouTube URL 一定能成功吗？
+```powershell
+python .\kw.py agent-reach doctor
+python .\kw.py agent-reach matrix
+python .\kw.py run --input https://example.com/page --target web_article --operation read --mode audit
+```
 
-不能。
+视频内容：
 
-YouTube 和其他平台可能因为 bot check、HTTP 429、登录态、字幕不可用、播放器变化、
-地区或账号权限而失败。这个项目只能 best effort 获取一手材料，并在失败时给出诊断。
+```powershell
+python .\kw.py agent-reach plan --input <视频URL> --target video_content --operation extract_transcript
+python .\kw.py run --input <视频URL> --target video_content --operation extract_transcript --mode audit
+```
 
-### 只有网页简介能不能写完整分析？
+社交帖子正文：
 
-不能。
+```powershell
+python .\kw.py run --input <帖子URL> --target social_post --operation read --mode audit
+```
 
-网页简介、标题、搜索片段、第三方总结只能作为背景，不能替代 transcript、字幕或 ASR。
+帖子正文与帖子里的视频是两个不同目标。`social_post_text` 可以通过 `social_post` gate，但绝不能代替 `video_transcript` 去通过 `video_content` gate。
 
-### cookies 怎么处理？
+## 完整 Agent-Reach 上游能力
 
-只有在你有权限访问同一页面时，才考虑使用用户导出的 Netscape `cookies.txt`。
-不要把 cookie 内容粘贴进聊天、issue、日志或提交历史。
+项目不复制 Agent-Reach 不断变化的 15 个平台命令，而是直接使用其完整上游能力。
+先运行动态矩阵确认当前可用后端；未被 `kw acquire` 结构化适配的 channel，先用
+Agent-Reach 原生命令取得一手文本、字幕或媒体，再通过正式导入入口进入 source gate：
 
-### 中文报告乱码怎么办？
+```powershell
+python .\kw.py agent-reach matrix
+python .\kw.py agent-reach import --input-file .\exports\primary.txt --source-url <原始URL> --platform reddit --target social_post --operation read --browser-host edge --credentialed-session --project-root <项目目录>
+```
 
-优先使用项目脚本和 UTF-8 写入路径。避免用 PowerShell 重定向或命令行字符串写入长中文文档。
-如果遇到乱码，先看 `TROUBLESHOOTING.md`。
+这条导入路径覆盖 Agent-Reach 的全部 channel，但不把搜索摘要、页面壳、截图或原始
+metadata 当成一手材料。完整的 channel、部署和交接说明见
+[Agent-Reach 集成指南](docs/agent-reach-integration-guide.md)。
 
-## 更多文档
+## 分阶段命令
 
-- [Quickstart](QUICKSTART.md)
-- [Installation](INSTALL.md)
-- [User Manual](USER_MANUAL.md)
-- [Supported Platforms](SUPPORTED_PLATFORMS.md)
-- [Troubleshooting](TROUBLESHOOTING.md)
-- [Security](SECURITY.md)
-- [Privacy](PRIVACY.md)
+```powershell
+python .\kw.py acquire --input <URL或查询> --target <目标> --operation <操作> --project-root <项目目录>
+python .\kw.py validate-bundle --bundle <项目目录>\00_acquisition\manifest.json
+python .\kw.py ingest --bundle <项目目录>\00_acquisition\manifest.json --project-root <项目目录>
+python .\kw.py audit --project-root <项目目录>
+python .\kw.py compose --project-root <项目目录>
+python .\kw.py status --project-root <项目目录>
+python .\kw.py result --project-root <项目目录>
+```
+
+## 外部工具统一目录
+
+Agent-Reach 不再安装到当前运行 CLI 的 Python 环境，也不属于 Hermes 的私有
+虚拟环境。项目统一使用：
+
+```text
+C:\Users\Socrates\github-tools\
+  sources\Agent-Reach
+  runtimes\agent-reach\venv
+  bin\agent-reach.cmd
+  manifests\agent-reach.json
+```
+
+安装或更新独立 runtime：
+
+```powershell
+python .\kw.py agent-reach install --safe
+agent-reach --version
+python .\kw.py agent-reach doctor
+```
+
+适配器会拒绝 Hermes 私有路径。Agent-Reach 的配置和授权浏览器连接仍然保留
+在独立的 `C:\Users\Socrates\.agent-reach`，不会把 cookies 或 token 复制到
+GitHub 工具目录。
+
+同一个项目目录不能被静默复用。只有来源、目标和操作完全一致时，才允许显式加 `--resume`。旧 acquisition 会进入 `acquisition_history/`，旧下游结果会进入 `run_history/`。
+
+## Source Gate
+
+可以进入正常或部分分析：
+
+- `source_confirmed`
+- `source_partial`
+
+不能生成正常最终报告：
+
+- `secondary_only`
+- `source_blocked`
+- `source_failed`
+- `degraded_report_only`
+- acquisition 的 `metadata_only`、`blocked`、`failed`、`unsupported`
+
+Agent-Reach doctor 中出现 active backend 还不够。只有该后端是 `status: ok`，并且确实支持本次 operation，命令才会执行。例如 B 站搜索 API 可以搜索，但不能抽取视频字幕。
+
+## 浏览器宿主和登录态
+
+Chrome、OpenCLI、cookies 或浏览器 session 只能作为用户已授权的上游获取路线：
+
+- OpenCLI 扩展没有连接时，系统应明确 blocked；
+- OpenCLI 使用时必须显式声明实际宿主为 `--browser-host edge` 或
+  `--browser-host chrome`；没有宿主身份时，即使 doctor 显示可用也必须 blocked；
+- 浏览器可见正文、字幕或媒体必须先导出成 bundle artifact；
+- 页面 metadata、截图、搜索 snippet 不能自动升级成 Source；
+- 不绕过 CAPTCHA、付费墙、私密内容、地区限制或账号权限。
+
+系统可以记录 `cookies_used: true`，但绝不读取、显示、复制或落盘 cookie 内容、token、Authorization header、visitor data、PO token 或代理密码。
+
+浏览器控制插件叫 Chrome，不代表实际登录态一定来自 Chrome。OpenCLI 的通用
+profile ID 也不能证明实际宿主。用户指定 Chrome 时只能使用 Chrome；指定 Edge
+时只能使用 Edge，二者不能在失败后互相回退。本机实际使用 Edge 时，YouTube
+路线必须显式传 `--youtube-browser edge`；只有实际使用 Chrome 时才传
+`--youtube-browser chrome`。两个参数同时出现时必须一致，不能根据插件名称猜浏览器。
+
+浏览器已拿到可引用的本地文件时，用正式的 Bundle v2 交接入口：
+
+```powershell
+python .\kw.py browser-import `
+  --input-file .\exports\visible-post.txt `
+  --source-url <原始URL> `
+  --platform x `
+  --target social_post `
+  --operation read `
+  --browser-host edge `
+  --project-root .\outputs\browser-post
+```
+
+也可以用 `kw run --browser-source-url <原始URL> --browser-platform
+<平台>` 直接跑完整流程。`chrome-probe` 仅保留为旧观察记录兼容命令；
+它不生成 Bundle v2，也不应作为新主路径。
+
+## 关键文档
+
+- [架构说明](docs/architecture.md)
+- [Acquisition Bundle v2 协议](docs/acquisition-bundle-protocol.md)
+- [ADR 0003](docs/adr/0003-acquisition-bundle-v2-run-provenance.md)
+- [Agent-Reach 集成指南](docs/agent-reach-integration-guide.md)
+- [用户手册](USER_MANUAL.md)
+- [平台支持矩阵](SUPPORTED_PLATFORMS.md)
+- [故障排查](TROUBLESHOOTING.md)

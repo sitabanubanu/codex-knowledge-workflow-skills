@@ -1,36 +1,54 @@
 ---
 name: knowledge-workflow-console
-description: Start here for video, audio, subtitle, transcript, or video URL knowledge workflows. Routes inputs through preflight, acquisition, decomposition, document planning, and status summaries. Use for end-to-end runs; do not use for direct report writing.
+description: Start here for end-to-end source-gated knowledge work from URLs, queries, transcripts, subtitles, media, web articles, social posts, and repositories. Select target and operation, route the four workflow skills, and report provenance-aware status; do not acquire or write claims directly.
 ---
 
 # Knowledge Workflow Console
 
-Use this skill as the high-level controller for the knowledge workflow.
+Use this skill as the product controller.
 
-Core workflow:
-1. Classify the user's entry type before doing task work.
-2. If subagent-supervisor is installed and the user explicitly requests delegated verification, use it as an optional review layer. Otherwise keep the workflow inside the three released skills.
-3. Choose quick, standard, or audit mode as defined in references/routing.md.
-4. Run scripts/workflow_preflight.py before long URL/media runs or when user expectations are unclear.
-5. Route the request by following references/routing.md.
-6. Create or reuse the project directory described in references/output-layout.md.
-7. Pass intermediate artifacts between stages by following references/stage-contracts.md.
-8. Use scripts/end_to_end_runner.py for the productized transcript-to-document workflow when the user provides an existing transcript/subtitle file, a local media file, or a platform URL and wants the gated workflow through `10_video` and `20_document` planning artifacts.
-9. Treat Chrome as a high-priority visual page reconnaissance tool for real webpage state, video pages, visible transcripts, login-state context, dynamic content, screenshots, and page context checks.
-10. Do not directly perform detailed video analysis or document writing inside this skill; delegate those details to knowledge-video-decomposer and knowledge-document-composer.
-11. When the user needs a report, run the video decomposition stage before the document composition stage unless a complete upstream analysis pack already exists.
-12. Finish by running scripts/workflow_status_summary.py and scripts/result_index_writer.py when a project directory exists, then report the user-facing status, key artifacts, and next step.
+1. Classify the input and state the intended `analysis_target` before work.
+2. Resolve the required acquisition `operation`.
+3. Run preflight for live URLs, media, or unclear expectations.
+4. Route URL/query acquisition to `agent-reach-console`; local files use the
+   same Bundle v2 contract through the local builder.
+5. When Agent-Reach has a ready native channel without a bespoke `kw acquire`
+   adapter, use its native command to obtain task-primary material, then route
+   the saved artifact through `kw agent-reach import`; never downgrade it to a
+   generic web fallback.
+6. Route the promoted manifest to `source-gated-evidence-layer`.
+7. Continue to `knowledge-document-composer` only when the current gate and
+   analysis receipts allow it.
+8. Treat `knowledge-video-decomposer` as an internal script library, never as
+   a competing user-facing route.
+9. Use a new project root by default. Reuse requires `--resume` and an exact
+   source, target, and operation match.
+10. Finish with provenance-aware status and result index. Report stale output
+   files separately from current deliverables.
 
-Runner guidance:
-- `scripts/workflow_preflight.py` produces a user-facing route estimate before acquisition. It does not fetch media or create analysis artifacts.
-- `scripts/end_to_end_runner.py` orchestrates the productized local transcript/subtitle route, local media ASR route, and platform URL route. URL mode calls `knowledge-video-decomposer/scripts/platform_media_runner.py` first, normalizes acquired subtitles, runs ASR on acquired audio when needed, or stops at a degraded acquisition report when no primary material exists.
-- Treat `end_to_end_runner.py` as an orchestrator, not an analyzer. It calls the stage scripts and records `logs/run_state.json`, `logs/end_to_end_steps.json`, and `logs/end_to_end_summary.json`; it does not inspect Chrome itself, reconstruct source logic itself, or draft `final_report.md`.
-- Use `end_to_end_runner.py --resume` to continue a previous transcript, media, or URL run. Resume skips stages only when the prior run state marks them complete/skipped and the expected output files still exist. In URL mode this prevents repeated platform media acquisition when `platform_media_result.json` already exists.
-- For YouTube bot/sign-in blocks, use the video decomposer safe cookies handoff: ask the user to export Netscape cookies into `work/youtube-cookies/youtube.cookies.txt`, run with `--youtube-cookies auto`, and never read, display, copy, or commit cookie values. `auto` only means that fixed ignored local path.
-- For Chrome deep-probe work, browser-visible transcript capture, or pageAssets inspection, route through the video decomposer Chrome gate before or around URL mode. The end-to-end runner consumes acquired files and source-status artifacts; it does not control Chrome.
-- `scripts/workflow_status_summary.py` condenses `run_state.json`, `source_status.json`, `quality_gate.json`, and output existence into a user-facing status object.
-- `scripts/result_index_writer.py` writes `result_index.md` and `logs/result_index.json` as the user-facing entry point for a run. It reads existing artifacts only and must not change source status, create analysis artifacts, or approve final reports.
+Browser state may supply authorized visible artifacts, but it does not bypass
+Bundle v2 or the source gate. Load `$browser-host-identity` whenever Chrome,
+Edge, OpenCLI, cookies, an extension, or a browser export is involved. Record
+the actual host, never infer it from a tool name, and never fall back from one
+browser to the other. Metadata, snippets, screenshots, comments, and captions
+must not be silently promoted to another content scope.
 
-Read references/routing.md before deciding which skill or tool should run.
-Read references/stage-contracts.md before passing artifacts between skills.
-Read references/output-layout.md before creating project directories or naming outputs.
+Primary command:
+
+```powershell
+python kw.py run --input <url-or-file> --target <target> --operation <operation> --mode audit
+```
+
+Use explicit stages when diagnosing:
+
+```powershell
+python kw.py acquire ...
+python kw.py ingest ...
+python kw.py audit ...
+python kw.py compose ...
+python kw.py status --project-root <project>
+python kw.py result --project-root <project>
+```
+
+Read `references/routing.md`, `references/stage-contracts.md`, and
+`references/output-layout.md` before changing routing or handoff behavior.

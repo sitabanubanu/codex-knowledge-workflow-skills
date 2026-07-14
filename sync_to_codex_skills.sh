@@ -9,7 +9,7 @@ usage() {
   cat <<'USAGE'
 Usage: ./sync_to_codex_skills.sh [--dry-run] [--verify-only] [--codex-skills-root PATH]
 
-Sync only the three Knowledge Workflow skills into the Codex skills directory.
+Sync the Knowledge Workflow skills into the Codex skills directory.
 
 Options:
   --dry-run                 Show what would change without writing files.
@@ -56,7 +56,7 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 REPO_ROOT=$SCRIPT_DIR
 SOURCE_ROOT=$REPO_ROOT/skills
-SKILLS="knowledge-workflow-console knowledge-video-decomposer knowledge-document-composer"
+SKILLS="knowledge-workflow-console agent-reach-console source-gated-evidence-layer knowledge-document-composer"
 
 if [ ! -d "$SOURCE_ROOT" ]; then
   echo "Missing source skills directory: $SOURCE_ROOT" >&2
@@ -210,5 +210,5 @@ fi
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "DRY RUN complete. No files were changed."
 else
-  echo "SYNC complete. Only the three knowledge workflow skills were updated."
+  echo "SYNC complete. Knowledge Workflow skills were updated."
 fi

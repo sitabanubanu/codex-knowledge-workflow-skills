@@ -9,10 +9,22 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 RUNNER_NAME = "knowledge-workflow-preflight"
+SENSITIVE_QUERY_MARKERS = ("cookie", "password", "secret", "session", "token", "visitor_data")
+
+
+def safe_input_record(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.query:
+        return value
+    pairs = [
+        (key, "[REDACTED]" if any(marker in key.lower() for marker in SENSITIVE_QUERY_MARKERS) else item)
+        for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+    ]
+    return urlunparse(parsed._replace(query=urlencode(pairs, doseq=True)))
 
 
 def detect_input_kind(value: str) -> str:
@@ -111,7 +123,7 @@ def build_preflight(args: argparse.Namespace) -> dict[str, Any]:
         user_actions = "Ensure ffmpeg/ffprobe and faster-whisper are installed, or provide an existing transcript."
         can_full = "yes, if ASR succeeds with usable transcript coverage"
     elif input_kind == "url":
-        route = "platform_acquisition_then_gate"
+        route = "agent_reach_acquisition_bundle_then_source_gate"
         estimate = support["success_estimate"]
         user_actions = support["user_actions"]
         can_full = support["full_report"]
@@ -129,7 +141,7 @@ def build_preflight(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "runner": RUNNER_NAME,
-        "input": args.input,
+        "input": safe_input_record(args.input),
         "input_kind": input_kind,
         "platform": platform,
         "requested_mode": mode,
@@ -146,7 +158,7 @@ def build_preflight(args: argparse.Namespace) -> dict[str, Any]:
 
 def next_step_for(input_kind: str, mode: str) -> str:
     if input_kind == "url":
-        return "Run doctor, then platform media acquisition; use Chrome route only when page state or platform blocks require it."
+        return "Run Agent-Reach doctor, create an acquisition bundle, then ingest through the source gate."
     if input_kind == "media":
         return "Run doctor, then local ASR; continue only if transcript artifacts are produced."
     if input_kind == "transcript_or_subtitle":

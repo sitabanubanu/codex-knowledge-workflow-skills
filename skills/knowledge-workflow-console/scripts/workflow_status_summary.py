@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from workflow_provenance import inspect_provenance
+
 
 RUNNER_NAME = "knowledge-workflow-status-summary"
 
@@ -32,16 +34,22 @@ def build_summary(project_root: Path) -> dict[str, Any]:
     video_root = project_root / "10_video"
     document_root = project_root / "20_document"
     logs_root = project_root / "logs"
+    acquisition_root = project_root / "00_acquisition"
 
     run_state = read_json(logs_root / "run_state.json") or {}
+    acquisition_manifest = read_json(acquisition_root / "manifest.json") or {}
     source_status = read_json(video_root / "00_source" / "source_status.json") or {}
     quality_gate = read_json(document_root / "quality_gate.json") or {}
     platform_result = read_json(video_root / "00_source" / "platform_media_result.json") or {}
+    provenance = inspect_provenance(project_root)
 
     source_state = source_status.get("source_status") or run_state.get("source_status") or "unknown"
-    final_report_exists = exists(document_root / "final_report.md")
-    pack_exists = exists(video_root / "video_analysis_pack.md")
-    transcript_exists = exists(video_root / "01_transcript" / "clean_transcript.jsonl")
+    stale_final_report_exists = exists(document_root / "final_report.md")
+    stale_pack_exists = exists(video_root / "video_analysis_pack.md") or exists(video_root / "source_analysis_pack.md")
+    stale_transcript_exists = exists(video_root / "01_transcript" / "clean_transcript.jsonl")
+    final_report_exists = bool(provenance["final_report_current"])
+    pack_exists = bool(provenance["analysis_current"])
+    transcript_exists = bool(provenance["gate_current"] and stale_transcript_exists)
 
     if final_report_exists:
         current_stage = "final_report_ready"
@@ -56,14 +64,16 @@ def build_summary(project_root: Path) -> dict[str, Any]:
     else:
         current_stage = run_state.get("current_stage") or "unknown"
 
-    full_allowed = bool(source_status.get("can_enter_full_decomposition")) and source_state == "source_confirmed"
-    approved = bool(quality_gate.get("approved_for_final_report"))
+    full_allowed = bool(provenance["gate_current"] and source_status.get("can_enter_full_decomposition")) and source_state in {"source_confirmed", "source_partial"}
+    approved = bool(final_report_exists and quality_gate.get("approved_for_final_report"))
     user_action = (
         run_state.get("user_action_required")
         or source_status.get("next_step")
         or platform_result.get("material_decision", {}).get("next_step")
         or ""
     )
+    if final_report_exists:
+        user_action = ""
 
     if final_report_exists:
         next_step = "Read 20_document/final_report.md or export it to the desired format."
@@ -80,16 +90,30 @@ def build_summary(project_root: Path) -> dict[str, Any]:
         "runner": RUNNER_NAME,
         "project_root": str(project_root),
         "current_stage": current_stage,
+        "acquisition_status": acquisition_manifest.get("status") or run_state.get("acquisition_status") or "unknown",
         "source_status": source_state,
         "primary_material_available": bool(source_status.get("primary_material_available")),
         "full_analysis_allowed": full_allowed,
         "video_analysis_pack_exists": pack_exists,
         "final_report_exists": final_report_exists,
         "quality_gate_approved": approved,
-        "failure_reason": run_state.get("failure_reason") or source_status.get("status_reason") or "",
+        "gate_provenance_current": bool(provenance["gate_current"]),
+        "analysis_provenance_current": bool(provenance["analysis_current"]),
+        "final_report_provenance_current": bool(provenance["final_report_current"]),
+        "stale_output_files_present": bool(
+            (stale_final_report_exists and not final_report_exists)
+            or (stale_pack_exists and not pack_exists)
+            or (stale_transcript_exists and not transcript_exists)
+        ),
+        "failure_reason": (
+            run_state.get("failure_reason")
+            or (source_status.get("status_reason") if source_state in {"source_blocked", "source_failed", "secondary_only", "degraded_report_only"} else "")
+            or ""
+        ),
         "user_action_required": user_action,
         "next_step": next_step,
         "key_outputs": {
+            "acquisition_manifest": str(acquisition_root / "manifest.json"),
             "source_status": str(video_root / "00_source" / "source_status.json"),
             "transcript": str(video_root / "01_transcript" / "clean_transcript.jsonl"),
             "video_analysis_pack": str(video_root / "video_analysis_pack.md"),
@@ -104,12 +128,17 @@ def emit_markdown(payload: dict[str, Any]) -> str:
         "# Workflow Status",
         "",
         f"- Current stage: `{payload['current_stage']}`",
+        f"- Acquisition status: `{payload['acquisition_status']}`",
         f"- Source status: `{payload['source_status']}`",
         f"- Primary material available: `{payload['primary_material_available']}`",
         f"- Full analysis allowed: `{payload['full_analysis_allowed']}`",
         f"- Video analysis pack exists: `{payload['video_analysis_pack_exists']}`",
         f"- Final report exists: `{payload['final_report_exists']}`",
         f"- Quality gate approved: `{payload['quality_gate_approved']}`",
+        f"- Gate provenance current: `{payload['gate_provenance_current']}`",
+        f"- Analysis provenance current: `{payload['analysis_provenance_current']}`",
+        f"- Final report provenance current: `{payload['final_report_provenance_current']}`",
+        f"- Stale output files present: `{payload['stale_output_files_present']}`",
         f"- User action required: {payload['user_action_required'] or 'None recorded'}",
         f"- Next step: {payload['next_step']}",
         "",

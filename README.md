@@ -2,278 +2,202 @@
 
 [![offline-validation][offline-validation-badge]][offline-validation]
 
-Auditable Codex workflow for turning videos, audio, subtitles, and transcripts
-into evidence-grounded knowledge reports.
+> 用 Agent-Reach 拿材料，用证据门控判断材料能不能分析，再生成可追溯、可审计的知识报告。
 
-给使用 Codex / 本地 Agent 的研究型用户，把长视频、音频、字幕和文字稿转成可审计知识资产。
+## 这是什么
 
-## What This Is
+Knowledge Workflow Skills 是一套接在 Agent-Reach 后面的可信知识生产工作流。它不是
+“输入一个 URL 就编一份报告”的爬虫，也不是把搜索摘要直接当成事实的写作模板。
 
-This project is not a universal video crawler and not a casual video
-summarizer. It is a Codex skill package and local workflow that:
+它把一次研究任务拆成四个可检查的阶段：
 
-- checks whether first-hand material exists before analysis,
-- turns transcripts, subtitles, or transcribable media into structured source artifacts,
-- separates Source / Inference / Extension in the final report,
-- writes degraded reports instead of pretending when primary material is unavailable.
+```text
+获取材料 Agent-Reach
+    -> Acquisition Bundle v2
+    -> 目标 / 范围 Source Gate
+    -> Claims 与 Evidence Audit
+    -> 带 provenance 的正式报告
+```
 
-## Who It Is For
+当前版本：`v0.6.0`。
 
-Use it if you:
+## 我们解决哪些问题
 
-- use Codex or a local coding agent as a research assistant,
-- analyze long videos, courses, interviews, podcasts, talks, or research material,
-- need evidence-linked notes, reports, scripts, or knowledge-base inputs,
-- care about knowing when a workflow is blocked or degraded.
+很多“网页总结”工具真正难的不是把文字写出来，而是判断这段文字是否有资格被写进报告。本项目专门解决这些问题：
 
-It is not for bypassing CAPTCHA, paywalls, private videos, region locks,
-account permission barriers, or platform access controls.
+1. **搜索摘要被误当成一手材料**：snippet、metadata、截图或页面外壳不能自动通过 Source Gate。
+2. **拿到的内容与分析目标不匹配**：帖子正文不能冒充帖子中的视频字幕；搜索结果不能冒充完整文章。
+3. **旧报告污染新任务**：每次运行都有 `run_id`、`attempt_id`、来源指纹和 provenance receipt，旧产物不能因为“文件还在”就被当成新结果。
+4. **材料不完整却生成完整结论**：来源被阻断、只有部分内容或只有二手材料时，系统会输出 `blocked` / `degraded` 状态和下一步，而不是伪造完整报告。
+5. **结论无法回溯**：系统保存 acquisition manifest、artifact 哈希、claims、logic graph、evidence audit、claim map 和 quality gate。
+6. **浏览器登录态混淆**：明确区分真实的 Edge 与 Chrome；浏览器宿主不明时，路线会阻断而不是猜测。
+7. **外部工具污染当前 Python 环境**：Agent-Reach 由项目管理在独立的 `github-tools` runtime 中，不安装到 Hermes 或任意启动本项目的私有环境。
+8. **事实、推断和补充混在一起**：正式写作强制区分 `Source`、`Inference`、`Extension`。
 
-## Three-Minute Start
+## 和 Agent-Reach 是什么关系
 
-First run the local transcript demo. Do not start with platform URLs.
+Agent-Reach 和本项目不是两个互相替代的爬虫。Agent-Reach 负责“尽可能拿到被授权访问的材料”，本项目负责“判断材料是否足够可信，并把它变成可交付的知识产品”。
 
-On Windows:
+| 维度 | Agent-Reach | Knowledge Workflow Skills |
+| --- | --- | --- |
+| 核心定位 | 多平台获取与路由工具 | 基于获取结果的证据门控知识工作流 |
+| 主要输出 | 原始文本、字幕、媒体、诊断结果 | Acquisition Bundle、source gate、claims、审计报告、最终报告 |
+| 可信判断 | 告诉你能否调用某个后端 | 判断拿到的内容是否覆盖本次目标、是否能支持结论 |
+| 追溯能力 | 记录获取过程 | 记录 run、attempt、哈希、证据链和各级 receipt |
+| 失败处理 | 返回获取失败或后端不可用 | 明确 blocked / degraded，并禁止伪造完整报告 |
+| 浏览器边界 | 提供浏览器相关获取路线 | 强制区分 Edge/Chrome，拒绝猜测登录宿主 |
+| 写作能力 | 不负责正式研究报告 | 生成 claim map、quality gate 和 Source/Inference/Extension 报告 |
+| 运行环境 | 上游工具本身 | 统一管理独立 runtime，避免污染当前 agent 环境 |
+
+### 为什么不直接使用原版 Agent-Reach
+
+如果你的需求只是“调用某个平台、拿到原始文本或字幕”，直接使用 Agent-Reach 更简单，也更合适。
+
+如果你的需求是“研究一个主题、判断材料是否足够、给出能被别人复核的报告”，选择本项目，因为它补上了 Agent-Reach 不负责的部分：
+
+- 不把“命令成功”当成“证据充分”；
+- 不把搜索摘要升级成一手来源；
+- 不让不匹配的目标和范围通过分析；
+- 不让旧文件、失败材料或局部内容伪装成完整结果；
+- 不把事实、推断和扩展混成没有边界的一段话。
+
+本项目仍然使用 Agent-Reach 的上游能力，不复制它不断变化的平台命令；你得到的是“Agent-Reach 的获取能力 + 本项目的证据与交付约束”。
+
+## 四个用户入口
+
+- `knowledge-workflow-console`：总控台，负责理解任务、选择目标/操作/模式、运行阶段并写结果索引。
+- `agent-reach-console`：负责 doctor、能力矩阵、路由、获取和 `00_acquisition`。
+- `source-gated-evidence-layer`：负责 Bundle 校验、source gate、分段、claims、logic graph、evidence audit 和降级结果。
+- `knowledge-document-composer`：只从通过审查的材料生成大纲、claim map、质量门和最终报告。
+
+`browser-host-identity` 是横切安全守卫，负责区分 Edge、Chrome、OpenCLI、cookies 和浏览器导出，不是第五个工作流阶段。
+
+原来的 `knowledge-video-decomposer` 保留为内部兼容库，不再作为新用户的主入口。
+
+## 三分钟开始
+
+### 安装本地包
 
 ```powershell
-git clone https://github.com/sitabanubanu/codex-knowledge-workflow-skills
-cd codex-knowledge-workflow-skills
+python -m pip install .
+kw --help
+```
 
-.\sync_to_codex_skills.ps1 -DryRun
-.\sync_to_codex_skills.ps1
-.\sync_to_codex_skills.ps1 -VerifyOnly
+### 先跑离线演示
 
+```powershell
 python .\kw.py demo
 ```
 
-Optional local CLI install:
-
-```powershell
-python -m pip install -e .
-kw demo
-```
-
-On macOS or Linux:
-
-```bash
-git clone https://github.com/sitabanubanu/codex-knowledge-workflow-skills
-cd codex-knowledge-workflow-skills
-
-./sync_to_codex_skills.sh --dry-run
-./sync_to_codex_skills.sh
-./sync_to_codex_skills.sh --verify-only
-
-python kw.py demo
-```
-
-After the demo finishes, open:
+打开：
 
 ```text
 outputs/knowledge-workflow/demo-transcript/result_index.md
 ```
 
-That file tells you the status, whether full analysis was allowed, where the
-final report is, and what to inspect next.
-
-For a slower but stricter acceptance check:
+### 分析本地 transcript
 
 ```powershell
-python .\tests\real_workflow_acceptance.py
+python .\kw.py run `
+  --input .\examples\demo_transcript\input.txt `
+  --target video_content `
+  --operation extract_transcript `
+  --mode audit `
+  --final-language zh-CN
 ```
 
-For v0.5.0-style realistic offline samples:
+### 分阶段诊断
 
 ```powershell
-python .\kw.py batch `
-  --input .\examples\real_world\batch_links.csv `
-  --output-root .\outputs\knowledge-workflow\real-world-batch
+python .\kw.py acquire --input <URL或查询> --target <目标> --operation <操作> --project-root <项目目录>
+python .\kw.py ingest --bundle <项目目录>\00_acquisition\manifest.json --project-root <项目目录>
+python .\kw.py audit --project-root <项目目录>
+python .\kw.py compose --project-root <项目目录>
+python .\kw.py status --project-root <项目目录> --pretty
+python .\kw.py result --project-root <项目目录> --pretty
 ```
 
-Track the result against `docs/real-world-validation-log.md` and
-`docs/output-quality-standard.md`.
+## Agent-Reach runtime 与授权边界
 
-## Why The Demo Comes First
-
-Platform URLs can fail because of missing subtitles, login state, bot checks,
-cookies, region rules, player changes, or network conditions. The demo uses a
-local transcript, so it proves the core workflow first:
+项目不会把 Agent-Reach 安装到当前运行 CLI 的 Python、Hermes 或项目源码目录，而是使用共享目录：
 
 ```text
-local transcript
-  -> source gate
-  -> transcript normalization
-  -> segmentation
-  -> inventory
-  -> source logic
-  -> evidence audit
-  -> video_analysis_pack.md
-  -> document planning
-  -> quality_gate.json
-  -> final_report.md
-  -> result_index.md
+C:\Users\Socrates\github-tools\
+  sources\Agent-Reach
+  runtimes\agent-reach\venv
+  bin\agent-reach.cmd
+  manifests\agent-reach.json
 ```
-
-## Product Modes
-
-| Mode | Use When | Primary Requirement | Allowed Output |
-| --- | --- | --- | --- |
-| `quick` | Low-cost first look. | Metadata or visible context. | Non-primary triage only. |
-| `standard` | Video decomposition. | Transcript, subtitles, or ASR media. | Pack when source gates allow. |
-| `audit` | Final report or asset. | Source gate + evidence audit. | Final report when approved. |
-
-## Unified CLI
-
-`kw.py` is a thin product wrapper around the existing scripts. It does not
-replace the three skills; it makes the first-run path easier.
 
 ```powershell
-python .\kw.py doctor
-python .\kw.py demo
-python .\kw.py preflight --input .\examples\demo_transcript\input.txt --mode audit
-python .\kw.py run --input .\examples\demo_transcript\input.txt --mode audit --language en --final-language en
-python .\kw.py status --project-root .\outputs\knowledge-workflow\demo-transcript
-python .\kw.py result --project-root .\outputs\knowledge-workflow\demo-transcript
-python .\kw.py export --project-root .\outputs\knowledge-workflow\demo-transcript --format md
-python .\kw.py quality --project-root .\outputs\knowledge-workflow\demo-transcript
-python .\kw.py template --project-root .\outputs\knowledge-workflow\demo-transcript --template research_brief
-python .\kw.py batch `
-  --input .\examples\batch_research\batch_links.csv `
-  --output-root .\outputs\knowledge-workflow\batch-demo
+python .\kw.py agent-reach install --safe
+agent-reach --version
+python .\kw.py agent-reach doctor
+python .\kw.py agent-reach matrix
 ```
 
-`doctor` prints a short route-readiness summary by default. Use `--pretty` for
-full JSON diagnostics or `--output-md doctor.md` for a Markdown report.
+配置和授权浏览器连接仍在 `C:\Users\Socrates\.agent-reach`。项目不会读取、显示、复制或提交 cookies、token、Authorization header、浏览器 profile 或私密登录状态。
 
-For Codex usage, you can still ask the agent directly:
+## Source Gate 的交付规则
+
+只有 `source_confirmed` 和 `source_partial` 可以进入正常或部分分析。以下状态会阻止正常最终报告：
 
 ```text
-Use knowledge-workflow-console for this input.
-Run preflight first.
-If first-hand material is available, create the video analysis pack and final report.
-If primary material is unavailable, do not write a complete analysis.
-Write the degraded status and tell me what material is needed next.
+secondary_only
+source_blocked
+source_failed
+degraded_report_only
+metadata_only / blocked / failed / unsupported bundle
 ```
 
-## Supported Inputs
+每次任务的统一入口是 `result_index.md`，它会告诉你：材料是否拿到、source gate 是否通过、分析是否完成、报告是否允许交付，以及关键产物在哪里。
 
-| Input | Stability | Notes |
-| --- | --- | --- |
-| Local transcript (`.txt`, `.md`, `.jsonl`, `.json`) | High | Best first-run path. |
-| Local subtitles (`.srt`, `.vtt`) | High | Preserves timestamped source spans when available. |
-| Local audio/video | Medium-high | Requires ASR dependencies for real transcription. |
-| YouTube public URL | Medium-high | Best effort when subtitles or audio are available. |
-| X / Xiaohongshu / Douyin URLs | Low to medium | Often blocked or degraded. |
-| Private or gated pages | Not a bypass target | Records blocked/degraded status only. |
-
-## What Success Produces
+典型项目目录：
 
 ```text
-outputs/knowledge-workflow/<project>/
-  result_index.md
-  logs/
-    preflight.json
-    run_state.json
-    status_summary.json
-    result_index.json
-  10_video/
-    00_source/source_status.json
-    01_transcript/clean_transcript.jsonl
-    05_gap_check/evidence_audit.json
-    video_analysis_pack.md
-  20_document/
-    claim_map.json
-    quality_gate.json
-    final_report.md
-  30_final/
+00_acquisition/manifest.json
+10_video/00_source/source_status.json
+10_video/00_source/gate_receipt.json
+10_video/source_analysis_pack.md
+20_document/claim_map.json
+20_document/quality_gate.json
+20_document/final_report.md
+result_index.md
 ```
 
-Start with `result_index.md`. It is the user-facing entry point for every run.
+## 我们明确不做什么
 
-## What Happens When It Fails
+本项目不会绕过 CAPTCHA、付费墙、地区限制、账号权限或私密内容；也不会承诺任何平台永远可获取。平台反自动化、登录态、区域和账号权限仍由 Agent-Reach 的实际后端决定。获取失败时，系统会保留失败证据并降级，不会编造内容。
 
-The workflow should not fake a complete report. If it cannot get first-hand
-material, it writes a degraded or blocked result that explains:
+## 发布包与验证
 
-- the source status,
-- whether full analysis is allowed,
-- which route failed,
-- what you can provide next: transcript, subtitles, local audio/video, or an authorized cookies file.
-
-## Skill Package
-
-The released package contains three skills:
-
-- `knowledge-workflow-console`: route selection, preflight, end-to-end runner, status summaries, result index.
-- `knowledge-video-decomposer`: source gates, acquisition checks,
-  transcript normalization, ASR, segmentation, inventory, source logic,
-  evidence audit, video analysis pack.
-- `knowledge-document-composer`: document planning, Source / Inference /
-  Extension separation, final report writer, quality gate.
-
-`subagent-supervisor` is not part of this release package. It may be used
-locally as an optional coordination layer only when explicitly requested.
-
-## Direct Script Entrypoints
-
-The CLI wraps these scripts, but advanced users can still call them directly:
+源码发布包不包含 `outputs/`、`test_outputs/`、cookies、浏览器数据、私密 transcript 或媒体。维护者可以用以下命令重新生成包：
 
 ```powershell
-python .\skills\knowledge-video-decomposer\scripts\doctor.py --self-test
-python .\skills\knowledge-workflow-console\scripts\workflow_preflight.py --self-test
-python .\skills\knowledge-workflow-console\scripts\end_to_end_runner.py --self-test
-python .\skills\knowledge-workflow-console\scripts\workflow_status_summary.py --self-test
-python .\skills\knowledge-workflow-console\scripts\result_index_writer.py --self-test
-python .\skills\knowledge-document-composer\scripts\final_report_writer.py --self-test
+python -m build
+git archive --format=zip --output=dist\codex-knowledge-workflow-skills-v0.6.0-source.zip HEAD
 ```
 
-## Tests
-
-Default tests are offline and fixture-based:
+离线验证：
 
 ```powershell
+python -m py_compile kw.py kw_cli/*.py
 python .\tests\knowledge_workflow_regression.py
-python .\tests\live_platform_smoke.py
-python .\tests\asr_integration.py
 python .\tests\real_workflow_acceptance.py
 ```
 
-Optional live platform and real ASR tests require explicit environment
-variables and user-provided samples:
+## 文档
 
-```powershell
-$env:KW_LIVE_PLATFORM_SMOKE='1'
-$env:KW_REAL_ASR_SMOKE='1'
-```
-
-## Current Status
-
-Beta. The local transcript/subtitle path is the strongest route. Local media
-ASR is usable when dependencies are installed. Platform URL handling is
-intentionally conservative and may stop at degraded status when first-hand
-material is unavailable.
-
-Current product entry work includes quickstart, examples, result indexing,
-unified CLI, security/privacy docs, batch research, output templates,
-Chrome probe normalization, validation matrices, real-world offline examples,
-failure-path checks, and output quality standards.
-
-## More Documentation
-
-- [Quickstart](QUICKSTART.md)
-- [中文说明](README.zh-CN.md)
-- [Installation](INSTALL.md)
-- [User manual](USER_MANUAL.md)
-- [Supported platforms](SUPPORTED_PLATFORMS.md)
-- [Troubleshooting](TROUBLESHOOTING.md)
-- [Security](SECURITY.md)
-- [Privacy](PRIVACY.md)
-- [Architecture](docs/architecture.md)
-- [Chrome probe integration](docs/chrome-probe-integration.md)
-- [Validation matrix](docs/validation.md)
-- [Real-world validation log](docs/real-world-validation-log.md)
-- [Output quality standard](docs/output-quality-standard.md)
-- [Release checklist](docs/release-checklist.md)
-- [Release notes](RELEASE_NOTES.md)
+- [中文用户手册](README.zh-CN.md)
+- [安装说明](INSTALL.md)
+- [用户手册](USER_MANUAL.md)
+- [架构说明](docs/architecture.md)
+- [Acquisition Bundle v2 协议](docs/acquisition-bundle-protocol.md)
+- [Agent-Reach 集成指南](docs/agent-reach-integration-guide.md)
+- [平台支持矩阵](SUPPORTED_PLATFORMS.md)
+- [故障排查](TROUBLESHOOTING.md)
+- [发布说明](RELEASE_NOTES.md)
+- [变更记录](CHANGELOG.md)
 
 [offline-validation-badge]: https://github.com/sitabanubanu/codex-knowledge-workflow-skills/actions/workflows/offline-validation.yml/badge.svg
 [offline-validation]: https://github.com/sitabanubanu/codex-knowledge-workflow-skills/actions/workflows/offline-validation.yml

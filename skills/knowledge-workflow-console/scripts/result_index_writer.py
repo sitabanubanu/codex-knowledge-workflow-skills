@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from workflow_provenance import inspect_provenance, sha256_file
+
 
 RUNNER_NAME = "knowledge-workflow-result-index-writer"
 BLOCKING_SOURCE_STATES = {"secondary_only", "source_blocked", "source_failed", "degraded_report_only"}
@@ -87,12 +89,16 @@ def action_items(status: str, user_action: str) -> list[str]:
             "Use the resume flag if this project was interrupted mid-run.",
         ]
     if status == "degraded":
-        return [
+        items = []
+        if user_action:
+            items.append(str(user_action))
+        items.extend([
             "Provide a subtitle or transcript file when available.",
             "Provide a local audio or video file when ASR is acceptable.",
             "Provide a user-exported cookies.txt only when you are authorized to access the same page.",
             "Use quick mode only when a non-primary triage is enough.",
-        ]
+        ])
+        return items
     if status == "failed":
         return [
             "Read logs/run_state.json for the failed stage and retry hint.",
@@ -114,19 +120,30 @@ def build_result(project_root: Path) -> dict[str, Any]:
     logs_root = project_root / "logs"
     video_root = project_root / "10_video"
     document_root = project_root / "20_document"
+    acquisition_root = project_root / "00_acquisition"
 
     run_state = read_json(logs_root / "run_state.json")
+    acquisition_manifest = read_json(acquisition_root / "manifest.json")
     source_status = read_json(video_root / "00_source" / "source_status.json")
     quality_gate = read_json(document_root / "quality_gate.json")
     platform_result = read_json(video_root / "00_source" / "platform_media_result.json")
     preflight = read_json(logs_root / "preflight.json")
+    provenance = inspect_provenance(project_root)
 
     source_state = source_status.get("source_status") or run_state.get("source_status") or "unknown"
-    final_report_exists = (document_root / "final_report.md").is_file()
-    pack_exists = (video_root / "video_analysis_pack.md").is_file()
-    transcript_exists = (video_root / "01_transcript" / "clean_transcript.jsonl").is_file()
-    quality_approved = bool(quality_gate.get("approved_for_final_report"))
-    full_allowed = bool(source_status.get("can_enter_full_decomposition")) and source_state == "source_confirmed"
+    raw_final_report_exists = (document_root / "final_report.md").is_file()
+    raw_pack_exists = (video_root / "video_analysis_pack.md").is_file() or (video_root / "source_analysis_pack.md").is_file()
+    raw_transcript_exists = (video_root / "01_transcript" / "clean_transcript.jsonl").is_file()
+    final_report_exists = bool(provenance["final_report_current"])
+    pack_exists = bool(provenance["analysis_current"])
+    transcript_exists = bool(provenance["gate_current"] and raw_transcript_exists)
+    quality_approved = bool(final_report_exists and quality_gate.get("approved_for_final_report"))
+    full_allowed = bool(provenance["gate_current"] and source_status.get("can_enter_full_decomposition")) and source_state in {"source_confirmed", "source_partial"}
+    stale_output_files_present = bool(
+        (raw_final_report_exists and not final_report_exists)
+        or (raw_pack_exists and not pack_exists)
+        or (raw_transcript_exists and not transcript_exists)
+    )
     material_decision = platform_result.get("material_decision") if isinstance(platform_result, dict) else {}
     material_decision = material_decision if isinstance(material_decision, dict) else {}
 
@@ -155,9 +172,12 @@ def build_result(project_root: Path) -> dict[str, Any]:
     if status == "success":
         reason = "Final report exists and the quality gate approved it."
         user_action = ""
+    elif stale_output_files_present and not reason:
+        reason = "Output files exist, but their provenance receipts do not match the current acquisition run."
 
     key_files = [
         file_entry(project_root, "Result index", project_root / "result_index.md"),
+        file_entry(project_root, "Acquisition manifest", acquisition_root / "manifest.json"),
         file_entry(project_root, "Preflight", logs_root / "preflight.md"),
         file_entry(project_root, "Run state", logs_root / "run_state.json"),
         file_entry(project_root, "Source status", video_root / "00_source" / "source_status.json"),
@@ -172,6 +192,7 @@ def build_result(project_root: Path) -> dict[str, Any]:
         "runner": RUNNER_NAME,
         "project_root": str(project_root),
         "status": status,
+        "acquisition_status": acquisition_manifest.get("status") or run_state.get("acquisition_status") or "unknown",
         "mode": run_state.get("mode") or preflight.get("requested_mode") or "unknown",
         "source_status": source_state,
         "primary_material_available": bool(source_status.get("primary_material_available")),
@@ -179,6 +200,10 @@ def build_result(project_root: Path) -> dict[str, Any]:
         "video_analysis_pack_exists": pack_exists,
         "final_report_exists": final_report_exists,
         "quality_gate_approved": quality_approved,
+        "gate_provenance_current": bool(provenance["gate_current"]),
+        "analysis_provenance_current": bool(provenance["analysis_current"]),
+        "final_report_provenance_current": bool(provenance["final_report_current"]),
+        "stale_output_files_present": stale_output_files_present,
         "reason": reason,
         "user_action_required": user_action,
         "next_actions": action_items(status, str(user_action or "")),
@@ -191,6 +216,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
         "# Workflow Result",
         "",
         f"- Status: `{payload['status']}`",
+        f"- Acquisition status: `{payload.get('acquisition_status', 'unknown')}`",
         f"- Mode: `{payload['mode']}`",
         f"- Source status: `{payload['source_status']}`",
         f"- Primary material available: `{payload['primary_material_available']}`",
@@ -198,6 +224,10 @@ def render_markdown(payload: dict[str, Any]) -> str:
         f"- Video analysis pack exists: `{payload['video_analysis_pack_exists']}`",
         f"- Final report exists: `{payload['final_report_exists']}`",
         f"- Quality gate approved: `{payload['quality_gate_approved']}`",
+        f"- Gate provenance current: `{payload['gate_provenance_current']}`",
+        f"- Analysis provenance current: `{payload['analysis_provenance_current']}`",
+        f"- Final report provenance current: `{payload['final_report_provenance_current']}`",
+        f"- Stale output files present: `{payload['stale_output_files_present']}`",
         "",
     ]
     if payload.get("reason"):
@@ -243,9 +273,9 @@ def write_result_index(project_root: Path, *, output_md: Path | None = None, out
 
 def self_test() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp) / "success"
+        stale_root = Path(tmp) / "stale"
         write_json(
-            root / "10_video" / "00_source" / "source_status.json",
+            stale_root / "10_video" / "00_source" / "source_status.json",
             {
                 "source_status": "source_confirmed",
                 "can_enter_full_decomposition": True,
@@ -253,8 +283,77 @@ def self_test() -> None:
                 "status_reason": "primary transcript is available",
             },
         )
-        write_json(root / "20_document" / "quality_gate.json", {"approved_for_final_report": True})
-        write_text(root / "20_document" / "final_report.md", "# Final Report\n")
+        write_json(stale_root / "20_document" / "quality_gate.json", {"approved_for_final_report": True})
+        write_text(stale_root / "20_document" / "final_report.md", "# Old Final Report\n")
+        stale = write_result_index(stale_root)
+        assert stale["status"] != "success", stale
+        assert stale["stale_output_files_present"] is True, stale
+
+        root = Path(tmp) / "success"
+        manifest_path = root / "00_acquisition" / "manifest.json"
+        write_json(manifest_path, {"schema_version": 2, "status": "material_acquired"})
+        ids = {
+            "run_id": "run_fixture",
+            "bundle_id": "bundle_fixture",
+            "source_id": "source_fixture",
+            "source_fingerprint": "fingerprint_fixture",
+            "analysis_target": "video_content",
+            "gate_input_sha256": sha256_file(manifest_path),
+        }
+        source_status_path = root / "10_video" / "00_source" / "source_status.json"
+        write_json(
+            source_status_path,
+            {
+                **ids,
+                "source_status": "source_confirmed",
+                "can_enter_full_decomposition": True,
+                "primary_material_available": True,
+            },
+        )
+        gate_path = root / "10_video" / "00_source" / "gate_receipt.json"
+        write_json(gate_path, {**ids, "source_status": "source_confirmed", "source_status_sha256": sha256_file(source_status_path)})
+        pack_path = root / "10_video" / "video_analysis_pack.md"
+        write_text(pack_path, "# Analysis Pack\n")
+        analysis_path = root / "10_video" / "analysis_receipt.json"
+        write_json(
+            analysis_path,
+            {
+                **ids,
+                "source_status": "source_confirmed",
+                "analysis_pack": "video_analysis_pack.md",
+                "analysis_pack_sha256": sha256_file(pack_path),
+                "gate_receipt_sha256": sha256_file(gate_path),
+            },
+        )
+        claim_map = root / "20_document" / "claim_map.json"
+        intake = root / "20_document" / "composer_intake.json"
+        write_json(claim_map, {"claims": [{"id": "doc_claim_001"}]})
+        write_json(intake, {"source_status": "source_confirmed"})
+        composer_path = root / "20_document" / "composer_receipt.json"
+        write_json(
+            composer_path,
+            {
+                **ids,
+                "source_status": "source_confirmed",
+                "analysis_receipt_sha256": sha256_file(analysis_path),
+                "claim_map_sha256": sha256_file(claim_map),
+                "composer_intake_sha256": sha256_file(intake),
+            },
+        )
+        quality_path = root / "20_document" / "quality_gate.json"
+        final_path = root / "20_document" / "final_report.md"
+        write_json(quality_path, {"approved_for_final_report": True})
+        write_text(final_path, "# Final Report\n")
+        write_json(
+            root / "20_document" / "final_report_receipt.json",
+            {
+                **ids,
+                "source_status": "source_confirmed",
+                "composer_receipt_sha256": sha256_file(composer_path),
+                "quality_gate_sha256": sha256_file(quality_path),
+                "final_report_sha256": sha256_file(final_path),
+            },
+        )
         success = write_result_index(root)
         assert success["status"] == "success", success
         assert (root / "result_index.md").is_file()

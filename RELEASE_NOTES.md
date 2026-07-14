@@ -1,8 +1,59 @@
 # Release Notes
 
-## Unreleased
+## v0.6.0
 
-No unreleased changes recorded yet.
+### Added
+
+- ADR 0003 for Bundle v2, target/scope gating, immutable runs, and downstream
+  provenance.
+- Run, attempt, bundle, source-fingerprint, analysis-target, and operation
+  identifiers.
+- Artifact content scope, coverage, byte count, SHA-256, path containment, and
+  run/source binding.
+- Attempt staging, explicit `--resume`, `acquisition_history/`, and
+  `run_history/`.
+- Gate, analysis, composer, and final-report provenance receipts.
+- Canonical JSON adapters for Xiaohongshu note text and Bilibili subtitles.
+- YouTube subtitle plus Agent-Reach transcription fallback with all existing
+  CLI options wired into the new path.
+- Shared Agent-Reach runtime isolation under `github-tools`, with explicit
+  executable resolution and rejection of Hermes-private paths.
+- Regression tests for operation mismatch, target/scope mismatch, path
+  traversal, hash tampering, secret persistence, run reuse, stale reports, and
+  full provenance.
+
+### Changed
+
+- Agent-Reach doctor readiness is now combined with operation support before a
+  backend command executes.
+- Social post text can confirm a social-post target but cannot confirm an
+  embedded-video target.
+- Status, result, export, quality, templates, and batch synthesis now require
+  current receipts instead of trusting file existence.
+- Sensitive URLs, command arguments, failures, preflight, run state, manifests,
+  and backend JSON use centralized persisted-output redaction.
+- `knowledge-video-decomposer` is now an internal compatibility library; four
+  skills remain user-facing and synced.
+- Package version is `0.6.0`.
+- The default repository README is now Chinese and explains the boundary and
+  value difference between Agent-Reach and Knowledge Workflow Skills.
+
+### Validation
+
+Required local checks:
+
+```powershell
+python -m py_compile kw.py kw_cli/*.py
+python .\kw.py demo
+python .\tests\knowledge_workflow_regression.py
+python .\tests\real_workflow_acceptance.py
+python .\tests\test_acquisition_bundle_schema.py
+python .\tests\test_local_bundle_ingest.py
+python .\tests\test_agent_reach_acquire_offline.py
+python .\tests\test_source_gate_from_bundle.py
+python .\tests\test_no_fake_report_from_agent_reach_failures.py
+python .\tests\test_run_provenance.py
+```
 
 ## v0.5.0-real-world-validation
 

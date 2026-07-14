@@ -555,9 +555,12 @@ def run_document_composer(args: argparse.Namespace) -> dict[str, Any]:
     source_status = load_source_status(video_root)
     status_value = str(source_status.get("source_status"))
     audit = load_evidence_audit(video_root, status_value)
-    pack_text = read_text(video_root / "video_analysis_pack.md")
+    pack_path = video_root / "source_analysis_pack.md"
+    if not pack_path.is_file():
+        pack_path = video_root / "video_analysis_pack.md"
+    pack_text = read_text(pack_path)
     if not pack_text.strip():
-        raise DocumentComposerRunnerError("video_analysis_pack.md is empty")
+        raise DocumentComposerRunnerError(f"{pack_path.name} is empty")
     metadata = read_json(video_root / "00_source" / "metadata.json", required=False)
     claims = load_list(video_root / "03_inventory" / "claims.json", "claims", required=False)
     examples = load_list(video_root / "03_inventory" / "examples.json", "examples", required=False)

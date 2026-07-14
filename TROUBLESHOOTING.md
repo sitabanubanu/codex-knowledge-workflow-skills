@@ -1,131 +1,149 @@
 # Troubleshooting
 
-Start with the run's `result_index.md`. It is the user-facing entry point and
-usually contains the source status, whether full analysis was allowed, and the
-next action.
-
-## The Demo Fails
-
-Run:
+## Agent-Reach Is Missing
 
 ```powershell
-python .\kw.py demo
-python .\kw.py result --project-root .\outputs\knowledge-workflow\demo-transcript
+python -m pip install https://github.com/Panniantong/Agent-Reach/archive/main.zip
+agent-reach install --env=auto --safe
+agent-reach doctor --json
 ```
 
-Then inspect:
+Or:
+
+```powershell
+python .\kw.py agent-reach install --safe
+python .\kw.py agent-reach doctor
+```
+
+Missing Agent-Reach produces a failed bundle and `source_failed`; it never
+falls through to a fake successful report.
+
+## Active Backend Exists but Acquisition Is Blocked
+
+An active backend name is not enough. Check:
+
+```powershell
+python .\kw.py agent-reach plan --input <url> --target <target> --operation <operation>
+```
+
+The route needs both `active_backend_ready: true` and
+`operation_supported: true`. Typical mismatches:
+
+- Bilibili search API cannot extract a transcript;
+- X OpenCLI search support is not a stable single-status reader;
+- a web reader cannot satisfy a login-required platform route.
+
+Use a supported backend or provide task-primary local material.
+
+## OpenCLI Reports `warn`
+
+Agent-Reach commonly reports `warn` when OpenCLI is installed but its browser
+extension is absent or disconnected.
+
+1. Install the OpenCLI extension in the actual host you intend to use: Edge or
+   Chrome.
+2. Keep that exact host open.
+3. Sign in to the platform with your own authorized account.
+4. Run `opencli doctor` and `agent-reach doctor --json` again.
+
+The control plugin may be named Chrome while the extension and login state are
+actually running in Microsoft Edge. `opencli doctor` also does not identify
+the browser host. Check the real browser process, then pass
+`--browser-host edge|chrome`; use the same choice with
+`--youtube-browser edge|chrome` for yt-dlp. If yt-dlp reports that it cannot
+copy the cookie database, the selected browser is still running and holding
+the profile lock; do not call the cookies stale and do not close the browser
+without user approval.
+
+The workflow remains blocked until doctor reports `status: ok`. It does not
+bypass CAPTCHA, account permissions, private content, or paywalls.
+
+## Acquisition Succeeded but No Full Report Exists
+
+Inspect:
 
 ```text
-outputs/knowledge-workflow/demo-transcript/result_index.md
-outputs/knowledge-workflow/demo-transcript/logs/run_state.json
+00_acquisition/manifest.json
+10_video/00_source/source_status.json
+10_video/00_source/gate_receipt.json
+result_index.md
 ```
 
-## Doctor Says Warn Or Fail
+Safe stopping states include:
 
-Run:
+- `metadata_only` -> `secondary_only`;
+- `blocked` -> `source_blocked`;
+- `failed` -> `source_failed`;
+- target/scope mismatch -> `degraded_report_only`.
 
-```powershell
-python .\kw.py doctor --youtube-cookies auto
-```
+For example, an X or Xiaohongshu caption may be valid `social_post_text` but
+still cannot satisfy `video_content`.
 
-Read the default route summary first. It tells you which paths are ready, which
-paths need setup, and which warning still matters.
+## Old Report Exists but Status Is Not Success
 
-For a full diagnostic record, run:
-
-```powershell
-python .\kw.py doctor `
-  --youtube-cookies auto `
-  --output-md .\test_outputs\doctor.md `
-  --output-json .\test_outputs\doctor.json `
-  --overwrite
-```
-
-In the full Markdown or JSON report, read these sections first:
-
-- `route_readiness`: what you can try now.
-- `setup_requirements`: which route-specific setup is missing.
-- `privacy`: confirms doctor did not fetch media, launch Chrome, or report
-  cookie values.
-
-Interpretation:
-
-- Minimal local transcript demo should be available even when platform URL
-  prerequisites are missing.
-- Local audio/video requires ffmpeg, ffprobe, and faster-whisper.
-- Platform URL preflight requires yt-dlp, but success is still best effort.
-- YouTube cookies + JavaScript routes may require Node.js and a user-exported
-  Netscape cookies file.
-- Chinese Markdown/JSON should use UTF-8-safe artifact writers, `apply_patch`,
-  or `PYTHONUTF8=1` when the environment reports non-UTF-8 console encodings.
-
-## Only Metadata Was Found
-
-Metadata cannot support a complete video analysis. Provide one of:
-
-- transcript (`.txt`, `.md`, `.jsonl`, `.json`),
-- subtitles (`.srt`, `.vtt`),
-- local audio/video,
-- authorized cookies only when appropriate.
-
-## Platform URL Is Blocked
-
-Common causes:
-
-- bot or sign-in checks,
-- HTTP 429,
-- CAPTCHA,
-- private or region-locked content,
-- missing subtitles,
-- yt-dlp player challenge changes.
-
-Expected behavior: the workflow writes `source_blocked`, `source_failed`,
-`secondary_only`, or `degraded_report_only`. It should not write a complete
-analysis pack.
-
-## ASR Does Not Run
-
-Check:
-
-```powershell
-python .\kw.py doctor
-```
-
-Real ASR may require ffmpeg/ffprobe and faster-whisper dependencies. For smoke
-tests using fixture inputs:
-
-```powershell
-python .\tests\asr_integration.py
-```
-
-For real ASR tests, set explicit environment variables and provide media:
-
-```powershell
-$env:KW_REAL_ASR_SMOKE='1'
-$env:KW_REAL_ASR_MP3='C:\path\sample.mp3'
-$env:KW_REAL_ASR_MP4='C:\path\sample.mp4'
-python .\tests\asr_integration.py
-```
-
-## Final Report Was Not Written
-
-Common causes:
-
-- no accepted Source claim,
-- evidence audit did not allow a full pack,
-- source status was partial, blocked, failed, secondary-only, or degraded,
-- required document planning artifacts are missing.
-
-Read:
+This is expected when provenance is stale. `status_summary.json` and
+`result_index.md` report:
 
 ```text
-20_document/quality_check.md
-20_document/quality_gate.json
-10_video/05_gap_check/claim_source_audit.json
+stale_output_files_present: true
+final_report_provenance_current: false
 ```
 
-## Chinese Text Looks Corrupted
+Run ingest, audit, and compose for the current bundle. Do not rename an old
+report back into place. Previous results are preserved under `run_history/`.
 
-Use UTF-8 write paths such as Python scripts, `apply_patch`, or the provided
-artifact writers. Avoid writing long Chinese Markdown through PowerShell
-redirection or inline command strings.
+## Project Root Already Belongs to a Run
+
+Use a new project root, or retry only the exact same source, target, and
+operation:
+
+```powershell
+python .\kw.py run ... --project-root <same-project> --resume
+```
+
+Resume fails after a local file changes, or when target/operation differs. This
+prevents output mixing.
+
+## YouTube Bot Check, Sign-In, or Missing Subtitles
+
+Allowed options include an authorized Netscape cookies file, Node.js runtime,
+remote EJS components, client/extractor parameters, proxy, impersonation, and
+Agent-Reach transcription fallback. See `kw run --help`.
+
+Never paste cookie or token contents into logs or reports. The CLI passes
+sensitive values to the upstream process but redacts persisted commands,
+manifests, preflight, run state, and errors.
+
+If access still fails, provide subtitles, transcript, or authorized local
+media. Record blocked status rather than looping around platform controls.
+
+## Bilibili Is Search-Only
+
+The default public search API can find videos but cannot obtain their content.
+For transcript extraction, Agent-Reach doctor must select a ready OpenCLI or
+bili-cli route implemented by this adapter. Otherwise provide subtitles or
+local media.
+
+## Empty Transcript or Local Media Without ASR
+
+An empty transcript becomes failed/degraded and cannot create an analysis pack.
+Local media remains degraded until ASR produces a non-empty hashed transcript.
+
+## Bundle Validation Fails
+
+```powershell
+python .\kw.py validate-bundle --bundle <project>\00_acquisition\manifest.json
+```
+
+Common causes are an escaping/absolute artifact path, missing file, byte/hash
+mismatch, missing v2 identity fields, status invariant violation, or
+unredacted secret-like manifest data. Do not hand-edit hashes; rerun acquisition.
+
+## Do Not Commit
+
+```powershell
+git status --short
+```
+
+Keep `work/`, cookies, tokens, outputs, test outputs, caches, and private logs
+out of Git.

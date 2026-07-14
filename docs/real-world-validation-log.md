@@ -1,51 +1,72 @@
 # Real-World Validation Log
 
-This log tracks v0.5.0 real-world validation. Default entries are offline and
-deterministic so they can be repeated in CI. Live platform entries must record
-the date, environment, and external access condition because those results can
-change.
+## v0.6 Architecture Reset
 
-## Acceptance Rules
+The 2026-07-03 Marx alienation live validation showed the right product
+failure mode:
 
-- A successful sample must produce `result_index.md`.
-- A complete analysis must have confirmed or partial primary material.
-- Final reports are reusable only when `quality_gate.json` approves them.
-- Failed samples must explain the next action and must not produce a fake
-  complete report.
-- URL-only, metadata-only, screenshot-only, or blocked samples are not source
-  material for a full report.
+- YouTube pages were visible but yt-dlp hit bot/sign-in checks.
+- Bilibili candidates did not yield usable subtitles or primary transcript.
+- Search and article results were useful background but not video primary
+  material.
+- The workflow did not create `video_analysis_pack.md` or `final_report.md`
+  without primary material.
 
-## Offline Samples
+That result validates the source gate and motivates the architecture reset.
+The problem was not report writing. The problem was that platform acquisition
+and evidence judgment lived in the same second skill.
 
-| ID | Sample | Route | Purpose | Expected Result | Evidence |
-| --- | --- | --- | --- | --- | --- |
-| RW-001 | `examples/real_world/transcript_interview.txt` | local transcript | Validate realistic transcript input. | Full audit report can be produced. | Covered by `test_real_world_examples`. |
-| RW-002 | `examples/real_world/subtitle_talk.srt` | local subtitle | Validate timestamped subtitle input. | Full audit report can be produced. | Covered by `test_real_world_examples`. |
-| RW-003 | `examples/real_world/long_transcript.txt` | long transcript | Validate longer decomposition and Source / Inference / Extension boundaries. | Full audit report can be produced. | Covered by `test_real_world_examples`. |
-| RW-004 | `examples/real_world/batch_links.csv` | batch | Validate multi-item synthesis from approved local samples. | Batch status and synthesis files are produced. | Covered by `test_real_world_examples`. |
-| RW-005 | `examples/chrome_probe/chrome_observation_url_only.json` | browser observation | Validate URL-only failure boundary. | Source remains failed/degraded until primary material is fetched. | Covered by `test_chrome_url_only_gate`. |
-| RW-006 | empty local transcript fixture | invalid transcript | Validate clear failure path. | CLI exits non-zero with a user-facing next action and no final report. | Covered by `test_empty_transcript_failure_is_actionable`. |
-| RW-007 | missing local input path | invalid path | Validate missing file classification. | CLI exits non-zero with a user-facing missing/classification error. | Covered by `test_missing_input_failure_is_actionable`. |
+## New Validation Target
 
-## Live Platform Samples
+The new target is not "all platforms work." The target is:
 
-Live rows are optional and should be filled by the maintainer when authorized
-test URLs are available.
+```text
+Agent-Reach acquisition
+  -> acquisition_bundle
+  -> source-gated evidence
+  -> auditable report generation
+```
 
-| Date | URL / Source | Route Tried | Environment | Result | Next Action |
-| --- | --- | --- | --- | --- | --- |
-| pending | YouTube with subtitles | platform subtitles | maintainer-provided URL | pending | Set `KW_YOUTUBE_WITH_SUBTITLES_URL` and run `tests/live_platform_smoke.py`. |
-| pending | YouTube without subtitles | platform audio or ASR | maintainer-provided URL | pending | Confirm ASR availability or record degraded status. |
-| pending | cookies-required page | authorized cookies | maintainer-provided cookies | pending | Use only user-exported cookies; never commit cookies. |
-| 2026-07-03 | Marxism / alienated labor / subjectivity-loss video candidates | YouTube, Bilibili, Chrome page observation, Hearsay fallback | Windows, Asia/Shanghai; no exported cookies; no committed primary media | blocked/degraded | See `docs/live-marx-alienation-validation-2026-07-03.md`. Provide an official transcript/subtitle, local media for ASR, browser-derived transcript export, or authorized cookies before expecting a full report. |
+Acceptance checks:
 
-## Issue Triage
+- URL acquisition writes `00_acquisition/manifest.json`.
+- Agent-Reach doctor output is saved when available.
+- Bundle ingest writes `10_video/00_source/source_status.json`.
+- Metadata-only, blocked, failed, and unsupported acquisition do not create
+  normal final reports.
+- Local transcript/subtitle still reaches source-confirmed analysis.
+- Document composer still enforces Source / Inference / Extension.
 
-Classify every finding before fixing it:
+## Evidence From Prior Live Run
 
-- `must_fix`: fake complete report, wrong source status, broken local route, or
-  missing quality gate.
-- `should_fix`: confusing CLI output, unclear documentation, or missing next
-  action.
-- `defer`: live platform access, account, region, CAPTCHA, paywall, or local
-  dependency condition outside the offline product contract.
+See:
+
+```text
+docs/live-marx-alienation-validation-2026-07-03.md
+```
+
+Observed statuses:
+
+- YouTube candidates: `source_blocked`
+- Bilibili candidates: `source_failed`
+- `primary_material_available`: `false`
+- `full_analysis_allowed`: `false`
+- `video_analysis_pack.md`: not created
+- `final_report.md`: not created
+
+In v0.6 terms, those platform attempts should become failed or blocked
+acquisition bundles first, then evidence-layer degraded outputs.
+
+## Regression Commands
+
+```powershell
+python -m py_compile kw.py kw_cli/main.py kw_cli/bundle.py kw_cli/agent_reach_adapter.py kw_cli/ingest.py
+python .\kw.py demo
+python .\tests\knowledge_workflow_regression.py
+python .\tests\real_workflow_acceptance.py
+python .\tests\test_acquisition_bundle_schema.py
+python .\tests\test_local_bundle_ingest.py
+python .\tests\test_agent_reach_acquire_offline.py
+python .\tests\test_source_gate_from_bundle.py
+python .\tests\test_no_fake_report_from_agent_reach_failures.py
+```

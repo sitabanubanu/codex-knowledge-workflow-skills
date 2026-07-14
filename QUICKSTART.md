@@ -92,6 +92,15 @@ python .\kw.py preflight `
   --mode audit
 ```
 
+Inspect the actual acquisition capability before running:
+
+```powershell
+python .\kw.py agent-reach plan `
+  --input "https://www.youtube.com/watch?v=..." `
+  --target video_content `
+  --operation extract_transcript
+```
+
 Platform URLs may need subtitles, local media, authorized cookies, or may stop
 at degraded status. That is expected behavior, not a fake-success failure.
 
@@ -111,5 +120,8 @@ full JSON or `--output-md doctor.md` for a Markdown diagnostic report.
 
 - `result_index.md`: user-facing status and next action.
 - `10_video/video_analysis_pack.md`: structured source decomposition.
+- `10_video/00_source/gate_receipt.json`: current source-gate provenance.
+- `10_video/analysis_receipt.json`: analysis-pack provenance.
 - `20_document/quality_gate.json`: final report approval gate.
 - `20_document/final_report.md`: final report.
+- `20_document/final_report_receipt.json`: final delivery provenance.
