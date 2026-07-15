@@ -28,10 +28,28 @@ must satisfy the target. Acquisition success alone is insufficient.
 | `failed` | `source_failed` |
 | `unsupported` | `degraded_report_only` |
 
+Canonical v1 status records preserve the compatibility `source_status` enum
+and add two orthogonal decisions:
+
+- `scope_status`: `matched`, `partial_match`, `target_mismatch`,
+  `pending_derivation`, or `not_evaluated`;
+- `pipeline_decision`: `continue_full`, `continue_partial`, or
+  `stop_before_audit`.
+
+Wrong-scope primary material is `degraded_report_only` plus
+`target_mismatch` and `stop_before_audit`. It may receive a degraded mismatch
+explanation, but never a normal report. Local audio/video awaiting ASR is
+`pending_derivation`, not a target mismatch.
+
 Always write `source_status.json` and `gate_receipt.json`, including for
 blocked and failed outcomes. Preserve run, attempt, bundle, source,
 fingerprint, target, operation, approved/uncovered scopes, manifest hash,
 permission flags, reason, and next step.
+
+The public `kw.py ingest/run/resume` path is the final status authority.
+Internal normalizer and ASR scripts may produce provisional stage state, but
+the Source Gate must rebuild, atomically publish, and validate the canonical
+status before writing the gate receipt.
 
 The gate receipt binds the source-status hash to the manifest hash. An
 ASR-derived transcript also records its path, byte count, and SHA-256 in the

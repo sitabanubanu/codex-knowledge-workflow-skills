@@ -519,6 +519,18 @@ def run_asr_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         output_root / "00_source" / "source_status.json",
         mode="strict",
     )
+    if validation.get("valid") is not True:
+        findings = validation.get("findings") if isinstance(validation.get("findings"), list) else []
+        details = "; ".join(
+            str(item.get("message") or item.get("code") or item)
+            if isinstance(item, dict)
+            else str(item)
+            for item in findings
+        )
+        raise AsrPipelineError(
+            "strict artifact validation failed"
+            + (f": {details}" if details else "")
+        )
     return {
         "runner": RUNNER_NAME,
         "output_root": str(output_root),

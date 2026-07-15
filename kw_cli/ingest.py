@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import bundle, source_gate
+from . import bundle, source_gate, source_status_contract
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +21,16 @@ DOCUMENT = REPO_ROOT / "skills" / "knowledge-document-composer"
 ALLOWED_DECOMPOSITION_STATUSES = {"source_confirmed", "source_partial"}
 TRANSCRIPT_TYPES = {"transcript", "subtitle", "page_markdown", "page_text"}
 MEDIA_TYPES = {"audio", "video"}
-PROVENANCE_KEYS = ("run_id", "bundle_id", "source_id", "source_fingerprint", "analysis_target", "gate_input_sha256")
+PROVENANCE_KEYS = (
+    "run_id",
+    "attempt_id",
+    "bundle_id",
+    "source_id",
+    "source_fingerprint",
+    "analysis_target",
+    "operation",
+    "gate_input_sha256",
+)
 
 
 class IngestError(Exception):
@@ -38,6 +49,24 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, payload: Any) -> None:
     bundle.write_json(path, payload)
+
+
+def write_source_status(video_source_root: Path, status: dict[str, Any]) -> Path:
+    """Publish one canonical status atomically and verify the stored payload."""
+    source_status_contract.require_valid_source_status(status)
+    video_source_root.mkdir(parents=True, exist_ok=True)
+    status_path = video_source_root / "source_status.json"
+    temp_path = video_source_root / f".source_status.{uuid.uuid4().hex}.tmp"
+    try:
+        bundle.write_json(temp_path, status)
+        stored_candidate = read_json(temp_path)
+        source_status_contract.require_valid_source_status(stored_candidate)
+        os.replace(temp_path, status_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    stored = read_json(status_path)
+    source_status_contract.require_valid_source_status(stored)
+    return status_path
 
 
 def write_text(path: Path, text: str) -> None:
@@ -101,6 +130,34 @@ def receipt_matches_status(receipt: dict[str, Any], status: dict[str, Any]) -> b
     return bool(receipt) and all((receipt.get(key) or "") == (status.get(key) or "") for key in PROVENANCE_KEYS)
 
 
+def derived_artifact_reasons(project_root: Path, gate: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for index, artifact in enumerate(gate.get("derived_artifacts") or []):
+        if not isinstance(artifact, dict):
+            reasons.append(f"gate derived artifact {index} is not an object")
+            continue
+        raw_path = artifact.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            reasons.append(f"gate derived artifact {index} has no path")
+            continue
+        path = (project_root / raw_path).resolve()
+        try:
+            path.relative_to(project_root)
+        except ValueError:
+            reasons.append(f"gate derived artifact escapes the project root: {raw_path}")
+            continue
+        if not path.is_file():
+            reasons.append(f"gate derived artifact is missing: {raw_path}")
+            continue
+        expected_bytes = artifact.get("bytes")
+        if isinstance(expected_bytes, int) and path.stat().st_size != expected_bytes:
+            reasons.append(f"gate derived artifact byte count changed: {raw_path}")
+        expected_sha256 = artifact.get("sha256")
+        if isinstance(expected_sha256, str) and expected_sha256 and file_sha256(path) != expected_sha256:
+            reasons.append(f"gate derived artifact hash changed: {raw_path}")
+    return reasons
+
+
 def current_provenance(project_root: Path) -> dict[str, Any]:
     project_root = project_root.resolve()
     manifest_path = project_root / "00_acquisition" / "manifest.json"
@@ -117,6 +174,8 @@ def current_provenance(project_root: Path) -> dict[str, Any]:
         reasons.append("gate receipt does not match the current source status")
     elif gate.get("source_status_sha256") != file_sha256(source_status_path):
         reasons.append("source status changed after the gate receipt was written")
+    else:
+        reasons.extend(derived_artifact_reasons(project_root, gate))
 
     gate_current = not reasons
     analysis_receipt = read_json(project_root / "10_video" / "analysis_receipt.json")
@@ -160,17 +219,7 @@ def current_provenance(project_root: Path) -> dict[str, Any]:
 
 
 def source_permissions(source_status: str, analysis_target: str = "video_content") -> tuple[bool, bool, str]:
-    if source_status == "source_confirmed":
-        return True, True, source_gate.allowed_report_type(source_status, analysis_target)
-    if source_status == "source_partial":
-        return True, True, source_gate.allowed_report_type(source_status, analysis_target)
-    if source_status == "secondary_only":
-        return False, False, "degraded_source_report"
-    if source_status == "source_blocked":
-        return False, False, "blocked_source_report"
-    if source_status == "source_failed":
-        return False, False, "failed_source_report"
-    return False, False, "degraded_report_only"
+    return source_status_contract.permissions_for_status(source_status, analysis_target)
 
 
 def artifact_paths(manifest_path: Path, manifest: dict[str, Any]) -> list[tuple[dict[str, Any], Path]]:
@@ -229,89 +278,25 @@ def classify_source_status(manifest: dict[str, Any]) -> str:
 
 
 def build_source_status(manifest: dict[str, Any], source_status: str, *, manifest_path: Path | None = None) -> dict[str, Any]:
-    analysis_target = str(manifest.get("analysis_target") or source_gate.infer_analysis_target(str(manifest.get("platform") or "unknown")))
-    full, composer, report_type = source_permissions(source_status, analysis_target)
-    primary_available = source_status in {"source_confirmed", "source_partial"}
-    has_media = any(
-        isinstance(item, dict)
-        and item.get("type") in {"audio", "video"}
-        and item.get("source_class") in {"primary", "partial_primary"}
-        for item in manifest.get("artifacts") or []
+    manifest_sha256 = bundle.sha256_file(manifest_path) if manifest_path and manifest_path.is_file() else ""
+    return source_status_contract.build_source_status(
+        manifest,
+        source_status,
+        gate_input_sha256=manifest_sha256,
     )
-    next_step = manifest.get("next_action") or default_next_step(source_status)
-    if source_status in ALLOWED_DECOMPOSITION_STATUSES and next_step == "ingest_bundle":
-        next_step = "run_evidence_audit"
-    if has_media and source_status == "degraded_report_only":
-        next_step = "Run ASR for the local media or provide a transcript/subtitle."
-    approved_scopes, uncovered_scopes = source_gate.scope_summary({**manifest, "analysis_target": analysis_target})
-    payload = {
-        "source_status": source_status,
-        "can_enter_full_decomposition": full,
-        "can_enter_document_composer": composer,
-        "allowed_report_type": report_type,
-        "primary_material_available": primary_available,
-        "source_classes": sorted(
-            {
-                str(item.get("source_class"))
-                for item in manifest.get("artifacts") or []
-                if isinstance(item, dict) and item.get("source_class")
-            }
-        ),
-        "status_reason": status_reason(manifest, source_status),
-        "acquisition_bundle_status": manifest.get("status"),
-        "acquisition_layer": manifest.get("acquisition_layer"),
-        "active_backend": manifest.get("active_backend"),
-        "run_id": manifest.get("run_id") or "",
-        "attempt_id": manifest.get("attempt_id") or "",
-        "bundle_id": manifest.get("bundle_id") or "",
-        "source_id": manifest.get("source_id") or "",
-        "source_fingerprint": manifest.get("source_fingerprint") or "",
-        "analysis_target": analysis_target,
-        "operation": manifest.get("operation") or "",
-        "approved_scope": approved_scopes,
-        "uncovered_scopes": uncovered_scopes,
-        "next_step": next_step,
-    }
-    if manifest_path and manifest_path.is_file():
-        payload["gate_input_sha256"] = bundle.sha256_file(manifest_path)
-    return payload
 
 
 def status_reason(manifest: dict[str, Any], source_status: str) -> str:
-    if source_status == "source_confirmed":
-        return "Primary transcript/subtitle/text material was acquired through the acquisition bundle."
-    if source_status == "source_partial":
-        return "Partial primary material was acquired through the acquisition bundle."
-    target = str(manifest.get("analysis_target") or "")
-    primary_scopes = sorted(
-        {
-            str(item.get("content_scope"))
-            for item in manifest.get("artifacts") or []
-            if isinstance(item, dict) and item.get("source_class") in {"primary", "partial_primary"}
-        }
+    analysis_target = str(
+        manifest.get("analysis_target")
+        or source_gate.infer_analysis_target(str(manifest.get("platform") or "unknown"))
     )
-    if primary_scopes and target:
-        return f"Acquired primary material scopes {primary_scopes!r} do not satisfy analysis target {target!r}."
-    if any(isinstance(item, dict) and item.get("type") in {"audio", "video"} for item in manifest.get("artifacts") or []):
-        return "Local audio/video exists, but no transcript has been produced yet."
-    failures = manifest.get("failures") or []
-    if failures:
-        first = failures[0]
-        if isinstance(first, dict):
-            return str(first.get("reason") or first)
-    if manifest.get("limits"):
-        return "; ".join(str(item) for item in manifest["limits"])
-    return "No primary transcript/subtitle material was available."
+    scope_status = source_status_contract.scope_status_for(manifest, source_status, analysis_target)
+    return source_status_contract.status_reason(manifest, source_status, scope_status)
 
 
 def default_next_step(source_status: str) -> str:
-    if source_status in {"source_confirmed", "source_partial"}:
-        return "run_evidence_audit"
-    if source_status == "source_blocked":
-        return "Resolve access manually or provide primary local material."
-    if source_status == "source_failed":
-        return "Fix acquisition failure or provide primary local material."
-    return "Provide transcript, subtitle, local audio/video, or authorized primary material."
+    return source_status_contract.default_next_step(source_status)
 
 
 def has_usable_text(path: Path) -> bool:
@@ -438,11 +423,30 @@ def run_asr_for_media_bundle(
                 "next_action": "Fix the ASR runtime/media file or provide a transcript/subtitle.",
             }
             status = build_source_status(failed_manifest, "source_failed", manifest_path=manifest_path)
-            write_json(status_path, status)
+            write_source_status(video_root / "00_source", status)
             write_gate_receipt(video_root / "00_source", status)
             write_text(video_root / "00_source" / "degraded_source_report.md", degraded_report_text(failed_manifest, status))
             return {"status": "failed", "source_status": "source_failed", "error": reason}
-        status = build_source_status(manifest, "source_confirmed", manifest_path=manifest_path)
+        derived_artifact = {
+            "path": str(transcript_path.relative_to(project_root).as_posix()),
+            "type": "transcript",
+            "content_scope": "video_transcript",
+            "bytes": transcript_path.stat().st_size,
+            "sha256": file_sha256(transcript_path),
+            "created_by": "asr_pipeline",
+        }
+        derived_manifest = {
+            **manifest,
+            "status": "material_acquired",
+            "artifacts": [
+                *list(manifest.get("artifacts") or []),
+                {
+                    **derived_artifact,
+                    "source_class": "primary",
+                },
+            ],
+        }
+        status = build_source_status(derived_manifest, "source_confirmed", manifest_path=manifest_path)
         status.update(
             {
                 "approved_scope": ["video_transcript"],
@@ -452,15 +456,7 @@ def run_asr_for_media_bundle(
                 "next_step": "run_evidence_audit",
             }
         )
-        write_json(status_path, status)
-        derived_artifact = {
-            "path": str(transcript_path.relative_to(project_root).as_posix()),
-            "type": "transcript",
-            "content_scope": "video_transcript",
-            "bytes": transcript_path.stat().st_size,
-            "sha256": file_sha256(transcript_path),
-            "created_by": "asr_pipeline",
-        }
+        write_source_status(video_root / "00_source", status)
         write_gate_receipt(video_root / "00_source", status, derived_artifacts=[derived_artifact])
         return {
             "status": "completed",
@@ -476,7 +472,7 @@ def run_asr_for_media_bundle(
         "next_action": "Fix the ASR runtime/media file or provide a transcript/subtitle.",
     }
     status = build_source_status(failed_manifest, "source_failed", manifest_path=manifest_path)
-    write_json(video_root / "00_source" / "source_status.json", status)
+    write_source_status(video_root / "00_source", status)
     write_gate_receipt(video_root / "00_source", status)
     write_text(video_root / "00_source" / "degraded_source_report.md", degraded_report_text(failed_manifest, status))
     return {"status": "failed", "source_status": "source_failed", "error": reason}
@@ -567,8 +563,9 @@ def ingest_bundle(*, manifest_path: Path, project_root: Path) -> dict[str, Any]:
             source_status,
             manifest_path=manifest_path,
         )
-        write_json(project_root / "10_video" / "00_source" / "source_status.json", status)
-        write_gate_receipt(project_root / "10_video" / "00_source", status)
+        invalid_source_root = project_root / "10_video" / "00_source"
+        write_source_status(invalid_source_root, status)
+        write_gate_receipt(invalid_source_root, status)
         write_text(project_root / "10_video" / "00_source" / "degraded_source_report.md", degraded_report_text({"status": "failed", "artifacts": []}, status))
         return {"valid": False, "source_status": source_status, "errors": validation["errors"]}
 
@@ -593,10 +590,10 @@ def ingest_bundle(*, manifest_path: Path, project_root: Path) -> dict[str, Any]:
                 }
             )
             normalized.update(status)
-            write_json(video_source_root / "source_status.json", normalized)
+            write_source_status(video_source_root, normalized)
             write_gate_receipt(video_source_root, read_json(video_source_root / "source_status.json"))
         else:
-            write_json(video_source_root / "source_status.json", status)
+            write_source_status(video_source_root, status)
             write_gate_receipt(video_source_root, status)
             write_text(video_source_root / "degraded_source_report.md", degraded_report_text(manifest, status))
     except IngestError as exc:
@@ -607,7 +604,7 @@ def ingest_bundle(*, manifest_path: Path, project_root: Path) -> dict[str, Any]:
             "next_action": "Provide a non-empty transcript/subtitle or fix the source artifact.",
         }
         status = build_source_status(failed_manifest, "source_failed", manifest_path=manifest_path)
-        write_json(video_source_root / "source_status.json", status)
+        write_source_status(video_source_root, status)
         write_gate_receipt(video_source_root, status)
         write_text(video_source_root / "degraded_source_report.md", degraded_report_text(failed_manifest, status))
         return {"valid": True, "source_status": "source_failed", "error": str(exc)}
@@ -664,9 +661,7 @@ def run_audit_pipeline(*, project_root: Path, document_goal: str, final_language
         stage_name = Path(stage[1]).name
         completed.append(stage_name)
         if stage_name != "document_composer_runner.py":
-            current = read_json(video_root / "00_source" / "source_status.json")
-            current.update(source_status)
-            write_json(video_root / "00_source" / "source_status.json", current)
+            write_source_status(video_root / "00_source", source_status)
         if stage_name == "video_analysis_pack_builder.py" and source_status.get("analysis_target") != "video_content":
             legacy_pack = video_root / "video_analysis_pack.md"
             source_pack = video_root / "source_analysis_pack.md"

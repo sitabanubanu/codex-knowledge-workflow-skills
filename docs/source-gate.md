@@ -30,6 +30,16 @@ Full or explicitly partial analysis requires all of:
 `secondary_only`, `source_blocked`, `source_failed`, and
 `degraded_report_only` permit degraded output only.
 
+Canonical v1 statuses also record `scope_status` and `pipeline_decision` so a
+pipeline stop is not confused with whether a degraded user explanation is
+allowed. Target mismatch stops before audit while retaining the existing
+`degraded_report_only` compatibility status. Local media awaiting ASR is
+`pending_derivation` until a transcript is validated.
+
+The final status is published by the Source Gate through the shared contract.
+ASR and normalization results are provisional until the stored status and
+gate receipt have both passed validation.
+
 ## Non-Promotable Context
 
 Metadata, screenshots, search snippets, comments, page shell state, third-party

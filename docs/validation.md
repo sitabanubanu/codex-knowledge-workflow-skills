@@ -30,6 +30,8 @@ python .\tests\knowledge_workflow_regression.py
 python .\tests\real_workflow_acceptance.py
 python .\tests\test_acquisition_bundle_schema.py
 python .\tests\test_local_bundle_ingest.py
+python .\tests\test_source_status_contract.py
+python .\tests\test_media_asr_end_to_end.py
 python .\tests\test_agent_reach_acquire_offline.py
 python .\tests\test_source_gate_from_bundle.py
 python .\tests\test_no_fake_report_from_agent_reach_failures.py
@@ -39,6 +41,12 @@ python .\tests\test_run_provenance.py
 The default regression suite also runs realistic offline samples under
 `examples/real_world/` and verifies common failure paths such as empty
 transcripts and missing input files.
+
+The source-status contract test covers complete, partial, mismatch, pending
+ASR, secondary, blocked, failed, and unsupported decisions. The media ASR
+end-to-end test uses fixture MP3/MP4 files plus deterministic ASR JSONL and
+must reach audit, document quality gate, and `final_report.md`. It also verifies
+that changing the derived transcript invalidates the gate receipt.
 
 For manual batch validation:
 

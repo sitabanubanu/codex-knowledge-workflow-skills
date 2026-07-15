@@ -1676,6 +1676,8 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
         ("real_workflow_acceptance", [sys.executable, "tests/real_workflow_acceptance.py"]),
         ("acquisition_bundle_schema", [sys.executable, "tests/test_acquisition_bundle_schema.py"]),
         ("local_bundle_ingest", [sys.executable, "tests/test_local_bundle_ingest.py"]),
+        ("source_status_contract", [sys.executable, "tests/test_source_status_contract.py"]),
+        ("media_asr_end_to_end", [sys.executable, "tests/test_media_asr_end_to_end.py"]),
         ("agent_reach_acquire_offline", [sys.executable, "tests/test_agent_reach_acquire_offline.py"]),
         ("agent_reach_native_export", [sys.executable, "tests/test_agent_reach_native_export.py"]),
         ("source_gate_from_bundle", [sys.executable, "tests/test_source_gate_from_bundle.py"]),

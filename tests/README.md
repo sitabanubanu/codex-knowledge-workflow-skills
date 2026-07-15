@@ -42,6 +42,11 @@ These tests are deterministic by default:
 - `tests/fixtures/subtitle_sample.vtt` covers `.vtt` subtitle parsing.
 - `tests/fixtures/fixture.mp3` and `tests/fixtures/fixture.mp4` cover local media
   routing through ASR pipeline resume mode using `asr_sample.jsonl`.
+- `test_source_status_contract.py` verifies canonical SourceStatus v1 fields,
+  state invariants, target mismatch, pending ASR, and atomic publication.
+- `test_media_asr_end_to_end.py` verifies both fixture media types through ASR,
+  audit, document composition, final report, and derived-transcript tamper
+  detection.
 - Chrome metadata-only smoke verifies that page metadata does not create a full
   analysis pack.
 - X, Xiaohongshu, and Douyin blocked fixtures verify that blocked platform

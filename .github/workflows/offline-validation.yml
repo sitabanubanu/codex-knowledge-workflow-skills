@@ -43,3 +43,9 @@ jobs:
 
       - name: Run real workflow acceptance
         run: python tests/real_workflow_acceptance.py
+
+      - name: Validate canonical source-status contract
+        run: python tests/test_source_status_contract.py
+
+      - name: Run offline media ASR end-to-end regression
+        run: python tests/test_media_asr_end_to_end.py
