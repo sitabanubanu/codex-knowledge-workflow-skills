@@ -49,3 +49,12 @@ jobs:
 
       - name: Run offline media ASR end-to-end regression
         run: python tests/test_media_asr_end_to_end.py
+
+      - name: Lint evaluation v2 inputs for gold leakage
+        run: python eval/v2/leakage_lint.py
+
+      - name: Run evaluation v2 offline contract smoke
+        run: python eval/v2/run_workflow_contract.py --output-root test_outputs/eval_v2/workflow
+
+      - name: Score evaluation v2 structured decisions
+        run: python eval/v2/score_decisions.py --results test_outputs/eval_v2/workflow/results.jsonl --output-root test_outputs/eval_v2/scoring

@@ -1,0 +1,66 @@
+{
+  "protocol": "single-reviewer-source-grounded-pilot",
+  "source_set": ["KW-01", "KW-02", "KW-03", "KW-04", "KW-05", "KW-06", "KW-07", "KW-08", "KW-09", "KW-10"],
+  "claims": {
+    "KW-01": [
+      {"id": "KW-01-C1", "claim": "Source Gate treats confirmed primary material as the evidence basis.", "terms": ["Source Gate", "confirmed primary material"]},
+      {"id": "KW-01-C2", "claim": "Metadata alone cannot support speaker logic.", "terms": ["metadata alone", "speaker logic"]},
+      {"id": "KW-01-C3", "claim": "Transcript evidence should be preserved before report writing.", "terms": ["preserve transcript evidence", "before writing reports"]},
+      {"id": "KW-01-C4", "claim": "Claims remain tied to their source.", "terms": ["claims remain tied", "source"]}
+    ],
+    "KW-02": [
+      {"id": "KW-02-C1", "claim": "The SRT contains three timestamped subtitle segments.", "terms": ["00:00:00", "00:00:03", "00:00:06"]},
+      {"id": "KW-02-C2", "claim": "The subtitle text states that Source Gate needs confirmed primary material.", "terms": ["Source Gate", "confirmed primary material"]},
+      {"id": "KW-02-C3", "claim": "Metadata is insufficient to support speaker logic.", "terms": ["metadata", "speaker logic"]},
+      {"id": "KW-02-C4", "claim": "The report should preserve transcript evidence and avoid unsupported speaker attribution.", "terms": ["preserve transcript evidence", "speaker"]}
+    ],
+    "KW-03": [
+      {"id": "KW-03-C1", "claim": "The WebVTT has three timestamped cues.", "terms": ["00:00:00", "00:00:03", "00:00:06"]},
+      {"id": "KW-03-C2", "claim": "The source defines Source Gate through confirmed primary material.", "terms": ["Source Gate", "confirmed primary material"]},
+      {"id": "KW-03-C3", "claim": "Metadata alone cannot support speaker logic.", "terms": ["metadata", "speaker logic"]},
+      {"id": "KW-03-C4", "claim": "The source requires preserving transcript evidence.", "terms": ["preserve", "transcript evidence"]}
+    ],
+    "KW-04": [
+      {"id": "KW-04-C1", "claim": "The supplied ASR sidecar has two timestamped records.", "terms": ["asr_001", "asr_002", "0.0", "3.0"]},
+      {"id": "KW-04-C2", "claim": "The ASR text says it preserves evidence.", "terms": ["ASR source text preserves evidence"]},
+      {"id": "KW-04-C3", "claim": "The transcript remains tied to source spans.", "terms": ["transcript remains tied", "source spans"]},
+      {"id": "KW-04-C4", "claim": "The report must not add observations about media that were not supplied.", "terms": ["not supplied", "media"]}
+    ],
+    "KW-05": [
+      {"id": "KW-05-C1", "claim": "The local media task is analyzed from the supplied ASR sidecar.", "terms": ["ASR", "sidecar"]},
+      {"id": "KW-05-C2", "claim": "There are two ASR segments covering 0–3 and 3–6 seconds.", "terms": ["0.0", "3.0", "6.0"]},
+      {"id": "KW-05-C3", "claim": "Transcript text remains tied to source spans.", "terms": ["transcript", "source spans"]},
+      {"id": "KW-05-C4", "claim": "No visual or audio fact beyond the supplied transcript is asserted.", "terms": ["not", "visual", "audio"]}
+    ],
+    "KW-06": [
+      {"id": "KW-06-C1", "claim": "The project is a source-gated knowledge workflow positioned after Agent-Reach.", "terms": ["source-gated", "Agent-Reach"]},
+      {"id": "KW-06-C2", "claim": "It separates acquisition, source gating/evidence, analysis, and report composition.", "terms": ["acquisition", "source gate", "composition"]},
+      {"id": "KW-06-C3", "claim": "Search summaries are not promoted to primary sources.", "terms": ["search summaries", "primary sources"]},
+      {"id": "KW-06-C4", "claim": "Formal writing separates Source, Inference, and Extension.", "terms": ["Source", "Inference", "Extension"]}
+    ],
+    "KW-07": [
+      {"id": "KW-07-C1", "claim": "The user-facing skills divide routing, acquisition, evidence gating/audit, and composition responsibilities.", "terms": ["knowledge-workflow-console", "agent-reach-console", "source-gated-evidence-layer", "knowledge-document-composer"]},
+      {"id": "KW-07-C2", "claim": "Only source-confirmed or source-partial material can enter normal or partial analysis.", "terms": ["source_confirmed", "source_partial"]},
+      {"id": "KW-07-C3", "claim": "Metadata, snippets, secondary material, failed material, and unsupported routes cannot unlock a normal final report.", "terms": ["metadata", "secondary", "failed", "unsupported"]},
+      {"id": "KW-07-C4", "claim": "A social post is not a substitute for an embedded video's transcript.", "terms": ["social_post_text", "video_transcript"]}
+    ],
+    "KW-08": [
+      {"id": "KW-08-C1", "claim": "The architecture is run-scoped and source-gated from acquisition to report.", "terms": ["run-scoped", "source-gated"]},
+      {"id": "KW-08-C2", "claim": "The stable handoff is 00_acquisition/manifest.json.", "terms": ["00_acquisition/manifest.json"]},
+      {"id": "KW-08-C3", "claim": "Backend capability and evidence target compatibility are independent gates.", "terms": ["Backend capability", "Evidence target"]},
+      {"id": "KW-08-C4", "claim": "A target-compatible primary scope is required before normal analysis.", "terms": ["target-compatible", "primary scope"]}
+    ],
+    "KW-09": [
+      {"id": "KW-09-C1", "claim": "Agent-Reach handles upstream platform selection and acquisition; Knowledge Workflow handles evidence and report readiness.", "terms": ["Agent-Reach", "acquisition", "report readiness"]},
+      {"id": "KW-09-C2", "claim": "There are structured-adapter and native-export/import integration paths.", "terms": ["Structured Adapter", "Native Export", "Import"]},
+      {"id": "KW-09-C3", "claim": "Cookies, tokens, headers, screenshots, page shells, and search-only results are not primary material.", "terms": ["cookie", "tokens", "page shells", "search-only"]},
+      {"id": "KW-09-C4", "claim": "A web_article requires an article/profile body, not a result card.", "terms": ["web_article", "result card"]}
+    ],
+    "KW-10": [
+      {"id": "KW-10-C1", "claim": "Reports distinguish Source claims, Inference, and Extension.", "terms": ["Source", "Inference", "Extension"]},
+      {"id": "KW-10-C2", "claim": "Reusable claims require accepted and visible claim IDs.", "terms": ["claim IDs", "visible"]},
+      {"id": "KW-10-C3", "claim": "A report requires source status, primary material, an approved quality gate, required sections, and named limits.", "terms": ["source status", "primary material", "quality gate", "limits"]},
+      {"id": "KW-10-C4", "claim": "Failure output must say what failed, the failure class, and the next user action.", "terms": ["What failed", "next user action"]}
+    ]
+  }
+}

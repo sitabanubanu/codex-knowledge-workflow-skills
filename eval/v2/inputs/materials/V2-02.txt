@@ -1,0 +1,1 @@
+Claims should remain tied to source spans so later conclusions can be checked.

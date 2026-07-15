@@ -1,0 +1,13 @@
+{
+  "protocol": "kw-eval-v2-contract-smoke",
+  "tasks": {
+    "V2-01": {"pipeline_decision": "continue_full", "full_report_permission": true, "response_mode": "full_report", "scope_status": "matched"},
+    "V2-02": {"pipeline_decision": "continue_partial", "full_report_permission": false, "response_mode": "partial_report", "scope_status": "partial_match"},
+    "V2-03": {"pipeline_decision": "stop_before_audit", "full_report_permission": false, "response_mode": "degraded_explanation", "scope_status": "not_evaluated"},
+    "V2-04": {"pipeline_decision": "stop_before_audit", "full_report_permission": false, "response_mode": "failure_notice", "scope_status": "not_evaluated"},
+    "V2-05": {"pipeline_decision": "stop_before_audit", "full_report_permission": false, "response_mode": "degraded_explanation", "scope_status": "target_mismatch"},
+    "V2-06": {"pipeline_decision": "stop_before_audit", "full_report_permission": false, "response_mode": "degraded_explanation", "scope_status": "target_mismatch"},
+    "V2-07": {"pipeline_decision": "stop_before_audit", "full_report_permission": false, "response_mode": "degraded_explanation", "scope_status": "target_mismatch"},
+    "V2-08": {"pipeline_decision": "stop_before_audit", "full_report_permission": false, "response_mode": "degraded_explanation", "scope_status": "not_evaluated"}
+  }
+}

@@ -48,6 +48,24 @@ end-to-end test uses fixture MP3/MP4 files plus deterministic ASR JSONL and
 must reach audit, document quality gate, and `final_report.md`. It also verifies
 that changing the derived transcript invalidates the gate receipt.
 
+The versioned evaluation contract smoke is separate from product regression:
+
+```powershell
+python .\eval\v2\leakage_lint.py
+python .\eval\v2\run_workflow_contract.py `
+  --output-root .\test_outputs\eval_v2\workflow
+python .\eval\v2\score_decisions.py `
+  --results .\test_outputs\eval_v2\workflow\results.jsonl `
+  --output-root .\test_outputs\eval_v2\scoring
+```
+
+It checks input/gold separation and structured gate decisions. Its initial
+eight tasks are only a harness acceptance smoke. They must not be cited as a
+performance, superiority, or release-grade reliability result. A release claim
+requires a clean and complete run, every scored dimension correct, zero false
+full-report releases across at least 60 non-full-report cases, and the separate
+evaluation tracks documented in `eval/v2/README.md`.
+
 For manual batch validation:
 
 ```powershell

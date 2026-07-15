@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Knowledge Workflow evaluation v2 decision result",
+  "type": "object",
+  "required": [
+    "task_id",
+    "group",
+    "pipeline_decision",
+    "full_report_permission",
+    "response_mode",
+    "scope_status",
+    "source_status",
+    "elapsed_seconds"
+  ],
+  "properties": {
+    "task_id": {"type": "string"},
+    "group": {"type": "string"},
+    "pipeline_decision": {"enum": ["continue_full", "continue_partial", "stop_before_audit"]},
+    "full_report_permission": {"type": "boolean"},
+    "response_mode": {"enum": ["full_report", "partial_report", "degraded_explanation", "failure_notice"]},
+    "scope_status": {"enum": ["matched", "partial_match", "target_mismatch", "pending_derivation", "not_evaluated"]},
+    "source_status": {"type": "string"},
+    "elapsed_seconds": {"type": "number", "minimum": 0}
+  }
+}

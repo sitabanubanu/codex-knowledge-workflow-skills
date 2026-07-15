@@ -1,0 +1,61 @@
+{
+  "protocol": "kw-eval-v2-contract-smoke",
+  "tasks": [
+    {
+      "task_id": "V2-01",
+      "request": "请整理这个视频材料的核心论点，并保留证据位置。",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "material_path": "materials/V2-01.txt"
+    },
+    {
+      "task_id": "V2-02",
+      "request": "请分析我提供的视频文字材料，并整理主要观点。",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "material_path": "materials/V2-02.txt"
+    },
+    {
+      "task_id": "V2-03",
+      "request": "请分析这个视频的完整内容。",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "material_path": "materials/V2-03.json"
+    },
+    {
+      "task_id": "V2-04",
+      "request": "请分析该来源的内容。",
+      "target": "web_article",
+      "operation": "read",
+      "material_path": null
+    },
+    {
+      "task_id": "V2-05",
+      "request": "请分析页面中视频讲了什么。",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "material_path": "materials/V2-05.txt"
+    },
+    {
+      "task_id": "V2-06",
+      "request": "请总结页面文章的主要观点。",
+      "target": "web_article",
+      "operation": "read",
+      "material_path": "materials/V2-06.txt"
+    },
+    {
+      "task_id": "V2-07",
+      "request": "请分析帖子中嵌入视频的内容。",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "material_path": "materials/V2-07.txt"
+    },
+    {
+      "task_id": "V2-08",
+      "request": "请读取该来源并整理成学习材料。",
+      "target": "web_article",
+      "operation": "read",
+      "material_path": null
+    }
+  ]
+}

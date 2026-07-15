@@ -1,0 +1,45 @@
+{
+  "V2-01": {
+    "bundle_status": "material_acquired",
+    "artifact_type": "transcript",
+    "source_class": "primary",
+    "content_scope": "video_transcript"
+  },
+  "V2-02": {
+    "bundle_status": "partial_material_acquired",
+    "artifact_type": "transcript",
+    "source_class": "partial_primary",
+    "content_scope": "video_transcript"
+  },
+  "V2-03": {
+    "bundle_status": "metadata_only",
+    "artifact_type": "metadata",
+    "source_class": "metadata_only",
+    "content_scope": "metadata"
+  },
+  "V2-04": {
+    "bundle_status": "failed",
+    "failure_reason": "fixture acquisition produced no artifact"
+  },
+  "V2-05": {
+    "bundle_status": "material_acquired",
+    "artifact_type": "page_text",
+    "source_class": "primary",
+    "content_scope": "article_body"
+  },
+  "V2-06": {
+    "bundle_status": "material_acquired",
+    "artifact_type": "transcript",
+    "source_class": "primary",
+    "content_scope": "video_transcript"
+  },
+  "V2-07": {
+    "bundle_status": "material_acquired",
+    "artifact_type": "page_text",
+    "source_class": "primary",
+    "content_scope": "social_post_text"
+  },
+  "V2-08": {
+    "bundle_status": "unsupported"
+  }
+}

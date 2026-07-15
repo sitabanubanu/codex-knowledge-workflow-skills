@@ -1,0 +1,109 @@
+{
+  "evaluation_id": "KW-SEARCH-20260715",
+  "project_version": "v0.6.0",
+  "candidate_count": 5,
+  "search_backend": "Agent-Reach Exa web_search_exa",
+  "same_model_required": true,
+  "tasks": [
+    {
+      "id": "S-01",
+      "goal": "学习 AI Agent 的 context engineering 与多 Agent 工作流",
+      "level": "中级",
+      "desired_result": "能解释上下文工程、工具调用、子 Agent 协作和基本护栏，并完成一个小型工作流",
+      "relevant": "官方文档、完整课程、技术长文或有完整字幕的长讲解，包含可复现步骤和边界",
+      "exclude": "只讲模型新闻、营销宣传、无正文的搜索摘要、纯概念短帖",
+      "original_required": true,
+      "subtitle_required": false
+    },
+    {
+      "id": "S-02",
+      "goal": "学习 Model Context Protocol（MCP）基础并动手实现一个服务器",
+      "level": "初中级",
+      "desired_result": "理解 host/client/server、工具与资源边界，并能跟着完整教程运行一个 MCP server",
+      "relevant": "官方规范、官方 SDK 文档、完整 hands-on 课程或源码教程",
+      "exclude": "只有定义的新闻稿、聚合文章、没有代码或原文的摘要",
+      "original_required": true,
+      "subtitle_required": false
+    },
+    {
+      "id": "S-03",
+      "goal": "学习 Git rebase 与冲突解决",
+      "level": "初级",
+      "desired_result": "能安全执行交互式 rebase，处理冲突，理解何时不应 rebase 公共分支",
+      "relevant": "Git 官方文档、完整操作教程、带命令和冲突示例的长视频/文章",
+      "exclude": "只比较 merge/rebase 但没有操作步骤、过时命令或 SEO 列表",
+      "original_required": true,
+      "subtitle_required": false
+    },
+    {
+      "id": "S-04",
+      "goal": "理解 Costco 会员制商业模式案例",
+      "level": "初级商业",
+      "desired_result": "能解释会员费、低毛利、复购、规模与供应链之间的飞轮，并指出限制条件",
+      "relevant": "年报、公司原始材料、商学院案例、完整访谈或有证据的深度分析",
+      "exclude": "只列商业模式术语、无数据来源的短评、投资荐股内容",
+      "original_required": true,
+      "subtitle_required": false
+    },
+    {
+      "id": "S-05",
+      "goal": "理解一段 AI 研究者长访谈的核心观点与限制条件",
+      "level": "高级",
+      "desired_result": "得到至少 5 个可回溯核心观点、案例和反例，而不是泛泛摘要",
+      "relevant": "完整访谈视频、完整字幕/文字稿、主持人或嘉宾原始页面",
+      "exclude": "只有标题、剪辑片段、二手新闻和搜索摘要",
+      "original_required": true,
+      "subtitle_required": true
+    },
+    {
+      "id": "S-06",
+      "goal": "寻找适合初学者的 Python 数据分析课程",
+      "level": "初级",
+      "desired_result": "找到有明确先后顺序、练习、代码和完整课程结构的学习资源",
+      "relevant": "大学/机构课程、完整课程主页、全套视频或教材和练习",
+      "exclude": "单个技巧视频、课程广告、没有 syllabus 或练习的推荐榜",
+      "original_required": true,
+      "subtitle_required": false
+    },
+    {
+      "id": "S-07",
+      "goal": "理解 RAG 与 fine-tuning 的区别和选择框架",
+      "level": "中级",
+      "desired_result": "能根据知识更新频率、任务类型、成本和评测要求做技术选型",
+      "relevant": "原始论文、官方技术文档、完整技术课程或含实验/限制的长文",
+      "exclude": "泛 AI 热点文章、没有实验依据的绝对化结论、纯营销内容",
+      "original_required": true,
+      "subtitle_required": false
+    },
+    {
+      "id": "S-08",
+      "goal": "寻找带完整字幕或文字稿的 Stanford CS229/机器学习长课",
+      "level": "初中级",
+      "desired_result": "能按课程顺序学习一整讲，获得完整字幕/讲义和可复习的原始材料",
+      "relevant": "大学课程主页、完整讲义、完整课堂视频字幕或逐讲文字稿",
+      "exclude": "剪辑、短评、只有课程标题或单个片段",
+      "original_required": true,
+      "subtitle_required": true
+    },
+    {
+      "id": "S-09",
+      "goal": "对比不同作者对 LangGraph 与 CrewAI 的讲解",
+      "level": "中级",
+      "desired_result": "至少获得两个独立来源，比较抽象层级、可控性、协作模型和适用场景",
+      "relevant": "两个项目的官方文档/源码，以及独立的完整教程或深度对比",
+      "exclude": "联盟营销、只介绍单一框架、无代码或无来源的比较",
+      "original_required": true,
+      "subtitle_required": false
+    },
+    {
+      "id": "S-10",
+      "goal": "理解 Toyota Production System/精益生产商业案例",
+      "level": "初级商业",
+      "desired_result": "能解释原则、现场实践、组织条件和案例中的限制，而不是背诵术语",
+      "relevant": "Toyota/大学/研究机构材料、完整案例、课程讲义或有原始证据的长视频",
+      "exclude": "精益生产清单、无案例证据的励志文章和摘要",
+      "original_required": true,
+      "subtitle_required": false
+    }
+  ]
+}

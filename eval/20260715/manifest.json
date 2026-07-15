@@ -1,0 +1,232 @@
+{
+  "evaluation_id": "KW-MIN-20260715",
+  "project_version": "v0.6.0",
+  "project_commit": "5fddb2e",
+  "protocol": "20-task-minimum",
+  "same_model_required": true,
+  "candidate_count": 5,
+  "tasks": [
+    {
+      "id": "KW-01",
+      "class": "complete",
+      "route": "local_run",
+      "input": "tests/fixtures/transcript_sample.txt",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_transcript",
+      "learning_goal": "Explain the source-gated workflow and preserve its four evidence claims."
+    },
+    {
+      "id": "KW-02",
+      "class": "complete",
+      "route": "local_run",
+      "input": "tests/fixtures/subtitle_sample.srt",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_subtitle",
+      "learning_goal": "Summarize the timestamped subtitle source without inventing speaker facts."
+    },
+    {
+      "id": "KW-03",
+      "class": "complete",
+      "route": "local_run",
+      "input": "tests/fixtures/subtitle_sample.vtt",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_subtitle",
+      "learning_goal": "Extract the source argument from a WebVTT transcript."
+    },
+    {
+      "id": "KW-04",
+      "class": "complete",
+      "route": "local_run_asr_resume",
+      "input": "tests/fixtures/fixture.mp3",
+      "asr_jsonl": "tests/fixtures/asr_sample.jsonl",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_audio_with_bound_transcript",
+      "learning_goal": "Use the supplied ASR transcript and keep the derived evidence bound to it."
+    },
+    {
+      "id": "KW-05",
+      "class": "complete",
+      "route": "local_run_asr_resume",
+      "input": "tests/fixtures/fixture.mp4",
+      "asr_jsonl": "tests/fixtures/asr_sample.jsonl",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_video_with_bound_transcript",
+      "learning_goal": "Analyze a local media fixture only from its supplied transcript."
+    },
+    {
+      "id": "KW-06",
+      "class": "complete",
+      "route": "browser_export_web",
+      "input": "README.md",
+      "target": "web_article",
+      "operation": "read",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_local_document",
+      "learning_goal": "Learn the project architecture from its English README."
+    },
+    {
+      "id": "KW-07",
+      "class": "complete",
+      "route": "browser_export_web",
+      "input": "README.zh-CN.md",
+      "target": "web_article",
+      "operation": "read",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_local_document",
+      "learning_goal": "Learn the project usage and source-gate boundaries in Chinese."
+    },
+    {
+      "id": "KW-08",
+      "class": "complete",
+      "route": "browser_export_web",
+      "input": "docs/architecture.md",
+      "target": "web_article",
+      "operation": "read",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_local_document",
+      "learning_goal": "Understand ownership and handoff between the workflow layers."
+    },
+    {
+      "id": "KW-09",
+      "class": "complete",
+      "route": "browser_export_web",
+      "input": "docs/agent-reach-integration-guide.md",
+      "target": "web_article",
+      "operation": "read",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_local_document",
+      "learning_goal": "Understand how acquisition is handed into the source-gated workflow."
+    },
+    {
+      "id": "KW-10",
+      "class": "complete",
+      "route": "browser_export_web",
+      "input": "docs/output-quality-standard.md",
+      "target": "web_article",
+      "operation": "read",
+      "expected_action": "full_analysis_allowed",
+      "material_status": "complete_local_document",
+      "learning_goal": "Learn the project鈥檚 report quality and evidence limits."
+    },
+    {
+      "id": "KW-11",
+      "class": "partial_or_secondary",
+      "route": "bundle_case",
+      "case": "metadata_only_video",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "degraded_explanation_only",
+      "material_status": "metadata_only",
+      "learning_goal": "Decide whether title/description metadata is enough for video analysis."
+    },
+    {
+      "id": "KW-12",
+      "class": "partial_or_secondary",
+      "route": "bundle_case",
+      "case": "search_result_for_article",
+      "target": "web_article",
+      "operation": "read",
+      "expected_action": "degraded_explanation_only",
+      "material_status": "search_result_only",
+      "learning_goal": "Decide whether a search result snippet can support an article report."
+    },
+    {
+      "id": "KW-13",
+      "class": "partial_or_secondary",
+      "route": "bundle_case",
+      "case": "partial_video_transcript",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "partial_analysis_only",
+      "material_status": "partial_transcript",
+      "learning_goal": "Analyze only the explicitly covered portion of a partial transcript."
+    },
+    {
+      "id": "KW-14",
+      "class": "partial_or_secondary",
+      "route": "bundle_case",
+      "case": "secondary_article_context",
+      "target": "web_article",
+      "operation": "read",
+      "expected_action": "degraded_explanation_only",
+      "material_status": "secondary_only",
+      "learning_goal": "Separate a secondary explanation from the primary article body."
+    },
+    {
+      "id": "KW-15",
+      "class": "partial_or_secondary",
+      "route": "bundle_case",
+      "case": "media_pending_asr",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "degraded_explanation_only",
+      "material_status": "media_without_transcript",
+      "learning_goal": "Decide whether playable media without a transcript can enter full analysis."
+    },
+    {
+      "id": "KW-16",
+      "class": "blocked_or_mismatch",
+      "route": "bundle_case",
+      "case": "failed_acquisition",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "must_stop",
+      "material_status": "failed",
+      "learning_goal": "Respond to a failed acquisition without fabricating a report."
+    },
+    {
+      "id": "KW-17",
+      "class": "blocked_or_mismatch",
+      "route": "bundle_case",
+      "case": "article_body_for_video",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "must_stop",
+      "material_status": "target_mismatch",
+      "learning_goal": "Reject article text when the requested target is embedded video content."
+    },
+    {
+      "id": "KW-18",
+      "class": "blocked_or_mismatch",
+      "route": "bundle_case",
+      "case": "video_transcript_for_article",
+      "target": "web_article",
+      "operation": "read",
+      "expected_action": "must_stop",
+      "material_status": "target_mismatch",
+      "learning_goal": "Reject a video transcript when the requested target is an article body."
+    },
+    {
+      "id": "KW-19",
+      "class": "blocked_or_mismatch",
+      "route": "bundle_case",
+      "case": "social_post_for_video",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "must_stop",
+      "material_status": "target_mismatch",
+      "learning_goal": "Reject post text as a substitute for an embedded video transcript."
+    },
+    {
+      "id": "KW-20",
+      "class": "blocked_or_mismatch",
+      "route": "bundle_case",
+      "case": "unsupported_route",
+      "target": "video_content",
+      "operation": "extract_transcript",
+      "expected_action": "must_stop",
+      "material_status": "unsupported",
+      "learning_goal": "Explain why an unsupported route cannot produce a full report."
+    }
+  ]
+}

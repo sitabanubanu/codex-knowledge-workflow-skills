@@ -1,0 +1,2 @@
+The article body describes a workflow that checks acquired material before it
+allows report writing and keeps conclusions connected to evidence.
