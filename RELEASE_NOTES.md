@@ -1,5 +1,46 @@
 # Release Notes
 
+## v0.6.1
+
+This patch release hardens the evidence gate and evaluation boundary without
+changing the four user-facing workflow skills or expanding platform access.
+
+### Fixed
+
+- Source status, scope status, pipeline continuation, and full-report
+  permission now derive from one versioned contract.
+- Local MP3/MP4 inputs waiting for ASR no longer appear as target/scope
+  mismatch.
+- Invalid or missing ASR artifacts now stop the pipeline instead of being
+  silently treated as success.
+- Gate provenance now rejects changed derived transcripts and stale artifact
+  bytes.
+
+### Added
+
+- Atomic ingest publication and stronger run/attempt/operation receipts.
+- Offline MP3/MP4 end-to-end regression through audit, document quality gate,
+  and final report.
+- Evaluation Protocol v2 with neutral inputs, separate workflow fixtures,
+  physically isolated gold decisions, structured scoring, input-leakage lint,
+  and clean-worktree release metadata.
+- A limitations notice for the preserved 2026-07-15 engineering pilot.
+
+### Validation and limits
+
+- `python .\kw.py validate --include-sync` passes the complete offline matrix.
+- The v2 contract smoke has eight tasks and zero false full-report releases in
+  seven non-full-report cases, but its one-sided 95% zero-error upper bound is
+  still 34.8%. It therefore does not authorize a reliability, learning-effect,
+  or product-superiority claim.
+- Live platform access and real ASR runtime validation remain opt-in because
+  they require authorized URLs, account state, local media, and environment
+  support.
+- `browser-host-identity` remains an independent cross-cutting safety guard,
+  not a fifth workflow stage. `knowledge-video-decomposer` remains an internal
+  compatibility library rather than a new product entry point.
+- Package version is `0.6.1`.
+
 ## v0.6.0
 
 ### Added

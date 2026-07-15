@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.6.1
+
+- Added Source Status Contract v1 with one authoritative derivation path for
+  source state, scope state, pipeline decision, and report permission.
+- Made ingest status publication atomic and bound gate receipts to run,
+  attempt, operation, artifact bytes, and derived transcript hashes.
+- Distinguished local media awaiting ASR from target/scope mismatch.
+- Changed ASR artifact validation to fail closed and rebuild the final source
+  status from the derived transcript rather than stale pre-ASR state.
+- Added MP3/MP4 end-to-end regression coverage through audit, quality gate,
+  final report, and transcript-tamper detection.
+- Preserved the 2026-07-15 engineering pilot with an explicit limitations
+  notice, and added an offline evaluation v2 contract harness with neutral
+  inputs, physically separate gold labels, structured scoring, and dirty-run
+  release guards.
+- Kept the evaluation v2 eight-task track explicitly non-release-grade; it is
+  a harness acceptance smoke, not a product superiority result.
+
 ## v0.6.0
 
 - Added Acquisition Bundle schema v2 with run, attempt, bundle, target,
