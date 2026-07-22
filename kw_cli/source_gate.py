@@ -30,7 +30,7 @@ VIDEO_PLATFORMS = {"youtube", "bilibili", "xiaoyuzhou", "local_file"}
 SOCIAL_PLATFORMS = {"x", "twitter", "xiaohongshu", "reddit", "facebook", "instagram", "v2ex", "xueqiu"}
 REPOSITORY_PLATFORMS = {"github"}
 SEARCH_PLATFORMS = {"search", "exa_search"}
-UPSTREAM_AGENT_REACH_PLATFORMS = {
+EXTERNAL_SOURCE_PLATFORMS = {
     "web",
     "youtube",
     "rss",

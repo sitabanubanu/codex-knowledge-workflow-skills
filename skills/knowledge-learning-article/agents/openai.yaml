@@ -1,0 +1,4 @@
+interface:
+  display_name: "Knowledge Learning Article"
+  short_description: "Turn audited sources into structured learning articles"
+  default_prompt: "Use $knowledge-learning-article to turn the current audited knowledge workflow project into a structured learning article and study path."

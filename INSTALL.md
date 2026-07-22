@@ -1,111 +1,22 @@
-# Installation
+# 安装
 
-## Repository
+## 安装项目
 
 ```powershell
 git clone https://github.com/sitabanubanu/codex-knowledge-workflow-skills.git
 cd codex-knowledge-workflow-skills
 python -m pip install -e .
+kw --help
 ```
 
-You can also run through the wrapper without installing:
+也可以不安装包，直接使用 `python .\kw.py ...`。
 
-```powershell
-python .\kw.py demo
-```
+本项目不需要安装 Agent Reach。获取层直接探测可选 Provider；缺少某个平台工具只会让对应路线阻断，不会影响本地文件、其他 Provider 或证据工作流。
 
-## Agent-Reach
+请从完整源码 checkout 或 source archive 运行。单独的 Python wheel 不含
+Codex Skills 与内部脚本，不能替代完整项目包。
 
-Agent-Reach is the acquisition layer. Install it separately; do not commit
-`work/agent-reach` as a project dependency.
-
-```powershell
-python .\kw.py agent-reach install --safe
-agent-reach --version
-python .\kw.py agent-reach doctor
-```
-
-The wrapper manages the standalone Agent-Reach runtime under
-`C:\Users\Socrates\github-tools`:
-
-```text
-sources\Agent-Reach
-runtimes\agent-reach\venv
-bin\agent-reach.cmd
-manifests\agent-reach.json
-```
-
-It never installs Agent-Reach into the current `sys.executable`, Hermes, or the
-Knowledge Workflow source tree. The upstream baseline is pinned to `v1.5.0`.
-
-Through this CLI:
-
-```powershell
-python .\kw.py agent-reach install
-python .\kw.py agent-reach doctor
-python .\kw.py agent-reach matrix
-```
-
-Doctor must report `status: ok` for the backend used by the requested
-operation. An installed backend in `warn` state is not considered ready.
-
-For OpenCLI routes, install its extension in the actual host browser, keep that
-exact Edge or Chrome host open, sign in through your own authorized account,
-and verify with:
-
-```powershell
-opencli doctor
-agent-reach doctor --json
-```
-
-The upstream `v1.5.0` installer can attempt automatic Chrome/Firefox cookie
-discovery for `twitter`, `bilibili`, `xueqiu`, or `all`. The `kw` wrapper
-requires `--allow-upstream-cookie-import` before that route. For Edge, use an
-explicit user-authorized upstream command instead:
-
-```powershell
-agent-reach configure --from-browser edge
-```
-
-## Safe Mode
-
-Use safe mode when you want to review system changes first:
-
-```powershell
-python .\kw.py agent-reach install --safe
-python .\kw.py agent-reach install --safe --dry-run
-```
-
-## Update Agent-Reach
-
-```powershell
-python .\kw.py agent-reach install --safe
-agent-reach check-update
-python .\kw.py agent-reach doctor
-```
-
-## Verify Bundle Output
-
-Run an acquisition:
-
-```powershell
-python .\kw.py acquire --input https://example.com --target web_article --operation read --project-root .\outputs\knowledge-workflow\example
-python .\kw.py validate-bundle --bundle .\outputs\knowledge-workflow\example\00_acquisition\manifest.json
-```
-
-Expected stable output:
-
-```text
-00_acquisition/manifest.json
-```
-
-Then ingest:
-
-```powershell
-python .\kw.py ingest --bundle .\outputs\knowledge-workflow\example\00_acquisition\manifest.json --project-root .\outputs\knowledge-workflow\example
-```
-
-## Install Workflow Skills
+## 安装 Codex Skills
 
 ```powershell
 .\sync_to_codex_skills.ps1 -DryRun
@@ -113,37 +24,52 @@ python .\kw.py ingest --bundle .\outputs\knowledge-workflow\example\00_acquisiti
 .\sync_to_codex_skills.ps1 -VerifyOnly
 ```
 
-The managed skills are `knowledge-workflow-console`, `agent-reach-console`,
-`browser-host-identity`, `source-gated-evidence-layer`, and
-`knowledge-document-composer`.
-`knowledge-video-decomposer` remains a repository-internal compatibility
-library and is not synced as a user-facing skill.
+同步的工作流 Skills：
 
-## Full Agent-Reach Coverage
+- `knowledge-workflow-console`
+- `web-intent-scout`
+- `acquire-source-material`
+- `source-gated-evidence-layer`
+- `knowledge-learning-article`
+- `knowledge-document-composer`
 
-Agent-Reach owns all 15 native channels. This project has direct structured
-adapters for the high-frequency routes and an auditable native handoff for the
-rest:
+同步脚本会移除旧的 `agent-reach-console`。`knowledge-video-decomposer` 仍是仓库内部兼容库；`browser-host-identity` 是独立项目，不由本工作流同步。
+
+## 可选 Provider
+
+只安装你实际需要的工具，并遵循各工具官方安装与授权方式：
+
+| 用途 | 可选 Provider |
+| --- | --- |
+| 普通网页 | `curl` + Jina Reader |
+| YouTube | `yt-dlp`；可选 OpenCLI 可见字幕路线 |
+| Bilibili | `bili`；可选 OpenCLI 字幕路线 |
+| GitHub | `gh` |
+| X/Twitter | `twitter`；可选 OpenCLI |
+| 小红书 | OpenCLI、xiaohongshu MCP 或 `xhs` |
+| 搜索 | `mcporter` 中配置的 Exa |
+| 本地音视频 | `ffmpeg`、`ffprobe`、`faster-whisper` |
+
+检查实际状态：
 
 ```powershell
-python .\kw.py agent-reach matrix
-python .\kw.py agent-reach import --input-file .\exports\primary.txt --source-url <original-url> --platform reddit --target social_post --operation read --browser-host edge --credentialed-session --project-root .\outputs\knowledge-workflow\reddit
+kw source doctor
+kw source matrix
+kw doctor
 ```
 
-Read [Agent-Reach integration guide](docs/agent-reach-integration-guide.md)
-for the full channel map, current version policy, and import boundary.
+`provider_status: ok` 只说明 Provider 可调用，不代表材料已经通过 Source Gate。
 
-## Cookie And Token Safety
+## 验证安装
 
-- Do not commit cookies, tokens, Authorization headers, or private logs.
-- Do not paste cookie values into issues, reports, manifests, or command logs.
-- `commands.jsonl` must record only redacted command summaries and exit codes.
-- `manifest.json` may record `cookies_used=true`, never cookie contents.
+```powershell
+kw demo
+kw validate --include-sync
+```
 
-## Windows Notes
+## 安全边界
 
-- Use PowerShell examples from this repository.
-- Keep generated Chinese and Markdown files UTF-8 encoded.
-- Do not use `work/` as formal project code.
-- `outputs/` and `test_outputs/` are generated directories and should stay out
-  of commits.
+- 不提交 cookies、token、Authorization headers、浏览器 profile 或私密日志。
+- `manifest.json` 只能记录 `cookies_used=true/false`，不能保存 cookie 内容。
+- 使用 OpenCLI、浏览器 cookies 或浏览器导出时，必须显式声明真实的 `edge` 或 `chrome` 宿主。
+- 不绕过 CAPTCHA、付费墙、地区、账号或私密内容权限。

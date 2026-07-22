@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Knowledge Workflow evaluation v2 neutral task inputs",
+  "type": "object",
+  "required": ["protocol", "tasks"],
+  "additionalProperties": false,
+  "properties": {
+    "protocol": {"const": "kw-eval-v2-contract-smoke"},
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["task_id", "request", "target", "operation", "material_path"],
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {"type": "string", "minLength": 1},
+          "request": {"type": "string", "minLength": 1},
+          "target": {"enum": ["video_content", "social_post", "web_article", "repository", "search_triage"]},
+          "operation": {"enum": ["read", "search", "extract_transcript"]},
+          "material_path": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

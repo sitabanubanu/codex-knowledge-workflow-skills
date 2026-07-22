@@ -8,7 +8,7 @@
 
 2. Acquire, gate, and audit the selected source (required)
    knowledge-workflow-console
-     -> agent-reach-console or local Bundle v2 builder
+     -> acquire-source-material or local Bundle v2 builder
      -> source-gated-evidence-layer
 
 3. Turn the audited pack into a learning deliverable (when requested)
@@ -45,7 +45,7 @@ specific URL and did not ask to compare, verify, or find alternatives.
 
 ```text
 knowledge-workflow-console
-  -> agent-reach-console
+  -> acquire-source-material
   -> source-gated-evidence-layer
   -> knowledge-document-composer
 ```
@@ -54,7 +54,7 @@ knowledge-workflow-console
 
 ```text
 knowledge-workflow-console
-  -> agent-reach-console or local Bundle v2 builder
+  -> acquire-source-material or local Bundle v2 builder
   -> source-gated-evidence-layer
   -> knowledge-learning-article
 ```
@@ -95,7 +95,7 @@ require different scopes.
 ## URL and Query Route
 
 1. Run preflight with a redacted input record.
-2. Run Agent-Reach doctor.
+2. Run the Knowledge Workflow native provider doctor.
 3. Write a route plan for the selected target and operation.
 4. Require backend health plus implemented operation support.
 5. Create a staged Bundle v2 attempt and promote only after validation.
@@ -117,7 +117,7 @@ to reuse output files. Old bundles and downstream outputs move to history.
 
 ## Browser and Chrome
 
-Use OpenCLI only when Agent-Reach doctor reports it ready. A Codex Chrome
+Use OpenCLI only when the native provider report marks it ready. A Codex Chrome
 session can inspect or export authorized visible material, but the export must
 become a bundle artifact. Browser metadata, screenshots, page shell, and login
 state are not source evidence by themselves.

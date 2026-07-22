@@ -56,7 +56,8 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 REPO_ROOT=$SCRIPT_DIR
 SOURCE_ROOT=$REPO_ROOT/skills
-SKILLS="knowledge-workflow-console agent-reach-console source-gated-evidence-layer knowledge-document-composer"
+SKILLS="knowledge-workflow-console acquire-source-material web-intent-scout source-gated-evidence-layer knowledge-learning-article knowledge-document-composer"
+OBSOLETE_SKILLS="agent-reach-console"
 
 if [ ! -d "$SOURCE_ROOT" ]; then
   echo "Missing source skills directory: $SOURCE_ROOT" >&2
@@ -137,6 +138,24 @@ assert_contained_path() {
 }
 
 changes=0
+
+for skill in $OBSOLETE_SKILLS; do
+  dst=$CODEX_ROOT_FULL/$skill
+  assert_contained_path "$dst"
+  if [ ! -d "$dst" ]; then
+    continue
+  fi
+  if [ "$VERIFY_ONLY" -eq 1 ]; then
+    echo "[verify] obsolete installed skill: $skill"
+    changes=$((changes + 1))
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "[verify] would remove obsolete installed skill: $skill"
+    changes=$((changes + 1))
+  else
+    echo "[remove] obsolete installed skill: $skill"
+    rm -rf -- "$dst"
+  fi
+done
 
 for skill in $SKILLS; do
   src=$SOURCE_ROOT/$skill

@@ -1,5 +1,44 @@
 # Release Notes
 
+## v0.7.0
+
+This release removes Agent Reach as a runtime and workflow dependency while
+preserving Bundle v2, SourceStatus, evidence audit, provenance receipts, and
+all learning/document outputs.
+
+### Changed
+
+- Replaced the upstream acquisition controller with the project-owned
+  `acquire-source-material` skill, native Provider registry, operation-aware
+  route plans, and direct Bundle v2 writer.
+- Replaced `kw agent-reach ...` with `kw source doctor|matrix|plan|import`.
+- Routed downloaded YouTube and Bilibili media to the evidence layer for ASR;
+  the acquisition layer no longer treats transcription as its own authority.
+- Restored `web-intent-scout` before source selection and
+  `knowledge-learning-article` as the learning-oriented output route.
+- Kept `browser-host-identity` outside the Knowledge Workflow product and sync
+  set; browser-backed routes enforce their own explicit host declaration.
+
+### Compatibility and safety
+
+- Existing Bundle v1/v2 readers and historical acquisition-layer values remain
+  readable, but new runs never import or execute Agent Reach.
+- Missing optional Providers block only the affected route. They cannot create
+  fabricated primary artifacts or normal reports.
+- Channels without a structured adapter use `kw source import` for an
+  authorized, provider-neutral Bundle v2 handoff.
+
+### Validation
+
+- Added native-provider independence, offline acquisition, source export,
+  media-to-ASR handoff, redaction, and no-fake-report regressions.
+- Evaluation v2 now executes its Draft 2020-12 JSON Schemas, rejects unknown
+  input/result fields, invalid enums, and negative elapsed time, and includes
+  negative schema tests in CI.
+- Full release validation remains `kw validate --include-sync`; live platform
+  and real ASR checks remain opt-in and are not product-superiority evidence.
+- Package version is `0.7.0`.
+
 ## v0.6.1
 
 This patch release hardens the evidence gate and evaluation boundary without

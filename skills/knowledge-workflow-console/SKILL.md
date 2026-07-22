@@ -7,6 +7,10 @@ description: Start here for end-to-end source-gated knowledge work from broad le
 
 Use this skill as the product controller.
 
+Before the first command, resolve the installed entry point with `kw version`.
+If `kw` is unavailable, install the repository package; do not assume the
+current working directory contains `kw.py`.
+
 1. Classify whether the user needs source discovery, processing of an already
    selected source, or both.
 2. For a broad open-web learning need, comparison, recommendation, or
@@ -20,12 +24,11 @@ Use this skill as the product controller.
 4. State the intended `analysis_target` and resolve the required acquisition
    `operation` for the selected source.
 5. Run preflight for live URLs, media, or unclear expectations.
-6. Route URL/query acquisition to `agent-reach-console`; local files use the
+6. Route URL/query acquisition to `acquire-source-material`; local files use the
    same Bundle v2 contract through the local builder.
-7. When Agent-Reach has a ready native channel without a bespoke `kw acquire`
-   adapter, use its native command to obtain task-primary material, then route
-   the saved artifact through `kw agent-reach import`; never downgrade it to a
-   generic web fallback.
+7. When no structured adapter exists, obtain authorized task-primary material
+   through a browser, CLI, API, or user export, then route the saved artifact
+   through `kw source import`; never downgrade it to a generic web fallback.
 8. Route the promoted manifest to `source-gated-evidence-layer`.
 9. For a source-faithful report, continue to `knowledge-document-composer` only
    when the current gate and analysis receipts allow it. For personal learning,
@@ -40,27 +43,27 @@ Use this skill as the product controller.
     report stale output files separately from current deliverables.
 
 Browser state may supply authorized visible artifacts, but it does not bypass
-Bundle v2 or the source gate. Load `$browser-host-identity` whenever Chrome,
-Edge, OpenCLI, cookies, an extension, or a browser export is involved. Record
-the actual host, never infer it from a tool name, and never fall back from one
-browser to the other. Metadata, snippets, screenshots, comments, and captions
-must not be silently promoted to another content scope.
+Bundle v2 or the source gate. Whenever Chrome, Edge, OpenCLI, cookies, an
+extension, or a browser export is involved, require the actual host to be
+declared; never infer it from a tool name or fall back to the other browser.
+Metadata, snippets, screenshots, comments, and captions must not be silently
+promoted to another content scope.
 
 Primary command:
 
 ```powershell
-python kw.py run --input <url-or-file> --target <target> --operation <operation> --mode audit
+kw run --input <url-or-file> --target <target> --operation <operation> --mode audit
 ```
 
 Use explicit stages when diagnosing:
 
 ```powershell
-python kw.py acquire ...
-python kw.py ingest ...
-python kw.py audit ...
-python kw.py compose ...
-python kw.py status --project-root <project>
-python kw.py result --project-root <project>
+kw acquire ...
+kw ingest ...
+kw audit ...
+kw compose ...
+kw status --project-root <project>
+kw result --project-root <project>
 ```
 
 Read `references/routing.md`, `references/stage-contracts.md`, and

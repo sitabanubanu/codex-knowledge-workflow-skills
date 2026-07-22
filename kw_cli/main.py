@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import agent_reach_adapter, bundle, ingest, source_gate
+from . import acquisition_adapter, bundle, ingest, source_gate, source_status_contract
 from .redaction import redact_text
 
 
@@ -26,6 +26,7 @@ VIDEO = REPO_ROOT / "skills" / "knowledge-video-decomposer"
 DOCUMENT = REPO_ROOT / "skills" / "knowledge-document-composer"
 OUTPUT_BASE = REPO_ROOT / "outputs" / "knowledge-workflow"
 DEFAULT_YOUTUBE_COOKIES = REPO_ROOT / "work" / "youtube-cookies" / "youtube.cookies.txt"
+PROJECT_VERSION = "0.7.0"
 
 TRANSCRIPT_EXTENSIONS = {".txt", ".md", ".srt", ".vtt", ".jsonl", ".json"}
 MEDIA_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".webm", ".wav", ".mov", ".opus"}
@@ -68,6 +69,54 @@ RUN_OPTION_DEFAULTS = {
 
 class KwError(Exception):
     """User-facing CLI failure."""
+
+
+def version_payload() -> dict[str, object]:
+    commit = "unknown"
+    dirty: bool | None = None
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(REPO_ROOT),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        if completed.returncode == 0 and completed.stdout.strip():
+            commit = completed.stdout.strip()
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=str(REPO_ROOT),
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            dirty = status.returncode == 0 and bool(status.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return {
+        "version": PROJECT_VERSION,
+        "commit": commit,
+        "worktree_dirty": dirty,
+        "runtime_module": str(Path(__file__).resolve()),
+        "repository_root": str(REPO_ROOT),
+    }
+
+
+def cmd_version(args: argparse.Namespace) -> int:
+    payload = version_payload()
+    if args.json or args.pretty:
+        print(json.dumps(payload, ensure_ascii=False, indent=2 if args.pretty else None, sort_keys=True))
+    else:
+        print(f"Knowledge Workflow {payload['version']} ({payload['commit']})")
+        print(f"Runtime: {payload['runtime_module']}")
+    return 0
 
 
 def configure_stdio() -> None:
@@ -270,7 +319,14 @@ def write_result(project_root: Path, pretty: bool) -> None:
 
 
 def current_source_status(project_root: Path) -> dict:
-    return read_json(project_root / "10_video" / "00_source" / "source_status.json")
+    payload = read_json(project_root / "10_video" / "00_source" / "source_status.json")
+    if not payload:
+        return {}
+    try:
+        source_status_contract.require_valid_source_status(payload)
+    except source_status_contract.SourceStatusContractError as exc:
+        raise KwError(f"invalid persisted source status: {exc}") from exc
+    return payload
 
 
 def current_acquisition_manifest(project_root: Path) -> dict:
@@ -404,7 +460,7 @@ def run_new_flow(args: argparse.Namespace) -> int:
                 resume=args.resume,
             )
         elif input_kind == "url":
-            manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+            manifest_path = acquisition_adapter.acquire_source_material(
                 input_value=input_value,
                 project_root=project_root,
                 analysis_target=args.target,
@@ -424,8 +480,11 @@ def run_new_flow(args: argparse.Namespace) -> int:
         ingest_result = ingest.ingest_bundle(manifest_path=manifest_path, project_root=project_root)
         source_status = current_source_status(project_root)
         source_state = source_status.get("source_status")
-        if input_kind == "media" and source_state == "degraded_report_only":
-            manifest = current_acquisition_manifest(project_root)
+        manifest = current_acquisition_manifest(project_root)
+        if (
+            source_state == "degraded_report_only"
+            and ingest.choose_primary_media_artifact(manifest_path, manifest) is not None
+        ):
             asr_result = ingest.run_asr_for_media_bundle(
                 manifest_path=manifest_path,
                 manifest=manifest,
@@ -471,7 +530,7 @@ def run_new_flow(args: argparse.Namespace) -> int:
         ):
             ingest.compose_final_report(project_root=project_root, pretty=args.pretty)
             workflow_outcome = "final_report_ready"
-    except (KwError, bundle.BundleError, ingest.IngestError, agent_reach_adapter.AgentReachAdapterError) as exc:
+    except (KwError, bundle.BundleError, ingest.IngestError, acquisition_adapter.AcquisitionAdapterError) as exc:
         exit_code = 1
         failure_reason = str(exc)
         workflow_outcome = "failed"
@@ -534,28 +593,19 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_agent_reach_install(args: argparse.Namespace) -> int:
-    return agent_reach_adapter.agent_reach_install(
-        safe=args.safe,
-        dry_run=args.dry_run,
-        channels=args.channels or "",
-        allow_upstream_cookie_import=bool(args.allow_upstream_cookie_import),
-    )
+def cmd_source_doctor(args: argparse.Namespace) -> int:
+    return acquisition_adapter.source_doctor(output_json=args.output_json)
 
 
-def cmd_agent_reach_doctor(args: argparse.Namespace) -> int:
-    return agent_reach_adapter.agent_reach_doctor(output_json=args.output_json)
-
-
-def cmd_agent_reach_matrix(args: argparse.Namespace) -> int:
-    return agent_reach_adapter.agent_reach_capability_matrix(
+def cmd_source_matrix(args: argparse.Namespace) -> int:
+    return acquisition_adapter.source_capability_matrix(
         output_json=args.output_json,
         output_md=args.output_md,
     )
 
 
-def cmd_agent_reach_plan(args: argparse.Namespace) -> int:
-    return agent_reach_adapter.agent_reach_route_plan(
+def cmd_source_plan(args: argparse.Namespace) -> int:
+    return acquisition_adapter.source_route_plan(
         input_value=args.input,
         output_json=args.output_json,
         analysis_target=args.target,
@@ -564,10 +614,10 @@ def cmd_agent_reach_plan(args: argparse.Namespace) -> int:
     )
 
 
-def cmd_agent_reach_import(args: argparse.Namespace) -> int:
+def cmd_source_import(args: argparse.Namespace) -> int:
     project_root = ensure_project_root(args)
     try:
-        manifest_path = bundle.build_agent_reach_export_bundle(
+        manifest_path = bundle.build_source_export_bundle(
             input_path=args.input_file,
             source_url=args.source_url,
             platform=args.platform,
@@ -595,7 +645,7 @@ def cmd_acquire(args: argparse.Namespace) -> int:
     project_root = ensure_project_root(args)
     input_value = normalize_input(args.input) if not args.query else args.input
     try:
-        manifest_path = agent_reach_adapter.acquire_with_agent_reach(
+        manifest_path = acquisition_adapter.acquire_source_material(
             input_value=input_value,
             project_root=project_root,
             analysis_target=args.target,
@@ -604,7 +654,7 @@ def cmd_acquire(args: argparse.Namespace) -> int:
             platform_override="search" if args.query else "",
             youtube_options=youtube_options_from_args(args),
         )
-    except (bundle.BundleError, agent_reach_adapter.AgentReachAdapterError) as exc:
+    except (bundle.BundleError, acquisition_adapter.AcquisitionAdapterError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     manifest = read_json(manifest_path)
@@ -697,6 +747,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     project_root = args.project_root.resolve()
     try:
+        current_source_status(project_root)
         write_status(project_root, args.pretty)
         write_result(project_root, args.pretty)
     except KwError as exc:
@@ -709,6 +760,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 def cmd_result(args: argparse.Namespace) -> int:
     project_root = args.project_root.resolve()
     try:
+        current_source_status(project_root)
         write_result(project_root, args.pretty)
     except KwError as exc:
         print(str(exc), file=sys.stderr)
@@ -1656,7 +1708,8 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
                 "kw.py",
                 "kw_cli/main.py",
                 "kw_cli/bundle.py",
-                "kw_cli/agent_reach_adapter.py",
+                "kw_cli/acquisition_adapter.py",
+                "kw_cli/acquisition_providers.py",
                 "kw_cli/ingest.py",
                 "kw_cli/canonicalize.py",
                 "kw_cli/redaction.py",
@@ -1666,6 +1719,11 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
                 str(CONSOLE / "scripts" / "workflow_preflight.py"),
                 str(CONSOLE / "scripts" / "workflow_status_summary.py"),
                 str(CONSOLE / "scripts" / "result_index_writer.py"),
+                str(REPO_ROOT / "skills" / "knowledge-learning-article" / "scripts" / "learning_common.py"),
+                str(REPO_ROOT / "skills" / "knowledge-learning-article" / "scripts" / "learning_analysis_pack_builder.py"),
+                str(REPO_ROOT / "skills" / "knowledge-learning-article" / "scripts" / "learning_article_writer.py"),
+                str(REPO_ROOT / "skills" / "knowledge-learning-article" / "scripts" / "learning_article_auditor.py"),
+                str(REPO_ROOT / "skills" / "knowledge-learning-article" / "scripts" / "learning_pipeline_runner.py"),
                 str(VIDEO / "scripts" / "doctor.py"),
                 str(VIDEO / "scripts" / "chrome_media_probe.py"),
                 "tests/knowledge_workflow_regression.py",
@@ -1674,14 +1732,23 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
         ("demo", [sys.executable, "kw.py", "demo"]),
         ("regression", [sys.executable, "tests/knowledge_workflow_regression.py"]),
         ("real_workflow_acceptance", [sys.executable, "tests/real_workflow_acceptance.py"]),
+        (
+            "learning_article_self_test",
+            [
+                sys.executable,
+                "skills/knowledge-learning-article/scripts/learning_pipeline_runner.py",
+                "--self-test",
+            ],
+        ),
         ("acquisition_bundle_schema", [sys.executable, "tests/test_acquisition_bundle_schema.py"]),
         ("local_bundle_ingest", [sys.executable, "tests/test_local_bundle_ingest.py"]),
         ("source_status_contract", [sys.executable, "tests/test_source_status_contract.py"]),
         ("media_asr_end_to_end", [sys.executable, "tests/test_media_asr_end_to_end.py"]),
-        ("agent_reach_acquire_offline", [sys.executable, "tests/test_agent_reach_acquire_offline.py"]),
-        ("agent_reach_native_export", [sys.executable, "tests/test_agent_reach_native_export.py"]),
+        ("native_acquisition_offline", [sys.executable, "tests/test_native_acquisition_offline.py"]),
+        ("source_export", [sys.executable, "tests/test_source_export.py"]),
+        ("native_provider_independence", [sys.executable, "tests/test_native_provider_independence.py"]),
         ("source_gate_from_bundle", [sys.executable, "tests/test_source_gate_from_bundle.py"]),
-        ("no_fake_report_from_agent_reach_failures", [sys.executable, "tests/test_no_fake_report_from_agent_reach_failures.py"]),
+        ("no_fake_report_from_acquisition_failures", [sys.executable, "tests/test_no_fake_report_from_acquisition_failures.py"]),
         ("run_provenance", [sys.executable, "tests/test_run_provenance.py"]),
         ("browser_export_flow", [sys.executable, "tests/test_browser_export_flow.py"]),
     ]
@@ -1817,6 +1884,11 @@ def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Knowledge Workflow product CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    version = subparsers.add_parser("version", help="Show package version, commit, and runtime code location.")
+    version.add_argument("--json", action="store_true")
+    version.add_argument("--pretty", action="store_true")
+    version.set_defaults(func=cmd_version)
+
     doctor = subparsers.add_parser("doctor", help="Check local workflow prerequisites.")
     doctor.add_argument("--youtube-cookies", help="Path to user-exported Netscape cookies.txt, or 'auto' for work/youtube-cookies/youtube.cookies.txt.")
     doctor.add_argument("--asr-python")
@@ -1834,43 +1906,37 @@ def make_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--pretty", action="store_true")
     preflight.set_defaults(func=cmd_preflight)
 
-    agent_reach = subparsers.add_parser("agent-reach", help="Manage Agent-Reach acquisition readiness.")
-    agent_reach_sub = agent_reach.add_subparsers(dest="agent_reach_command", required=True)
-    agent_reach_install = agent_reach_sub.add_parser("install", help="Install or update Agent-Reach.")
-    agent_reach_install.add_argument("--safe", action="store_true", help="Safe mode: do not auto-install system packages.")
-    agent_reach_install.add_argument("--dry-run", action="store_true", help="Show what would be done.")
-    agent_reach_install.add_argument("--channels", default="", help="Comma-separated optional Agent-Reach channels, e.g. opencli,twitter,xiaohongshu.")
-    agent_reach_install.add_argument("--allow-upstream-cookie-import", action="store_true", help="Allow Agent-Reach's own automatic Chrome/Firefox cookie import for selected channels.")
-    agent_reach_install.set_defaults(func=cmd_agent_reach_install)
-    agent_reach_doctor = agent_reach_sub.add_parser("doctor", help="Run agent-reach doctor --json.")
-    agent_reach_doctor.add_argument("--output-json", type=Path)
-    agent_reach_doctor.set_defaults(func=cmd_agent_reach_doctor)
-    agent_reach_matrix = agent_reach_sub.add_parser("matrix", help="Show all Agent-Reach channels and their current integration path.")
-    agent_reach_matrix.add_argument("--output-json", type=Path)
-    agent_reach_matrix.add_argument("--output-md", type=Path)
-    agent_reach_matrix.set_defaults(func=cmd_agent_reach_matrix)
-    agent_reach_plan = agent_reach_sub.add_parser("plan", help="Show Agent-Reach route plan for an input.")
-    agent_reach_plan.add_argument("--input", required=True)
-    agent_reach_plan.add_argument("--output-json", type=Path)
-    add_source_target_arguments(agent_reach_plan)
-    agent_reach_plan.add_argument("--browser-host", choices=["edge", "chrome"])
-    agent_reach_plan.set_defaults(func=cmd_agent_reach_plan)
-    agent_reach_import = agent_reach_sub.add_parser(
+    source = subparsers.add_parser("source", help="Inspect native acquisition providers or import authorized material.")
+    source_sub = source.add_subparsers(dest="source_command", required=True)
+    source_doctor = source_sub.add_parser("doctor", help="Probe project-owned native acquisition providers.")
+    source_doctor.add_argument("--output-json", type=Path)
+    source_doctor.set_defaults(func=cmd_source_doctor)
+    source_matrix = source_sub.add_parser("matrix", help="Show all acquisition channels and current integration paths.")
+    source_matrix.add_argument("--output-json", type=Path)
+    source_matrix.add_argument("--output-md", type=Path)
+    source_matrix.set_defaults(func=cmd_source_matrix)
+    source_plan = source_sub.add_parser("plan", help="Show the native route plan for an input.")
+    source_plan.add_argument("--input", required=True)
+    source_plan.add_argument("--output-json", type=Path)
+    add_source_target_arguments(source_plan)
+    source_plan.add_argument("--browser-host", choices=["edge", "chrome"])
+    source_plan.set_defaults(func=cmd_source_plan)
+    source_import = source_sub.add_parser(
         "import",
-        help="Import task-primary material exported by a native Agent-Reach channel into Bundle v2.",
+        help="Import authorized task-primary material from an external provider into Bundle v2.",
     )
-    agent_reach_import.add_argument("--input-file", type=Path, required=True)
-    agent_reach_import.add_argument("--source-url", required=True)
-    agent_reach_import.add_argument("--platform", choices=sorted(source_gate.UPSTREAM_AGENT_REACH_PLATFORMS), required=True)
-    agent_reach_import.add_argument("--project-root", type=Path)
-    agent_reach_import.add_argument("--language", default="unknown")
-    agent_reach_import.add_argument("--content-scope", choices=sorted(source_gate.CONTENT_SCOPES - {"unknown"}))
-    agent_reach_import.add_argument("--partial", action="store_true")
-    agent_reach_import.add_argument("--credentialed-session", action="store_true", help="Record that the upstream export used an authorized login or cookie session.")
-    agent_reach_import.add_argument("--browser-host", choices=["edge", "chrome"], help="Actual Edge or Chrome host when the native route used OpenCLI.")
-    add_source_target_arguments(agent_reach_import)
-    agent_reach_import.add_argument("--resume", action="store_true")
-    agent_reach_import.set_defaults(func=cmd_agent_reach_import)
+    source_import.add_argument("--input-file", type=Path, required=True)
+    source_import.add_argument("--source-url", required=True)
+    source_import.add_argument("--platform", choices=sorted(source_gate.EXTERNAL_SOURCE_PLATFORMS), required=True)
+    source_import.add_argument("--project-root", type=Path)
+    source_import.add_argument("--language", default="unknown")
+    source_import.add_argument("--content-scope", choices=sorted(source_gate.CONTENT_SCOPES - {"unknown"}))
+    source_import.add_argument("--partial", action="store_true")
+    source_import.add_argument("--credentialed-session", action="store_true", help="Record that the export used an authorized login or cookie session.")
+    source_import.add_argument("--browser-host", choices=["edge", "chrome"], help="Actual Edge or Chrome host when the provider used a browser bridge.")
+    add_source_target_arguments(source_import)
+    source_import.add_argument("--resume", action="store_true")
+    source_import.set_defaults(func=cmd_source_import)
 
     acquire = subparsers.add_parser("acquire", help="Acquire URL/query material into 00_acquisition/manifest.json.")
     acquire.add_argument("--input", required=True, help="URL or query to acquire.")

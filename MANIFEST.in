@@ -1,0 +1,22 @@
+include kw.py
+include LICENSE
+include README.md
+include README.zh-CN.md
+include INSTALL.md
+include QUICKSTART.md
+include USER_MANUAL.md
+include TROUBLESHOOTING.md
+include SUPPORTED_PLATFORMS.md
+include RELEASE_NOTES.md
+include CHANGELOG.md
+include ROADMAP.md
+include sync_to_codex_skills.ps1
+include sync_to_codex_skills.sh
+recursive-include kw_cli *.py
+recursive-include skills *
+recursive-include examples *
+recursive-include docs *
+recursive-include validation *
+recursive-include tests *.py *.md *.json *.jsonl *.txt *.srt *.vtt *.mp3 *.mp4
+prune skills/knowledge-video-decomposer/scripts/test_outputs
+global-exclude __pycache__ *.py[cod]

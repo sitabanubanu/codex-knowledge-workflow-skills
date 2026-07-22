@@ -21,7 +21,8 @@
     manifest.json
     artifacts/
     logs/
-      agent_reach_doctor.json
+      capability_report.json
+      provider_runtime.json
       route_plan.json
       commands.jsonl
       acquisition_notes.md

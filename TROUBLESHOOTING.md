@@ -1,66 +1,37 @@
-# Troubleshooting
+# 故障排查
 
-## Agent-Reach Is Missing
-
-```powershell
-python -m pip install https://github.com/Panniantong/Agent-Reach/archive/main.zip
-agent-reach install --env=auto --safe
-agent-reach doctor --json
-```
-
-Or:
+## 某个 Provider 不可用
 
 ```powershell
-python .\kw.py agent-reach install --safe
-python .\kw.py agent-reach doctor
+kw source doctor
+kw source plan --input <URL> --target <目标> --operation <操作>
 ```
 
-Missing Agent-Reach produces a failed bundle and `source_failed`; it never
-falls through to a fake successful report.
+只安装或修复对应 Provider，也可以提供本地主材料。项目没有 Agent Reach runtime 依赖，缺少一个 Provider 不会让其他路线失效。
 
-## Active Backend Exists but Acquisition Is Blocked
+## Provider 已安装但仍被阻断
 
-An active backend name is not enough. Check:
+Provider 名称存在不等于路线可执行。检查：
 
-```powershell
-python .\kw.py agent-reach plan --input <url> --target <target> --operation <operation>
-```
+- `provider_status` 是否为 `ok`；
+- `operation_supported` 是否为 `true`；
+- `browser_host_ready` 是否为 `true`；
+- 当前材料范围是否能满足 `analysis_target`。
 
-The route needs both `active_backend_ready: true` and
-`operation_supported: true`. Typical mismatches:
+Bilibili 搜索能力不能代替视频字幕；普通网页 reader 不能代替需要登录的平台 Provider。
 
-- Bilibili search API cannot extract a transcript;
-- X OpenCLI search support is not a stable single-status reader;
-- a web reader cannot satisfy a login-required platform route.
+## OpenCLI 为 warn
 
-Use a supported backend or provide task-primary local material.
+1. 在真实使用的 Edge 或 Chrome 中安装并连接扩展。
+2. 保持该浏览器打开，并通过用户自己的授权账号登录。
+3. 运行 `opencli daemon status` 和 `kw source doctor`。
+4. 使用 `--browser-host edge` 或 `--browser-host chrome` 显式声明真实宿主。
 
-## OpenCLI Reports `warn`
+不要从插件名字猜浏览器，不要静默切换浏览器，也不要未经许可关闭浏览器来解锁 cookie 数据库。
 
-Agent-Reach commonly reports `warn` when OpenCLI is installed but its browser
-extension is absent or disconnected.
+## 获取成功但没有正式报告
 
-1. Install the OpenCLI extension in the actual host you intend to use: Edge or
-   Chrome.
-2. Keep that exact host open.
-3. Sign in to the platform with your own authorized account.
-4. Run `opencli doctor` and `agent-reach doctor --json` again.
-
-The control plugin may be named Chrome while the extension and login state are
-actually running in Microsoft Edge. `opencli doctor` also does not identify
-the browser host. Check the real browser process, then pass
-`--browser-host edge|chrome`; use the same choice with
-`--youtube-browser edge|chrome` for yt-dlp. If yt-dlp reports that it cannot
-copy the cookie database, the selected browser is still running and holding
-the profile lock; do not call the cookies stale and do not close the browser
-without user approval.
-
-The workflow remains blocked until doctor reports `status: ok`. It does not
-bypass CAPTCHA, account permissions, private content, or paywalls.
-
-## Acquisition Succeeded but No Full Report Exists
-
-Inspect:
+检查：
 
 ```text
 00_acquisition/manifest.json
@@ -69,81 +40,47 @@ Inspect:
 result_index.md
 ```
 
-Safe stopping states include:
+常见安全停止状态：`metadata_only`、`secondary_only`、`source_blocked`、`source_failed`、`target_mismatch`。这些状态允许解释缺什么，但不允许生成正常完整报告。
 
-- `metadata_only` -> `secondary_only`;
-- `blocked` -> `source_blocked`;
-- `failed` -> `source_failed`;
-- target/scope mismatch -> `degraded_report_only`.
+## YouTube 没有字幕或遇到登录/机器人检查
 
-For example, an X or Xiaohongshu caption may be valid `social_post_text` but
-still cannot satisfy `video_content`.
+可使用用户授权的 Netscape cookies 文件、明确的 Edge/Chrome 宿主、Node.js challenge runtime，或提供本地字幕、transcript、音频/视频。`auto` 和 `audio` 模式下载的媒体会交给 evidence layer 的 ASR，不再经过任何中间总入口。
 
-## Old Report Exists but Status Is Not Success
+不要把 cookie、visitor data、PO token 或代理密码写入报告和日志；持久化命令必须经过脱敏。
 
-This is expected when provenance is stale. `status_summary.json` and
-`result_index.md` report:
+## 本地音视频没有继续
 
-```text
-stale_output_files_present: true
-final_report_provenance_current: false
-```
-
-Run ingest, audit, and compose for the current bundle. Do not rename an old
-report back into place. Previous results are preserved under `run_history/`.
-
-## Project Root Already Belongs to a Run
-
-Use a new project root, or retry only the exact same source, target, and
-operation:
+运行：
 
 ```powershell
-python .\kw.py run ... --project-root <same-project> --resume
+kw doctor
 ```
 
-Resume fails after a local file changes, or when target/operation differs. This
-prevents output mixing.
+确认 `ffmpeg`、`ffprobe` 和 `faster-whisper` 可用。原始媒体只表示 `pending_derivation`；非空且校验通过的派生 transcript 才能重新建立 `source_confirmed`。
 
-## YouTube Bot Check, Sign-In, or Missing Subtitles
+## 旧报告仍在但当前状态失败
 
-Allowed options include an authorized Netscape cookies file, Node.js runtime,
-remote EJS components, client/extractor parameters, proxy, impersonation, and
-Agent-Reach transcription fallback. See `kw run --help`.
+这是正常的 provenance 防护。查看 `stale_output_files_present` 和 `final_report_provenance_current`。不要重命名旧报告冒充新结果；应为当前 Bundle 重新 ingest、audit 和 compose。
 
-Never paste cookie or token contents into logs or reports. The CLI passes
-sensitive values to the upstream process but redacts persisted commands,
-manifests, preflight, run state, and errors.
-
-If access still fails, provide subtitles, transcript, or authorized local
-media. Record blocked status rather than looping around platform controls.
-
-## Bilibili Is Search-Only
-
-The default public search API can find videos but cannot obtain their content.
-For transcript extraction, Agent-Reach doctor must select a ready OpenCLI or
-bili-cli route implemented by this adapter. Otherwise provide subtitles or
-local media.
-
-## Empty Transcript or Local Media Without ASR
-
-An empty transcript becomes failed/degraded and cannot create an analysis pack.
-Local media remains degraded until ASR produces a non-empty hashed transcript.
-
-## Bundle Validation Fails
+## Bundle 校验失败
 
 ```powershell
-python .\kw.py validate-bundle --bundle <project>\00_acquisition\manifest.json
+kw validate-bundle --bundle <项目目录>\00_acquisition\manifest.json
 ```
 
-Common causes are an escaping/absolute artifact path, missing file, byte/hash
-mismatch, missing v2 identity fields, status invariant violation, or
-unredacted secret-like manifest data. Do not hand-edit hashes; rerun acquisition.
+常见原因包括路径越界、文件缺失、字节数或 SHA-256 不匹配、身份字段缺失、状态不变量冲突或未脱敏数据。不要手改哈希，重新获取或导入。
 
-## Do Not Commit
+## Codex 仍显示旧获取 Skill
+
+先确认备份存在，再运行：
 
 ```powershell
-git status --short
+.\sync_to_codex_skills.ps1
+.\sync_to_codex_skills.ps1 -VerifyOnly
 ```
 
-Keep `work/`, cookies, tokens, outputs, test outputs, caches, and private logs
-out of Git.
+同步脚本会安全移除旧的 `agent-reach-console`，并安装 `acquire-source-material`。
+
+## 不应提交的内容
+
+保持 `work/`、cookies、tokens、浏览器数据、`outputs/`、`test_outputs/`、缓存和私密日志在 Git 之外。

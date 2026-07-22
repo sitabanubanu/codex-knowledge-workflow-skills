@@ -1,5 +1,9 @@
 # Real-World Validation Log
 
+> Historical v0.5/v0.6 record. Commands and dependency names below are kept as
+> experiment evidence and are not current v0.7 usage. Use `docs/validation.md`
+> for the active validation matrix.
+
 ## v0.6 Architecture Reset
 
 The 2026-07-03 Marx alienation live validation showed the right product

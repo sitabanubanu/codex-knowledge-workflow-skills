@@ -1,127 +1,90 @@
 # Architecture
 
-Knowledge Workflow is a run-scoped, source-gated acquisition-to-report system.
+Knowledge Workflow is a run-scoped, source-gated discovery-to-learning system.
 
 ```mermaid
 flowchart TD
-    A["knowledge-workflow-console"] --> B["Preflight and target/operation selection"]
-    B --> C["agent-reach-console"]
-    C --> D["Attempt staging"]
-    D --> E["Acquisition Bundle v2"]
-    E --> F["source-gated-evidence-layer"]
-    F --> G{"Target-compatible primary scope?"}
-    G -- No --> H["Blocked or degraded report"]
-    G -- Yes --> I["Normalize or ASR"]
-    I --> J["Claims and evidence audit"]
-    J --> K["Analysis pack and receipt"]
-    K --> L["knowledge-document-composer"]
-    L --> M["Claim map and composer receipt"]
-    M --> N["Quality gate and final report receipt"]
-    N --> O["Status, result, export"]
+    A["Learning need"] --> B{"Need source discovery?"}
+    B -- Yes --> C["web-intent-scout"]
+    B -- No --> D["Selected source"]
+    C --> D
+    D --> E["knowledge-workflow-console"]
+    E --> F["acquire-source-material"]
+    F --> G["Provider registry and route plan"]
+    G --> H["Acquisition Bundle v2"]
+    H --> I["source-gated-evidence-layer"]
+    I --> J{"Target-compatible evidence?"}
+    J -- No --> K["Blocked or degraded explanation"]
+    J -- Yes --> L["Normalize / ASR / claims / audit"]
+    L --> M["Audited analysis pack"]
+    M --> N["knowledge-learning-article"]
+    M --> O["knowledge-document-composer"]
+    N --> P["Learning article + receipt"]
+    O --> Q["Source-faithful document + receipt"]
 ```
 
-## User-Facing Skills
+## Product surfaces
 
-| Layer | Owns | Must not own |
+The product has three conceptual parts:
+
+1. discovery through `web-intent-scout`;
+2. controlled knowledge acquisition and evidence processing through `knowledge-workflow-console`;
+3. learning-oriented transformation through `knowledge-learning-article`.
+
+Acquisition, evidence, and document composition remain separate worker skills so no layer can silently grant itself report permission.
+
+| Skill | Owns | Must not own |
 | --- | --- | --- |
-| `knowledge-workflow-console` | product routing, preflight, explicit stages, status, result index | platform-specific scraping, evidence promotion, report claims |
-| `agent-reach-console` | Agent-Reach install/doctor, backend capability plan, acquisition, Bundle v2 | source gate, claims, evidence audit, final reports |
-| `source-gated-evidence-layer` | bundle validation, target/scope gate, normalization, ASR handoff, claims, evidence audit, degraded output | platform login, cookies, raw browser control |
-| `knowledge-document-composer` | claim map, Source / Inference / Extension, planning, quality gate, final report | acquisition, source-status repair, metadata promotion |
+| `knowledge-workflow-console` | routing, preflight, stages, status, result index | provider commands, evidence promotion, report claims |
+| `web-intent-scout` | intent map, queries, source ledger, candidate selection | promoting snippets into primary evidence |
+| `acquire-source-material` | provider probes, operation plan, staged acquisition, Bundle v2 | SourceStatus, evidence audit, reports |
+| `source-gated-evidence-layer` | bundle validation, target/scope gate, normalization, ASR, claims, audit | platform login, cookies, provider installation |
+| `knowledge-learning-article` | knowledge map, prerequisites, learning order, learning article | acquisition or repair of missing source claims |
+| `knowledge-document-composer` | claim map, Source/Inference/Extension, quality gate, final document | acquisition or source-status repair |
 
-`knowledge-video-decomposer` is an internal compatibility library. Its
-normalizer, ASR, segmenter, inventory, source-logic, evidence-audit, and pack
-scripts are reused by the evidence layer. It is not a user-facing route.
+`knowledge-video-decomposer` is an internal compatibility library. `browser-host-identity` is an independent project, not a workflow stage or managed dependency.
 
-`browser-host-identity` is a cross-cutting policy skill rather than an extra
-workflow stage. It protects Edge/Chrome identity before a browser-backed route
-reaches the acquisition layer.
+## Native acquisition boundary
 
-Agent-Reach's full native surface also has a formal path into the workflow:
+The project owns capability discovery and route planning. It directly probes optional providers such as `yt-dlp`, `curl`, `gh`, `bili`, OpenCLI and `mcporter`. No intermediary acquisition runtime is imported or executed.
+
+Channels without a structured adapter use the same provider-neutral boundary:
 
 ```text
-Agent-Reach native channel command
-  -> saved task-primary text, subtitle, or media
-  -> kw agent-reach import
+authorized browser / CLI / API / user export
+  -> saved task-primary artifact
+  -> kw source import
   -> Acquisition Bundle v2
 ```
 
-This avoids reimplementing the upstream's moving platform commands while
-keeping every imported artifact inside the same evidence boundary.
+The only acquisition-to-evidence handoff is `00_acquisition/manifest.json`. The evidence layer never trusts arbitrary provider stdout, and output skills never read provider output directly.
 
-## Stable Handoff
+## Independent gates
 
-The only acquisition-to-evidence interface is:
+Before acquisition, the capability gate requires a ready Provider, operation support, and any declared browser host. After acquisition, the Source Gate requires a primary artifact whose `content_scope` satisfies the requested `analysis_target`.
 
-```text
-00_acquisition/manifest.json
-```
+A command succeeding does not imply source confirmation. A post body cannot satisfy embedded-video analysis; search results cannot satisfy article analysis; raw media must finish ASR before transcript-dependent analysis.
 
-The evidence layer never reads an arbitrary Agent-Reach stdout file directly.
-The composer never reads an acquisition bundle directly.
-
-## Two Independent Gates
-
-### Backend capability gate
-
-Before acquisition, doctor must report `status: ok`, and the adapter must
-implement the requested operation for the active backend. A healthy search
-backend cannot be used as a transcript backend.
-
-When the active backend is OpenCLI, the route also requires an explicit
-`edge` or `chrome` host identity. An extension label, generic profile ID, or
-browser-control tool name is never sufficient evidence, and the workflow does
-not fall back from one host to the other.
-
-### Evidence target gate
-
-After acquisition, an artifact must be primary and have a scope that satisfies
-the requested target. Post text and embedded-video content are intentionally
-different scopes.
-
-## Run and Attempt Model
+## Run model
 
 ```text
-logs/run_identity.json         one immutable source/target/operation
-.kw_staging/<attempt_id>/      temporary attempt
+logs/run_identity.json         immutable source/target/operation
+.kw_staging/<attempt_id>/      temporary acquisition attempt
 00_acquisition/                current validated bundle
 acquisition_history/           prior validated bundles
-run_history/                   prior downstream output trees
+run_history/                   prior downstream outputs
 ```
 
-The current bundle is never assembled in place. A retry is a new attempt and
-requires `--resume`. A changed source, target, or operation requires a new
-project root.
+Retries require `--resume`. A changed source, target or operation requires a new project root.
 
-## Provenance Chain
+## Provenance chain
 
 ```text
 manifest SHA-256
-  -> gate_receipt.json + source_status SHA-256
-  -> analysis_receipt.json + pack SHA-256
-  -> composer_receipt.json + claim_map/intake SHA-256
-  -> final_report_receipt.json + quality_gate/report SHA-256
+  -> gate_receipt + SourceStatus SHA-256
+  -> analysis_receipt + analysis-pack SHA-256
+  -> learning/composer receipt
+  -> quality gate + final receipt
 ```
 
-Status, result, export, quality, templates, and batch synthesis trust this
-chain. File existence alone is non-authoritative.
-
-## Compatibility Layout
-
-The evidence stage still writes `10_video/` so existing analyzers continue to
-work. Non-video targets also receive `source_analysis_pack.md`; the legacy
-`video_analysis_pack.md` may exist as an internal intermediate. A future
-release may rename the directory to `10_source/`, but that migration is not
-part of Bundle v2.
-
-## Legacy Acquisition
-
-The following scripts remain for compatibility and regression tests, not as
-the primary URL route:
-
-- `acquisition_runner.py`;
-- `platform_media_runner.py`;
-- `chrome_media_probe.py` as a platform acquisition controller;
-- generic-web fallback for login-required platforms.
-
-They cannot bypass Bundle v2, the target/scope gate, or provenance receipts.
+Status, result and export commands trust the chain, not file existence.

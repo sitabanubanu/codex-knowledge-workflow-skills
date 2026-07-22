@@ -3,6 +3,9 @@
 #
 #   python -m pip install -r requirements.txt
 #
+# JSON Schema is used by the evaluation v2 contract and CI.
+jsonschema>=4.23,<5
+
 # Optional route dependencies such as faster-whisper, yt-dlp, yt-dlp-ejs,
 # curl_cffi, ffmpeg, Node.js, and Chrome plugin setup are documented in
 # INSTALL.md.

@@ -233,7 +233,7 @@ def make_manifest(
     source_url: str = "",
     source_id: str = "",
     platform: str = "unknown",
-    acquisition_layer: str = "agent-reach",
+    acquisition_layer: str = "knowledge_workflow_native",
     active_backend: str | None = None,
     status: str,
     artifacts: list[dict[str, Any]] | None = None,
@@ -755,7 +755,7 @@ def build_browser_export_bundle(
     )
 
 
-def build_agent_reach_export_bundle(
+def build_source_export_bundle(
     *,
     input_path: Path,
     source_url: str,
@@ -770,7 +770,7 @@ def build_agent_reach_export_bundle(
     credentialed_session: bool = False,
     resume: bool = False,
 ) -> Path:
-    """Import task-primary material acquired by an Agent-Reach native route."""
+    """Import authorized task-primary material produced by an external provider."""
     return _build_export_bundle(
         input_path=input_path,
         source_url=source_url,
@@ -783,12 +783,12 @@ def build_agent_reach_export_bundle(
         content_scope=content_scope,
         browser_host=browser_host,
         credentialed_session=credentialed_session,
-        export_name="Agent-Reach",
-        acquisition_layer="agent_reach_export",
-        active_backend="agent-reach_native_export",
-        handoff="agent_reach_native_export",
-        artifact_description="Task-primary material acquired through an Agent-Reach native route and exported locally.",
-        created_by="build_agent_reach_export_bundle",
+        export_name="Source",
+        acquisition_layer="external_source_export",
+        active_backend="authorized_external_export",
+        handoff="provider_neutral_source_export",
+        artifact_description="Task-primary material acquired through an authorized external provider and exported locally.",
+        created_by="build_source_export_bundle",
         browser_session_used=bool(browser_host),
         contains_user_private_data=credentialed_session,
         limit="The workflow validates the exported primary material; it does not treat raw search results or metadata as source evidence.",

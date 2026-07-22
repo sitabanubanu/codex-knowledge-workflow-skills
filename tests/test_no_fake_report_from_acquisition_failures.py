@@ -60,9 +60,9 @@ def run_case(status: str, failures: list[str]) -> None:
             capture_output=True,
         )
         assert_true(f"{status} result index writer passes", completed.returncode == 0, failures)
-        assert_true(f"{status} no final report", not (project / "20_document" / "final_report.md").exists(), failures)
+        assert_true(f"{status} creates no final report", not (project / "20_document" / "final_report.md").exists(), failures)
         index_text = (project / "result_index.md").read_text(encoding="utf-8")
-        assert_true(f"{status} result_index writes next_action", "Provide primary transcript or subtitle" in index_text, failures)
+        assert_true(f"{status} preserves next action", "Provide primary transcript or subtitle" in index_text, failures)
 
 
 def main() -> int:
@@ -74,7 +74,7 @@ def main() -> int:
         for failure in failures:
             print(f"- {failure}")
         return 1
-    print("test_no_fake_report_from_agent_reach_failures passed")
+    print("test_no_fake_report_from_acquisition_failures passed")
     return 0
 
 

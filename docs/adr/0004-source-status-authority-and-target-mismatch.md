@@ -92,7 +92,7 @@ They cannot bypass Bundle v2 or the final Source Gate publication step.
 
 ## Out of scope
 
-- Agent-Reach routes or backend selection.
+- acquisition-provider routes or backend selection.
 - Browser-host identity and browser control.
 - Renaming `10_video` to `10_source`.
 - Rewriting segmentation, evidence extraction, or document composition.

@@ -21,6 +21,7 @@ From the repository root:
 
 ```powershell
 python .\eval\v2\leakage_lint.py
+python .\eval\v2\schema_contract_test.py
 python .\eval\v2\run_workflow_contract.py `
   --output-root .\test_outputs\eval_v2\workflow
 python .\eval\v2\score_decisions.py `
@@ -36,8 +37,10 @@ Use `--allow-dirty` only for development runs. Such runs are marked
 1. Runners do not import or read `gold/`.
 2. Scorers run only after outputs are closed.
 3. Decisions come from structured fields, never `status_reason` text.
-4. Each task writes an independent result before the next task starts.
-5. `test_outputs/` remains untracked.
-6. Live retrieval, fixed-pool ranking, fidelity, human review, and learning
+4. Neutral inputs and decision results must pass Draft 2020-12 JSON Schema;
+   unknown fields are rejected.
+5. Each task writes an independent result before the next task starts.
+6. `test_outputs/` remains untracked.
+7. Live retrieval, fixed-pool ranking, fidelity, human review, and learning
    effect are separate future tracks. They must not be folded into this
    contract smoke score.

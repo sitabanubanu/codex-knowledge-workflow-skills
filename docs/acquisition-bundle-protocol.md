@@ -3,8 +3,9 @@
 `00_acquisition/manifest.json` is the only stable handoff between acquisition
 and evidence judgment.
 
-Agent-Reach gets material. Knowledge Workflow decides whether that material is
-task-primary, auditable, and sufficient for a report.
+Project-owned native providers or authorized external exports obtain material.
+The evidence layer separately decides whether it is task-primary, auditable,
+and sufficient for the requested output.
 
 ## Layout
 
@@ -19,7 +20,8 @@ task-primary, auditable, and sufficient for a report.
     manifest.json
     artifacts/
     logs/
-      agent_reach_doctor.json
+      capability_report.json
+      provider_runtime.json
       route_plan.json
       commands.jsonl
       acquisition_notes.md
@@ -40,8 +42,8 @@ Schema v2 requires these fields:
 | `source_url` | Redacted canonical URL when applicable. |
 | `source_id` | Platform-stable source identifier. |
 | `platform` | `youtube`, `bilibili`, `x`, `xiaohongshu`, `web`, `github`, `search`, or `local_file`. |
-| `acquisition_layer` | Upstream layer: `agent-reach`, `agent_reach_export`, `browser_export`, or `local_file`. |
-| `active_backend` | Doctor-selected backend actually considered. |
+| `acquisition_layer` | Producer: `knowledge_workflow_native`, `external_source_export`, `browser_export`, or `local_file`. Historical values remain readable only for compatibility. |
+| `active_backend` | Provider backend actually selected. |
 | `status` | Acquisition result only; never a source-gate decision. |
 | `run_id` | Immutable project-run identifier. |
 | `attempt_id` | Identifier for this acquisition attempt. |
@@ -139,7 +141,7 @@ Status invariants:
 Before executing a platform command, the adapter writes
 `logs/route_plan.json` and verifies:
 
-1. Agent-Reach doctor reports the selected backend with `status: ok`.
+1. The project-owned capability report gives the selected Provider `status: ok`.
 2. The adapter implements the requested operation for that backend and input.
 3. When the selected backend is OpenCLI, the actual `edge` or `chrome` host is
    declared before execution. A generic extension/profile label is not host
@@ -210,8 +212,8 @@ Hard rules:
 - browser-visible material must be exported into an artifact before ingest;
 - browser-backed routes record the declared host when known and record
   `unknown` rather than inferring one when it is not known;
-- authorized browser exports enter through `kw browser-import` or
-  `kw run --browser-source-url ... --browser-platform ...`;
+- authorized external exports enter through `kw source import`; browser export
+  compatibility commands may still delegate to the same Bundle v2 builder;
 - browser exports preserve the redacted source URL, explicit platform,
   target, operation, content scope, byte count, and SHA-256;
 - never bypass CAPTCHA, paywalls, private access, region restrictions, or

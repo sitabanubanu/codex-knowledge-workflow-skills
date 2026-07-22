@@ -1,4 +1,4 @@
-"""Agent-Reach acquisition adapter.
+"""Native acquisition adapter.
 
 This module intentionally keeps acquisition separate from source judgment. It
 creates acquisition bundles and never approves evidence or reports.
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlunparse
 
-from . import agent_reach_runtime, bundle, canonicalize, run_context, source_gate
+from . import acquisition_providers, bundle, canonicalize, run_context, source_gate
 from .redaction import redact_text, redact_url, sanitize_command as redact_command, sanitize_data
 
 
@@ -30,50 +30,26 @@ SUPPORTED_PLATFORMS = {
     "x",
     "xiaohongshu",
 }
-AGENT_REACH_INSTALL_SOURCE = agent_reach_runtime.AGENT_REACH_GIT_SOURCE
 LOGIN_REQUIRED_PLATFORMS = {"x", "xiaohongshu"}
 BROWSER_HOSTS = {"edge", "chrome"}
-UPSTREAM_AUTO_COOKIE_CHANNELS = {"twitter", "bilibili", "xueqiu", "all"}
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_YOUTUBE_COOKIES = REPO_ROOT / "work" / "youtube-cookies" / "youtube.cookies.txt"
-
-AGENT_REACH_CHANNEL_CATALOG = {
-    "web": ("Public web pages", "structured_adapter"),
-    "youtube": ("YouTube metadata, subtitles, and transcription", "structured_adapter"),
-    "rss": ("RSS and Atom feeds", "native_export_import"),
-    "exa_search": ("Web search", "structured_adapter"),
-    "github": ("Repositories and code", "structured_adapter"),
-    "twitter": ("Twitter/X posts and discovery", "structured_adapter_and_native_export"),
-    "bilibili": ("Bilibili video detail, audio, and subtitles", "structured_adapter_and_native_export"),
-    "xiaohongshu": ("Xiaohongshu notes and comments", "structured_adapter_and_native_export"),
-    "reddit": ("Reddit posts and comments", "native_export_import"),
-    "facebook": ("Facebook search, profiles, feed, and groups", "native_export_import"),
-    "instagram": ("Instagram profiles, posts, and explore", "native_export_import"),
-    "linkedin": ("LinkedIn profiles, companies, and jobs", "native_export_import"),
-    "xiaoyuzhou": ("Xiaoyuzhou podcast transcription", "native_export_import"),
-    "v2ex": ("V2EX topics, replies, and users", "native_export_import"),
-    "xueqiu": ("Xueqiu market and community data", "native_export_import"),
-}
 
 
 PLATFORM_SETUP_HINTS = {
     "x": {
-        "agent_reach_channel": "twitter",
         "install_commands": [
-            "python kw.py agent-reach install --channels twitter",
-            "agent-reach install --channels twitter",
+            "Install twitter-cli or OpenCLI using the provider's official instructions.",
         ],
         "manual_steps": [
-            "Install twitter-cli or OpenCLI as reported by agent-reach doctor.",
+            "Run `python kw.py source doctor` and make a native Twitter/X provider ready.",
             "For twitter-cli, configure TWITTER_AUTH_TOKEN and TWITTER_CT0 from a user-authorized browser session.",
             "For OpenCLI, keep the explicitly selected Edge or Chrome host open and logged in to x.com.",
         ],
     },
     "xiaohongshu": {
-        "agent_reach_channel": "xiaohongshu/opencli",
         "install_commands": [
-            "python kw.py agent-reach install --channels opencli",
-            "agent-reach install --channels opencli",
+            "Install OpenCLI, xiaohongshu-mcp, or xhs-cli using the provider's official instructions.",
         ],
         "manual_steps": [
             "Install the OpenCLI browser extension in the explicitly selected Edge or Chrome host.",
@@ -84,29 +60,8 @@ PLATFORM_SETUP_HINTS = {
 }
 
 
-class AgentReachAdapterError(Exception):
+class AcquisitionAdapterError(Exception):
     """Raised when the adapter cannot create a bundle."""
-
-
-def standalone_agent_reach_command(*arguments: str, require_exists: bool = True) -> list[str]:
-    """Build an Agent-Reach command from the shared runtime, never from PATH alone."""
-
-    try:
-        return agent_reach_runtime.agent_reach_command(
-            *arguments,
-            require_exists=require_exists,
-            path_lookup=shutil.which,
-        )
-    except agent_reach_runtime.AgentReachRuntimeError as exc:
-        raise AgentReachAdapterError(str(exc)) from exc
-
-
-def standalone_agent_reach_available() -> bool:
-    try:
-        standalone_agent_reach_command(require_exists=True)
-    except AgentReachAdapterError:
-        return False
-    return True
 
 
 def normalize_browser_host(value: object, *, option_name: str = "--browser-host") -> str:
@@ -114,7 +69,7 @@ def normalize_browser_host(value: object, *, option_name: str = "--browser-host"
     if not host:
         return ""
     if host not in BROWSER_HOSTS:
-        raise AgentReachAdapterError(f"{option_name} must be one of {sorted(BROWSER_HOSTS)}")
+        raise AcquisitionAdapterError(f"{option_name} must be one of {sorted(BROWSER_HOSTS)}")
     return host
 
 
@@ -123,7 +78,7 @@ def browser_host_from_options(options: dict[str, Any] | None) -> str:
     declared_host = normalize_browser_host(values.get("browser_host"))
     youtube_host = normalize_browser_host(values.get("youtube_browser"), option_name="--youtube-browser")
     if declared_host and youtube_host and declared_host != youtube_host:
-        raise AgentReachAdapterError(
+        raise AcquisitionAdapterError(
             "--browser-host and --youtube-browser must name the same browser host when both are supplied."
         )
     return declared_host or youtube_host
@@ -135,9 +90,9 @@ def opencli_session_options(options: dict[str, Any] | None) -> tuple[list[str], 
     session = str(values.get("opencli_site_session") or "persistent").strip().lower()
     keep_tab = bool(values.get("opencli_keep_tab", True))
     if window not in {"foreground", "background"}:
-        raise AgentReachAdapterError("--opencli-window must be foreground or background")
+        raise AcquisitionAdapterError("--opencli-window must be foreground or background")
     if session not in {"persistent", "ephemeral"}:
-        raise AgentReachAdapterError("--opencli-site-session must be persistent or ephemeral")
+        raise AcquisitionAdapterError("--opencli-site-session must be persistent or ephemeral")
     return (
         ["--site-session", session, "--window", window, "--keep-tab", "true" if keep_tab else "false"],
         {"window": window, "site_lifecycle": session, "keep_tab": keep_tab},
@@ -231,7 +186,7 @@ def is_windows_batch_command(command: list[str]) -> bool:
 
 
 def run_capture(command: list[str], *, cwd: Path | None = None, timeout: int = 60) -> subprocess.CompletedProcess[str]:
-    env = agent_reach_runtime.external_tool_environment()
+    env = acquisition_providers.external_tool_environment()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     resolved = resolve_command_for_subprocess(command)
@@ -252,53 +207,59 @@ def run_capture(command: list[str], *, cwd: Path | None = None, timeout: int = 6
     )
 
 
-def write_doctor(project_root: Path, command_log: Path) -> dict[str, Any]:
-    doctor_path = project_root / "00_acquisition" / "logs" / "agent_reach_doctor.json"
-    runtime_path = project_root / "00_acquisition" / "logs" / "agent_reach_runtime.json"
-    bundle.write_json(runtime_path, agent_reach_runtime.runtime_metadata(path_lookup=shutil.which))
-    try:
-        command = standalone_agent_reach_command("doctor", "--json")
-    except AgentReachAdapterError as exc:
-        command = ["agent-reach", "doctor", "--json"]
-        append_command_log(command_log, command=command, returncode=1, note=str(exc))
-        payload = {"error": str(exc), "status": "failed"}
-        bundle.write_json(doctor_path, payload)
-        return payload
-    try:
-        completed = run_capture(command, timeout=90)
-    except (OSError, subprocess.SubprocessError) as exc:
-        append_command_log(command_log, command=command, returncode=1, note=str(exc))
-        payload = {"error": str(exc), "status": "failed"}
-        bundle.write_json(doctor_path, payload)
-        return payload
-    append_command_log(command_log, command=command, returncode=completed.returncode)
-    if completed.returncode == 0:
-        try:
-            payload = json.loads(completed.stdout or "{}")
-        except json.JSONDecodeError:
-            payload = {"raw_stdout": completed.stdout, "status": "unparseable"}
-    else:
-        payload = {
-            "status": "failed",
-            "returncode": completed.returncode,
-            "stderr": completed.stderr[-2000:],
-        }
-    bundle.write_json(doctor_path, payload)
-    return payload if isinstance(payload, dict) else {"doctor": payload}
+def provider_path_lookup(options: dict[str, Any] | None = None):
+    """Resolve project-supported provider overrides before the ambient PATH."""
+
+    values = options or {}
+    overrides = {
+        "yt-dlp": values.get("ytdlp"),
+        "node": values.get("node"),
+    }
+
+    def lookup(name: str) -> str | None:
+        configured = overrides.get(name)
+        if configured:
+            path = Path(configured).expanduser().resolve()
+            if path.is_file():
+                return str(path)
+        return shutil.which(name)
+
+    return lookup
 
 
-def active_backend_from_doctor(doctor: dict[str, Any], platform: str) -> str:
+def write_capability_report(
+    project_root: Path,
+    command_log: Path,
+    *,
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    report_path = project_root / "00_acquisition" / "logs" / "capability_report.json"
+    runtime_path = project_root / "00_acquisition" / "logs" / "provider_runtime.json"
+    path_lookup = provider_path_lookup(options)
+    payload = acquisition_providers.build_capability_report(path_lookup=path_lookup)
+    bundle.write_json(runtime_path, acquisition_providers.runtime_metadata(path_lookup=path_lookup))
+    bundle.write_json(report_path, payload)
+    append_command_log(
+        command_log,
+        command=["internal-provider-probe"],
+        returncode=0,
+        note="Knowledge Workflow native provider capability probe",
+    )
+    return payload
+
+
+def active_backend_from_report(report: dict[str, Any], platform: str) -> str:
     if platform == "search":
         platform = "exa_search"
     if platform == "x":
         platform = "twitter"
-    item = doctor.get(platform)
+    item = report.get(platform)
     if isinstance(item, dict):
         return str(item.get("active_backend") or "")
     return ""
 
 
-def doctor_key_for_platform(platform: str) -> str:
+def capability_key_for_platform(platform: str) -> str:
     if platform == "search":
         return "exa_search"
     if platform == "x":
@@ -306,18 +267,18 @@ def doctor_key_for_platform(platform: str) -> str:
     return platform
 
 
-def doctor_item_for_platform(doctor: dict[str, Any], platform: str) -> dict[str, Any]:
-    item = doctor.get(doctor_key_for_platform(platform))
+def capability_item_for_platform(report: dict[str, Any], platform: str) -> dict[str, Any]:
+    item = report.get(capability_key_for_platform(platform))
     return item if isinstance(item, dict) else {}
 
 
-def active_backend_is_ready(doctor: dict[str, Any], platform: str) -> bool:
-    item = doctor_item_for_platform(doctor, platform)
-    return bool(active_backend_from_doctor(doctor, platform)) and item.get("status") == "ok"
+def active_backend_is_ready(report: dict[str, Any], platform: str) -> bool:
+    item = capability_item_for_platform(report, platform)
+    return bool(active_backend_from_report(report, platform)) and item.get("status") == "ok"
 
 
-def web_fallback_backend(doctor: dict[str, Any]) -> str:
-    item = doctor.get("web")
+def web_fallback_backend(report: dict[str, Any]) -> str:
+    item = report.get("web")
     if isinstance(item, dict) and item.get("active_backend"):
         return str(item["active_backend"])
     return "Jina Reader"
@@ -365,29 +326,32 @@ def backend_supports_operation(platform: str, backend: str, operation: str, inpu
 
 def route_plan_for(
     platform: str,
-    doctor: dict[str, Any],
+    capability_report: dict[str, Any],
     input_value: str,
     *,
     analysis_target: str = "auto",
     operation: str = "auto",
     browser_host: str = "",
 ) -> dict[str, Any]:
-    item = doctor_item_for_platform(doctor, platform)
-    active_backend = active_backend_from_doctor(doctor, platform)
+    item = capability_item_for_platform(capability_report, platform)
+    active_backend = active_backend_from_report(capability_report, platform)
     chosen_target = source_gate.infer_analysis_target(platform, analysis_target)
     chosen_operation = source_gate.infer_operation(chosen_target, operation)
-    backend_ready = active_backend_is_ready(doctor, platform)
+    backend_ready = active_backend_is_ready(capability_report, platform)
     operation_supported = backend_supports_operation(platform, active_backend, chosen_operation, input_value)
     declared_browser_host = normalize_browser_host(browser_host)
     browser_host_required = active_backend == "OpenCLI"
-    browser_host_ready = not browser_host_required or bool(declared_browser_host)
+    detected_hosts = [str(host) for host in item.get("browser_hosts") or []]
+    browser_host_ready = not browser_host_required or bool(
+        declared_browser_host and (not detected_hosts or declared_browser_host in detected_hosts)
+    )
     plan: dict[str, Any] = {
         "platform": platform,
         "analysis_target": chosen_target,
         "operation": chosen_operation,
-        "doctor_key": doctor_key_for_platform(platform),
-        "doctor_status": item.get("status") or "",
-        "doctor_message": item.get("message") or "",
+        "capability_key": capability_key_for_platform(platform),
+        "provider_status": item.get("status") or "",
+        "provider_message": item.get("message") or "",
         "active_backend": active_backend,
         "active_backend_ready": backend_ready,
         "operation_supported": operation_supported,
@@ -397,7 +361,7 @@ def route_plan_for(
         "browser_host_ready": browser_host_ready,
         "capability_ready": backend_ready and operation_supported and browser_host_ready,
         "backend_order": item.get("backends") or [],
-        "uses_agent_reach_active_backend": backend_ready and operation_supported and browser_host_ready,
+        "uses_native_provider": backend_ready and operation_supported and browser_host_ready,
         "anonymous_web_fallback_allowed": platform not in LOGIN_REQUIRED_PLATFORMS,
         "install_commands": [],
         "preferred_commands": [],
@@ -406,20 +370,20 @@ def route_plan_for(
     }
 
     hints = PLATFORM_SETUP_HINTS.get(platform)
-    if hints and not active_backend_is_ready(doctor, platform):
+    if hints and not active_backend_is_ready(capability_report, platform):
         plan["install_commands"] = hints["install_commands"]
         plan["manual_steps"] = hints["manual_steps"]
     if browser_host_required and not declared_browser_host:
         plan["blocked_until_ready_reason"] = (
-            "Agent-Reach selected OpenCLI, but the actual Edge or Chrome host was not declared. "
+            "The native provider selected OpenCLI, but the actual ready Edge or Chrome host was not declared. "
             "Do not infer it from an extension or control-plugin name."
         )
         plan["manual_steps"] = [
             *plan.get("manual_steps", []),
             "Identify the browser that actually hosts the OpenCLI extension and login, then retry with --browser-host edge or --browser-host chrome.",
         ]
-    elif active_backend and not active_backend_is_ready(doctor, platform):
-        plan["blocked_until_ready_reason"] = "Agent-Reach selected this backend, but doctor did not report status ok."
+    elif active_backend and not active_backend_is_ready(capability_report, platform):
+        plan["blocked_until_ready_reason"] = "The selected native provider did not pass its readiness probe."
     elif active_backend and not operation_supported:
         plan["blocked_until_ready_reason"] = f"The active backend does not support operation {chosen_operation!r} for this input."
 
@@ -433,7 +397,7 @@ def route_plan_for(
             ]
             plan["primary_scope"] = "tweet text returned by the documented OpenCLI article route; not embedded-video transcript"
         elif not active_backend:
-            plan["blocked_without_backend_reason"] = "Twitter/X is a login/session platform in Agent-Reach; do not retry anonymous Jina/curl as the main route."
+            plan["blocked_without_backend_reason"] = "Twitter/X requires an authorized native provider; do not retry anonymous Jina/curl as the main route."
     elif platform == "xiaohongshu":
         if active_backend == "OpenCLI":
             plan["preferred_commands"] = ["opencli xiaohongshu note <NOTE_URL_WITH_XSEC_TOKEN> -f json"]
@@ -466,7 +430,7 @@ def route_plan_for(
             [
                 'yt-dlp --dump-json "<URL>"',
                 'yt-dlp --write-sub --write-auto-sub --sub-lang "zh-Hans,zh,en" --skip-download -o "<OUT>/%(id)s" "<URL>"',
-                'agent-reach transcribe "<URL_OR_LOCAL_AUDIO>"',
+                'yt-dlp -x --audio-format m4a -o "<OUT>/%(id)s.%(ext)s" "<URL>"',
             ]
         )
         plan["manual_steps"] = [
@@ -580,7 +544,7 @@ def make_failed_manifest(
         source_url=redact_value_for_record(source_url if source_url else input_value if urlparse(input_value).scheme else ""),
         source_id=source_id_for(input_value, platform),
         platform=platform,
-        acquisition_layer="agent-reach",
+        acquisition_layer="knowledge_workflow_native",
         active_backend=active_backend,
         status=status,
         artifacts=[],
@@ -700,18 +664,18 @@ def acquire_x(
     project_root: Path,
     command_log: Path,
     *,
-    doctor: dict[str, Any],
+    capability_report: dict[str, Any],
     options: dict[str, Any],
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str, str, dict[str, bool]]:
-    active_backend = active_backend_from_doctor(doctor, "x")
-    plan = route_plan_for("x", doctor, input_value)
+    active_backend = active_backend_from_report(capability_report, "x")
+    plan = route_plan_for("x", capability_report, input_value)
     metadata = {"route_plan": plan}
     privacy = {"cookies_used": False, "browser_session_used": False}
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
 
-    if not active_backend_is_ready(doctor, "x"):
-        item = doctor_item_for_platform(doctor, "x")
+    if not active_backend_is_ready(capability_report, "x"):
+        item = capability_item_for_platform(capability_report, "x")
         return (
             "blocked",
             [],
@@ -720,10 +684,10 @@ def acquire_x(
                 {
                     "stage": "twitter_active_backend",
                     "reason": item.get("message")
-                    or "No ready Agent-Reach Twitter/X backend is active. Configure twitter-cli or OpenCLI before reading X.",
+                    or "No ready native Twitter/X provider is active. Configure twitter-cli or OpenCLI before reading X.",
                 }
             ],
-            "Run `python kw.py agent-reach install --channels twitter` or configure OpenCLI/browser session, then retry.",
+            "Install/configure twitter-cli or OpenCLI, run `python kw.py source doctor`, then retry.",
             active_backend,
             privacy,
         )
@@ -737,7 +701,7 @@ def acquire_x(
         except (OSError, subprocess.SubprocessError) as exc:
             append_command_log(command_log, command=command, returncode=1, note=str(exc))
             return "failed", [], metadata, [{"stage": "twitter_cli", "reason": str(exc)}], "Install/configure twitter-cli or provide primary material.", active_backend, privacy
-        append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Twitter/X twitter-cli route")
+        append_command_log(command_log, command=command, returncode=completed.returncode, note="Native Twitter/X twitter-cli route")
         if completed.returncode == 0:
             artifacts = stdout_primary_artifact(
                 bundle_root=bundle_root,
@@ -765,7 +729,7 @@ def acquire_x(
         except (OSError, subprocess.SubprocessError) as exc:
             append_command_log(command_log, command=command, returncode=1, note=str(exc))
             return "failed", [], metadata, [{"stage": "twitter_opencli", "reason": str(exc)}], "Restore OpenCLI browser connectivity or provide primary post text.", active_backend, privacy
-        append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Twitter/X OpenCLI article route")
+        append_command_log(command_log, command=command, returncode=completed.returncode, note="Native Twitter/X OpenCLI article route")
         if completed.returncode == 0:
             try:
                 canonical_text, raw_payload = canonicalize.canonical_page_text(completed.stdout)
@@ -804,7 +768,7 @@ def acquire_x(
         [],
         metadata,
         [{"stage": "twitter_backend", "reason": f"Unsupported Twitter/X backend for this adapter: {active_backend}"}],
-        "Use a documented Agent-Reach Twitter/X route or provide local primary material.",
+        "Use a supported native Twitter/X provider or provide local primary material.",
         active_backend,
         privacy,
     )
@@ -815,18 +779,18 @@ def acquire_xiaohongshu(
     project_root: Path,
     command_log: Path,
     *,
-    doctor: dict[str, Any],
+    capability_report: dict[str, Any],
     options: dict[str, Any],
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str, str, dict[str, bool]]:
-    active_backend = active_backend_from_doctor(doctor, "xiaohongshu")
-    plan = route_plan_for("xiaohongshu", doctor, input_value)
+    active_backend = active_backend_from_report(capability_report, "xiaohongshu")
+    plan = route_plan_for("xiaohongshu", capability_report, input_value)
     metadata = {"route_plan": plan}
     privacy = {"cookies_used": False, "browser_session_used": False}
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
 
-    if not active_backend_is_ready(doctor, "xiaohongshu"):
-        item = doctor_item_for_platform(doctor, "xiaohongshu")
+    if not active_backend_is_ready(capability_report, "xiaohongshu"):
+        item = capability_item_for_platform(capability_report, "xiaohongshu")
         return (
             "blocked",
             [],
@@ -835,10 +799,10 @@ def acquire_xiaohongshu(
                 {
                     "stage": "xiaohongshu_active_backend",
                     "reason": item.get("message")
-                    or "No ready Agent-Reach Xiaohongshu backend is active. Configure OpenCLI/browser session or xiaohongshu-mcp before reading notes.",
+                    or "No ready native Xiaohongshu provider is active. Configure OpenCLI/browser session or xiaohongshu-mcp before reading notes.",
                 }
             ],
-            "Run `python kw.py agent-reach install --channels opencli`, install the Chrome extension, log in to Xiaohongshu in Chrome, then retry.",
+            "Install a supported provider, connect it to the declared Edge/Chrome host, then run `python kw.py source doctor`.",
             active_backend,
             privacy,
         )
@@ -865,7 +829,7 @@ def acquire_xiaohongshu(
         except (OSError, subprocess.SubprocessError) as exc:
             append_command_log(command_log, command=command, returncode=1, note=str(exc))
             return "failed", [], metadata, [{"stage": "xiaohongshu_opencli", "reason": str(exc)}], "Install/configure OpenCLI or provide primary material.", active_backend, privacy
-        append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Xiaohongshu OpenCLI route")
+        append_command_log(command_log, command=command, returncode=completed.returncode, note="Native Xiaohongshu OpenCLI route")
         if completed.returncode == 0:
             try:
                 canonical_text, raw_payload = canonicalize.canonical_page_text(completed.stdout)
@@ -926,7 +890,7 @@ def acquire_xiaohongshu(
         except (OSError, subprocess.SubprocessError) as exc:
             append_command_log(command_log, command=command, returncode=1, note=str(exc))
             return "failed", [], metadata, [{"stage": "xiaohongshu_mcp", "reason": str(exc)}], "Start/login xiaohongshu-mcp or provide primary material.", active_backend, privacy
-        append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Xiaohongshu MCP route")
+        append_command_log(command_log, command=command, returncode=completed.returncode, note="Native Xiaohongshu MCP route")
         if completed.returncode == 0:
             try:
                 canonical_text, raw_payload = canonicalize.canonical_page_text(completed.stdout)
@@ -969,7 +933,7 @@ def acquire_xiaohongshu(
         except (OSError, subprocess.SubprocessError) as exc:
             append_command_log(command_log, command=command, returncode=1, note=str(exc))
             return "failed", [], metadata, [{"stage": "xhs_cli", "reason": str(exc)}], "Configure xhs-cli or provide primary material.", active_backend, privacy
-        append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Xiaohongshu xhs-cli route")
+        append_command_log(command_log, command=command, returncode=completed.returncode, note="Native Xiaohongshu xhs-cli route")
         if completed.returncode == 0:
             artifacts = stdout_primary_artifact(
                 bundle_root=bundle_root,
@@ -990,7 +954,7 @@ def acquire_xiaohongshu(
         [],
         metadata,
         [{"stage": "xiaohongshu_backend", "reason": f"Unsupported Xiaohongshu backend for this adapter: {active_backend}"}],
-        "Use a documented Agent-Reach Xiaohongshu route or provide local primary material.",
+        "Use a supported native Xiaohongshu provider or provide local primary material.",
         active_backend,
         privacy,
     )
@@ -1017,15 +981,15 @@ def _youtube_common_options(options: dict[str, Any]) -> tuple[list[str], dict[st
     browser_value = normalize_browser_host(options.get("youtube_browser"), option_name="--youtube-browser")
     declared_browser_host = normalize_browser_host(options.get("browser_host"))
     if declared_browser_host and browser_value and declared_browser_host != browser_value:
-        raise AgentReachAdapterError(
+        raise AcquisitionAdapterError(
             "--browser-host and --youtube-browser must name the same browser host when both are supplied."
         )
     if cookies_value and browser_value:
-        raise AgentReachAdapterError("Use only one of --youtube-cookies or --youtube-browser.")
+        raise AcquisitionAdapterError("Use only one of --youtube-cookies or --youtube-browser.")
     if cookies_value:
         cookies_path = DEFAULT_YOUTUBE_COOKIES if cookies_value.lower() == "auto" else Path(cookies_value).expanduser().resolve()
         if not cookies_path.is_file():
-            raise AgentReachAdapterError(
+            raise AcquisitionAdapterError(
                 f"YouTube cookies file does not exist: {cookies_path}. Export an authorized Netscape cookies.txt or omit --youtube-cookies."
             )
         command_options.extend(["--cookies", str(cookies_path)])
@@ -1043,7 +1007,7 @@ def _youtube_common_options(options: dict[str, Any]) -> tuple[list[str], dict[st
         node_value = options.get("node")
         node_path = Path(node_value).expanduser().resolve() if node_value else Path(shutil.which("node") or "")
         if not node_path.is_file():
-            raise AgentReachAdapterError("--use-js-runtime was requested, but a Node.js executable was not found")
+            raise AcquisitionAdapterError("--use-js-runtime was requested, but a Node.js executable was not found")
         command_options.extend(["--js-runtimes", f"node:{node_path}"])
         applied["js_runtime_used"] = True
 
@@ -1134,36 +1098,44 @@ def _youtube_privacy(applied: dict[str, Any]) -> dict[str, bool]:
     }
 
 
-def _youtube_transcribe(
+def _youtube_download_media(
     *,
     input_value: str,
     artifacts_root: Path,
     bundle_root: Path,
     command_log: Path,
     timeout: int,
+    ytdlp: str,
+    common_options: list[str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    output = artifacts_root / "youtube_transcript.txt"
-    command = standalone_agent_reach_command("transcribe", input_value, "-o", str(output))
+    output_template = str(artifacts_root / "youtube_media.%(ext)s")
+    command = [ytdlp, *common_options, "--no-playlist", "-f", "bestaudio/best", "-o", output_template, input_value]
     try:
         completed = run_capture(command, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as exc:
         append_command_log(command_log, command=command, returncode=1, note=str(exc))
-        return [], {"stage": "youtube_transcribe", "reason": str(exc)}
-    append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach YouTube transcription fallback")
-    if completed.returncode == 0 and output.is_file() and output.stat().st_size > 0:
+        return [], {"stage": "youtube_media", "reason": str(exc)}
+    append_command_log(command_log, command=command, returncode=completed.returncode, note="yt-dlp media acquisition for evidence-layer ASR")
+    candidates = sorted(
+        path
+        for path in artifacts_root.glob("youtube_media.*")
+        if path.is_file() and bundle.artifact_type_for(path) in {"audio", "video"}
+    )
+    if completed.returncode == 0 and candidates:
+        media = candidates[0]
         return [
             bundle.artifact_entry(
                 bundle_root=bundle_root,
-                path=output,
-                artifact_type="transcript",
+                path=media,
+                artifact_type=bundle.artifact_type_for(media),
                 source_class="primary",
-                content_scope="video_transcript",
-                description="Transcript produced by the Agent-Reach transcription route.",
-                created_by="agent-reach_transcribe",
+                content_scope="media",
+                description="YouTube media acquired by yt-dlp for source-gated local ASR.",
+                created_by="yt-dlp",
             )
         ], None
-    reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "transcription route produced no transcript"
-    return [], {"stage": "youtube_transcribe", "reason": reason}
+    reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "media acquisition produced no usable file"
+    return [], {"stage": "youtube_media", "reason": reason}
 
 
 def _youtube_opencli_transcript(
@@ -1232,17 +1204,17 @@ def acquire_youtube(
     ytdlp_value = options.get("ytdlp")
     ytdlp = str(Path(ytdlp_value).expanduser().resolve()) if ytdlp_value else "yt-dlp"
     if ytdlp_value and not Path(ytdlp).is_file():
-        raise AgentReachAdapterError(f"yt-dlp executable does not exist: {ytdlp}")
+        raise AcquisitionAdapterError(f"yt-dlp executable does not exist: {ytdlp}")
     common_options, applied = _youtube_common_options(options)
     timeout = int(options.get("platform_timeout_seconds") or 90)
     if timeout <= 0:
-        raise AgentReachAdapterError("--platform-timeout-seconds must be greater than zero")
+        raise AcquisitionAdapterError("--platform-timeout-seconds must be greater than zero")
     mode = str(options.get("platform_mode") or "auto")
     if mode not in {"auto", "probe", "subtitles", "audio"}:
-        raise AgentReachAdapterError(f"unsupported YouTube platform mode: {mode}")
+        raise AcquisitionAdapterError(f"unsupported YouTube platform mode: {mode}")
     if operation == "read":
         if mode not in {"auto", "probe"}:
-            raise AgentReachAdapterError("YouTube operation 'read' only supports --platform-mode auto/probe")
+            raise AcquisitionAdapterError("YouTube operation 'read' only supports --platform-mode auto/probe")
         mode = "probe"
     subtitle_languages = str(options.get("subtitle_languages") or "all,-live_chat")
     metadata_command = [ytdlp, *common_options, "--skip-download", "--dump-single-json", input_value]
@@ -1342,18 +1314,20 @@ def acquire_youtube(
         metadata["execution_backend"] = "yt-dlp"
         return "material_acquired", artifacts, metadata, failures, "ingest_bundle", privacy
     if mode in {"auto", "audio"}:
-        transcript_artifacts, transcript_failure = _youtube_transcribe(
+        transcript_artifacts, transcript_failure = _youtube_download_media(
             input_value=input_value,
             artifacts_root=artifacts_root,
             bundle_root=bundle_root,
             command_log=command_log,
             timeout=max(timeout, 180),
+            ytdlp=ytdlp,
+            common_options=common_options,
         )
         artifacts.extend(transcript_artifacts)
         if transcript_failure:
             failures.append(transcript_failure)
         if transcript_artifacts:
-            metadata["execution_backend"] = "agent-reach_transcribe"
+            metadata["execution_backend"] = "yt-dlp_media_then_evidence_asr"
             return "material_acquired", artifacts, metadata, failures, "ingest_bundle", privacy
     if artifacts:
         return "metadata_only", artifacts, metadata, failures, youtube_next_action(failures, metadata_only=True), privacy
@@ -1367,25 +1341,25 @@ def acquire_bilibili(
     project_root: Path,
     command_log: Path,
     *,
-    doctor: dict[str, Any],
+    capability_report: dict[str, Any],
     operation: str,
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
     artifacts_root.mkdir(parents=True, exist_ok=True)
-    active_backend = active_backend_from_doctor(doctor, "bilibili")
-    item = doctor_item_for_platform(doctor, "bilibili")
+    active_backend = active_backend_from_report(capability_report, "bilibili")
+    item = capability_item_for_platform(capability_report, "bilibili")
     metadata: dict[str, Any] = {"operation": operation}
     artifacts: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
 
-    if not active_backend_is_ready(doctor, "bilibili"):
+    if not active_backend_is_ready(capability_report, "bilibili"):
         return (
             "blocked",
             [],
             metadata,
             [{"stage": "bilibili_active_backend", "reason": item.get("message") or "No ready Bilibili backend."}],
-            "Configure a Bilibili backend reported ready by Agent-Reach, then retry.",
+            "Configure a native Bilibili provider reported ready by `kw source doctor`, then retry.",
         )
 
     if operation == "extract_transcript" and active_backend == "OpenCLI":
@@ -1397,7 +1371,7 @@ def acquire_bilibili(
         except (OSError, subprocess.SubprocessError) as exc:
             append_command_log(command_log, command=command, returncode=1, note=str(exc))
             return "failed", [], metadata, [{"stage": "bilibili_opencli", "reason": str(exc)}], "Restore OpenCLI browser connectivity or provide subtitles."
-        append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Bilibili OpenCLI subtitle route")
+        append_command_log(command_log, command=command, returncode=completed.returncode, note="Native Bilibili OpenCLI subtitle route")
         if completed.returncode != 0:
             reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "OpenCLI subtitle command failed"
             return command_blocked_status(completed), [], metadata, [{"stage": "bilibili_opencli", "reason": reason}], "Log in through Chrome/OpenCLI or provide subtitles."
@@ -1485,7 +1459,7 @@ def acquire_bilibili(
         append_command_log(command_log, command=audio_command, returncode=1, note=str(exc))
         failures.append({"stage": "bilibili_audio", "reason": str(exc)})
     else:
-        append_command_log(command_log, command=audio_command, returncode=audio_result.returncode, note="Agent-Reach bili-cli audio route")
+        append_command_log(command_log, command=audio_command, returncode=audio_result.returncode, note="Native bili-cli audio route")
         if audio_result.returncode != 0:
             failures.append({"stage": "bilibili_audio", "reason": audio_result.stderr[-1000:] or audio_result.stdout[-1000:] or "audio command failed"})
 
@@ -1497,29 +1471,21 @@ def acquire_bilibili(
     ]
     if audio_files:
         audio_path = sorted(audio_files)[0]
-        transcript_path = artifacts_root / "bilibili_transcript.txt"
-        transcribe_command = standalone_agent_reach_command("transcribe", str(audio_path), "-o", str(transcript_path))
-        try:
-            transcribed = run_capture(transcribe_command, timeout=600)
-        except (OSError, subprocess.SubprocessError) as exc:
-            append_command_log(command_log, command=transcribe_command, returncode=1, note=str(exc))
-            failures.append({"stage": "bilibili_transcribe", "reason": str(exc)})
-        else:
-            append_command_log(command_log, command=transcribe_command, returncode=transcribed.returncode, note="Agent-Reach transcription route")
-            if transcribed.returncode == 0 and transcript_path.is_file() and transcript_path.stat().st_size > 0:
-                artifacts.append(
-                    bundle.artifact_entry(
-                        bundle_root=bundle_root,
-                        path=transcript_path,
-                        artifact_type="transcript",
-                        source_class="primary",
-                        content_scope="video_transcript",
-                        description="Bilibili audio-derived transcript.",
-                        created_by="agent-reach_transcribe",
-                    )
+        artifact_type = bundle.artifact_type_for(audio_path)
+        if artifact_type in {"audio", "video"}:
+            artifacts.append(
+                bundle.artifact_entry(
+                    bundle_root=bundle_root,
+                    path=audio_path,
+                    artifact_type=artifact_type,
+                    source_class="primary",
+                    content_scope="media",
+                    description="Bilibili media acquired by bili-cli for source-gated local ASR.",
+                    created_by="bili-cli",
                 )
-                return "material_acquired", artifacts, metadata, failures, "ingest_bundle"
-            failures.append({"stage": "bilibili_transcribe", "reason": transcribed.stderr[-1000:] or "transcription produced no file"})
+            )
+            metadata["execution_backend"] = "bili-cli_media_then_evidence_asr"
+            return "material_acquired", artifacts, metadata, failures, "ingest_bundle"
 
     if artifacts:
         return "metadata_only", artifacts, metadata, failures, "Provide subtitles or configure the authorized audio transcription route."
@@ -1604,13 +1570,13 @@ def acquire_search(
     project_root: Path,
     command_log: Path,
     *,
-    doctor: dict[str, Any],
+    capability_report: dict[str, Any],
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str]:
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
     output = artifacts_root / "search_results.md"
-    if not active_backend_is_ready(doctor, "search"):
-        item = doctor_item_for_platform(doctor, "search")
+    if not active_backend_is_ready(capability_report, "search"):
+        item = capability_item_for_platform(capability_report, "search")
         return (
             "blocked",
             [],
@@ -1623,22 +1589,22 @@ def acquire_search(
         completed = run_capture(command, timeout=60)
     except (OSError, subprocess.SubprocessError) as exc:
         append_command_log(command_log, command=command, returncode=1, note=str(exc))
-        return "failed", [], {}, [{"stage": "search", "reason": str(exc)}], "Install/configure Agent-Reach search or provide primary local material."
-    append_command_log(command_log, command=command, returncode=completed.returncode, note="Agent-Reach Exa search via mcporter")
+        return "failed", [], {}, [{"stage": "search", "reason": str(exc)}], "Install/configure the Exa MCP provider or provide primary local material."
+    append_command_log(command_log, command=command, returncode=completed.returncode, note="Native Exa search via mcporter")
     if completed.returncode == 0 and _write_stdout_artifact(output, completed.stdout):
         entry = bundle.artifact_entry(
             bundle_root=bundle_root,
             path=output,
             artifact_type="search_result",
             source_class="secondary",
-            description="Search results acquired through Agent-Reach search route.",
+            description="Search results acquired through the native Exa provider.",
             created_by="mcporter_exa",
         )
         return "secondary_only", [entry], {"query": input_value}, [], "Use search results only for triage; provide primary material for full analysis."
-    return "failed", [], {}, [{"stage": "search", "reason": completed.stderr[-1000:] or "empty search output"}], "Provide primary material or configure Agent-Reach search."
+    return "failed", [], {}, [{"stage": "search", "reason": completed.stderr[-1000:] or "empty search output"}], "Provide primary material or configure the Exa MCP provider."
 
 
-def _acquire_with_agent_reach_into(
+def _acquire_source_material_into(
     *,
     input_value: str,
     project_root: Path,
@@ -1658,7 +1624,7 @@ def _acquire_with_agent_reach_into(
     platform = platform_override or detect_platform(input_value)
 
     if platform == "local_file":
-        raise AgentReachAdapterError("local files must use build_local_bundle")
+        raise AcquisitionAdapterError("local files must use build_local_bundle")
     if platform not in SUPPORTED_PLATFORMS:
         return make_failed_manifest(
             project_root=project_root,
@@ -1672,26 +1638,12 @@ def _acquire_with_agent_reach_into(
             operation=operation,
             source_fingerprint=source_fingerprint,
         )
-    if not standalone_agent_reach_available():
-        return make_failed_manifest(
-            project_root=project_root,
-            input_value=input_value,
-            platform=platform,
-            status="failed",
-            reason="standalone Agent-Reach runtime is not ready",
-            run_id=run_id,
-            attempt_id=attempt_id,
-            analysis_target=analysis_target,
-            operation=operation,
-            source_fingerprint=source_fingerprint,
-        )
-
     browser_host = browser_host_from_options(youtube_options)
-    doctor = write_doctor(project_root, command_log)
-    active_backend = active_backend_from_doctor(doctor, platform)
+    capability_report = write_capability_report(project_root, command_log, options=youtube_options)
+    active_backend = active_backend_from_report(capability_report, platform)
     route_plan = route_plan_for(
         platform,
-        doctor,
+        capability_report,
         input_value,
         analysis_target=analysis_target,
         operation=operation,
@@ -1733,17 +1685,28 @@ def _acquire_with_agent_reach_into(
             operation=operation,
         )
     elif platform == "bilibili":
-        status, artifacts, metadata, failures, next_action = acquire_bilibili(input_value, project_root, command_log, doctor=doctor, operation=operation)
+        status, artifacts, metadata, failures, next_action = acquire_bilibili(
+            input_value,
+            project_root,
+            command_log,
+            capability_report=capability_report,
+            operation=operation,
+        )
     elif platform == "github":
         status, artifacts, metadata, failures, next_action = acquire_github(input_value, project_root, command_log)
     elif platform == "search":
-        status, artifacts, metadata, failures, next_action = acquire_search(input_value, project_root, command_log, doctor=doctor)
+        status, artifacts, metadata, failures, next_action = acquire_search(
+            input_value,
+            project_root,
+            command_log,
+            capability_report=capability_report,
+        )
     elif platform == "x":
         status, artifacts, metadata, failures, next_action, active_backend, privacy_flags = acquire_x(
             input_value,
             project_root,
             command_log,
-            doctor=doctor,
+            capability_report=capability_report,
             options=youtube_options or {},
         )
     elif platform == "xiaohongshu":
@@ -1751,7 +1714,7 @@ def _acquire_with_agent_reach_into(
             input_value,
             project_root,
             command_log,
-            doctor=doctor,
+            capability_report=capability_report,
             options=youtube_options or {},
         )
     else:
@@ -1766,7 +1729,9 @@ def _acquire_with_agent_reach_into(
         metadata = {
             **metadata,
             "route_plan": route_plan,
-            "agent_reach_runtime": agent_reach_runtime.runtime_metadata(path_lookup=shutil.which),
+            "provider_runtime": acquisition_providers.runtime_metadata(
+                path_lookup=provider_path_lookup(youtube_options)
+            ),
             "browser_host": route_plan["browser_host"],
             "browser_host_identity": route_plan["browser_host_identity"],
         }
@@ -1777,7 +1742,7 @@ def _acquire_with_agent_reach_into(
         source_url=redact_value_for_record(input_value),
         source_id=source_id_for(input_value, platform),
         platform=platform,
-        acquisition_layer="agent-reach",
+        acquisition_layer="knowledge_workflow_native",
         active_backend=active_backend,
         status=status,
         artifacts=artifacts,
@@ -1813,7 +1778,7 @@ def _acquire_with_agent_reach_into(
     return bundle.write_manifest(project_root, manifest)
 
 
-def acquire_with_agent_reach(
+def acquire_source_material(
     *,
     input_value: str,
     project_root: Path,
@@ -1826,7 +1791,7 @@ def acquire_with_agent_reach(
     project_root = project_root.resolve()
     platform = platform_override or detect_platform(input_value)
     if platform_override and platform_override not in SUPPORTED_PLATFORMS:
-        raise AgentReachAdapterError(f"unsupported platform override: {platform_override}")
+        raise AcquisitionAdapterError(f"unsupported platform override: {platform_override}")
     if platform == "local_file":
         return bundle.build_local_bundle(
             input_path=Path(input_value),
@@ -1851,10 +1816,10 @@ def acquire_with_agent_reach(
         )
         attempt = run_context.prepare_attempt(project_root=project_root, identity=identity)
     except run_context.RunContextError as exc:
-        raise AgentReachAdapterError(str(exc)) from exc
+        raise AcquisitionAdapterError(str(exc)) from exc
 
     try:
-        staged_manifest = _acquire_with_agent_reach_into(
+        staged_manifest = _acquire_source_material_into(
             input_value=input_value,
             project_root=attempt.work_project_root,
             run_id=attempt.run_id,
@@ -1867,150 +1832,36 @@ def acquire_with_agent_reach(
         )
         validation = bundle.validate_manifest(staged_manifest)
         if not validation["valid"]:
-            raise AgentReachAdapterError("acquisition bundle failed validation: " + "; ".join(validation["errors"]))
+            raise AcquisitionAdapterError("acquisition bundle failed validation: " + "; ".join(validation["errors"]))
         return run_context.promote_attempt(attempt)
     except Exception:
         run_context.abandon_attempt(attempt)
         raise
 
 
-def _channel_set(channels: str) -> set[str]:
-    return {item.strip().lower() for item in channels.split(",") if item.strip()}
-
-
-def channels_may_auto_import_cookies(channels: str) -> bool:
-    return bool(_channel_set(channels) & UPSTREAM_AUTO_COOKIE_CHANNELS)
-
-
-def npm_command() -> str:
-    if sys.platform == "win32":
-        return shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
-    return shutil.which("npm") or "npm"
-
-
-def install_npm_global(package: str) -> int:
-    command = [npm_command(), "install", "-g", package]
-    print("Installing npm package: " + package)
-    try:
-        completed = subprocess.run(
-            resolve_command_for_subprocess(command),
-            env=agent_reach_runtime.external_tool_environment(),
-        )
-    except OSError as exc:
-        print(f"npm install failed to start: {exc}", file=sys.stderr)
-        return 1
-    return completed.returncode
-
-
-def configure_exa_search() -> None:
-    if shutil.which("mcporter") is None:
-        return
-    command = ["mcporter", "config", "add", "exa", "https://mcp.exa.ai/mcp", "--scope", "home"]
-    try:
-        subprocess.run(
-            resolve_command_for_subprocess(command),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            env=agent_reach_runtime.external_tool_environment(),
-        )
-    except (OSError, subprocess.SubprocessError):
-        pass
-
-
-def remediate_windows_agent_reach_install(channels: str) -> int:
-    if sys.platform != "win32":
-        return 0
-    requested = _channel_set(channels)
-    if not requested:
-        requested = set()
-    status = 0
-    if shutil.which("mcporter") is None:
-        status = install_npm_global("mcporter") or status
-    configure_exa_search()
-    needs_opencli = bool(requested & {"opencli", "xiaohongshu", "reddit", "facebook", "instagram", "all"})
-    if needs_opencli and shutil.which("opencli") is None:
-        status = install_npm_global("@jackwener/opencli") or status
-    return status
-
-
-def agent_reach_install(
-    *,
-    safe: bool = False,
-    dry_run: bool = False,
-    channels: str = "",
-    allow_upstream_cookie_import: bool = False,
-) -> int:
-    if channels_may_auto_import_cookies(channels) and not (safe or dry_run or allow_upstream_cookie_import):
-        print(
-            "Selected upstream channels may trigger Agent-Reach's own automatic Chrome/Firefox cookie import. "
-            "Use --safe to review, or pass --allow-upstream-cookie-import only after selecting that host explicitly. "
-            "For Edge, configure cookies explicitly with `agent-reach configure --from-browser edge` after user authorization.",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        runtime_executable = agent_reach_runtime.ensure_runtime(dry_run=dry_run)
-    except agent_reach_runtime.AgentReachRuntimeError as exc:
-        print(f"Agent-Reach standalone runtime setup failed: {exc}", file=sys.stderr)
-        return 1
-
-    command = [str(runtime_executable), "install", "--env=auto"]
-    if channels:
-        command.extend(["--channels", channels])
-    if safe:
-        command.append("--safe")
-    if dry_run:
-        command.append("--dry-run")
-        print("[dry-run] Would run Agent-Reach from the standalone runtime:")
-        print("  " + " ".join(command))
-        return 0
-    try:
-        completed = subprocess.run(command, env=agent_reach_runtime.external_tool_environment())
-    except OSError as exc:
-        print(f"agent-reach install failed to start: {exc}", file=sys.stderr)
-        return 1
-    if not safe and not dry_run:
-        remediation_status = remediate_windows_agent_reach_install(channels)
-        if completed.returncode == 0 and remediation_status != 0:
-            return remediation_status
-    return completed.returncode
-
-
-def agent_reach_doctor(*, output_json: Path | None = None) -> int:
-    try:
-        command = standalone_agent_reach_command("doctor", "--json")
-        completed = run_capture(command, timeout=90)
-    except (AgentReachAdapterError, OSError, subprocess.SubprocessError) as exc:
-        print(f"agent-reach doctor failed: {exc}", file=sys.stderr)
-        return 1
-    runtime = agent_reach_runtime.runtime_metadata(path_lookup=shutil.which)
-    print(f"Agent-Reach runtime: {runtime['executable']}", file=sys.stderr)
+def source_doctor(*, output_json: Path | None = None) -> int:
+    report = acquisition_providers.build_capability_report()
+    text = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if output_json:
-        output_json.parent.mkdir(parents=True, exist_ok=True)
-        output_json.write_text(completed.stdout or "{}\n", encoding="utf-8")
-    print(completed.stdout, end="")
-    if completed.stderr:
-        print(completed.stderr, file=sys.stderr, end="")
-    return completed.returncode
+        bundle.write_text(output_json, text)
+    print(text, end="")
+    return 0
 
 
-def capability_matrix_payload(doctor: dict[str, Any]) -> dict[str, Any]:
+def capability_matrix_payload(report: dict[str, Any]) -> dict[str, Any]:
     channels: list[dict[str, Any]] = []
-    for name, (capability, integration_mode) in AGENT_REACH_CHANNEL_CATALOG.items():
-        item = doctor.get(name)
+    for name, (capability, integration_mode) in acquisition_providers.CHANNEL_CATALOG.items():
+        item = report.get(name)
         state = item if isinstance(item, dict) else {}
         channels.append(
             {
                 "channel": name,
                 "capability": capability,
-                "doctor_status": str(state.get("status") or "not_reported"),
+                "provider_status": str(state.get("status") or "not_reported"),
                 "active_backend": str(state.get("active_backend") or ""),
-                "doctor_message": str(state.get("message") or ""),
+                "provider_message": str(state.get("message") or ""),
                 "integration_mode": integration_mode,
-                "auditable_handoff": "kw agent-reach import",
+                "auditable_handoff": "kw source import",
             }
         )
     return {
@@ -2018,21 +1869,21 @@ def capability_matrix_payload(doctor: dict[str, Any]) -> dict[str, Any]:
         "channel_count": len(channels),
         "channels": channels,
         "notes": [
-            "Agent-Reach remains the owner of native platform commands and backend routing.",
-            "Structured adapters can acquire directly through kw acquire; native routes hand off saved primary material through kw agent-reach import.",
-            "A doctor status is acquisition readiness, not source-gate approval.",
+            "Knowledge Workflow owns provider probing, routing, and Bundle v2 creation.",
+            "Native adapters use kw acquire; any authorized local export uses kw source import.",
+            "Provider readiness is not source-gate approval.",
         ],
     }
 
 
 def render_capability_matrix(payload: dict[str, Any]) -> str:
     lines = [
-        "# Agent-Reach Capability Matrix",
+        "# Native Acquisition Capability Matrix",
         "",
-        "This matrix lists every Agent-Reach channel known to this integration.",
-        "`doctor_status` reports upstream readiness; it is not a source-gate decision.",
+        "This matrix lists Knowledge Workflow acquisition channels and their current providers.",
+        "`provider_status` reports acquisition readiness; it is not a source-gate decision.",
         "",
-        "| Channel | Doctor | Active Backend | Integration |",
+        "| Channel | Provider Status | Active Backend | Integration |",
         "| --- | --- | --- | --- |",
     ]
     for item in payload.get("channels") or []:
@@ -2043,7 +1894,7 @@ def render_capability_matrix(payload: dict[str, Any]) -> str:
             + " | ".join(
                 [
                     str(item.get("channel") or ""),
-                    str(item.get("doctor_status") or ""),
+                    str(item.get("provider_status") or ""),
                     str(item.get("active_backend") or "-") or "-",
                     str(item.get("integration_mode") or ""),
                 ]
@@ -2055,31 +1906,17 @@ def render_capability_matrix(payload: dict[str, Any]) -> str:
             "",
             "## Handoff",
             "",
-            "- `structured_adapter`: use `kw acquire` or `kw run` when the requested operation is implemented.",
-            "- `native_export_import`: use the native Agent-Reach channel command, save task-primary text, subtitle, or media locally, then use `kw agent-reach import`.",
-            "- `structured_adapter_and_native_export`: use the structured route when it fits; otherwise use the native command and formal import path.",
+            "- `native_adapter`: use `kw acquire` or `kw run` when the requested operation is implemented.",
+            "- `external_export`: save authorized task-primary text, subtitle, audio, or video locally, then use `kw source import`.",
+            "- Both paths produce the same validated Bundle v2 handoff.",
             "",
         ]
     )
     return "\n".join(lines)
 
 
-def agent_reach_capability_matrix(*, output_json: Path | None = None, output_md: Path | None = None) -> int:
-    try:
-        command = standalone_agent_reach_command("doctor", "--json")
-        completed = run_capture(command, timeout=90)
-    except (AgentReachAdapterError, OSError, subprocess.SubprocessError) as exc:
-        print(f"agent-reach doctor failed: {exc}", file=sys.stderr)
-        return 1
-    if completed.returncode != 0:
-        print(completed.stderr or completed.stdout, file=sys.stderr, end="")
-        return completed.returncode
-    try:
-        doctor = json.loads(completed.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        print(f"agent-reach doctor returned invalid JSON: {exc}", file=sys.stderr)
-        return 1
-    payload = capability_matrix_payload(doctor if isinstance(doctor, dict) else {})
+def source_capability_matrix(*, output_json: Path | None = None, output_md: Path | None = None) -> int:
+    payload = capability_matrix_payload(acquisition_providers.build_capability_report())
     rendered = render_capability_matrix(payload)
     if output_json:
         bundle.write_json(output_json, sanitize_data(payload))
@@ -2089,7 +1926,7 @@ def agent_reach_capability_matrix(*, output_json: Path | None = None, output_md:
     return 0
 
 
-def agent_reach_route_plan(
+def source_route_plan(
     *,
     input_value: str,
     output_json: Path | None = None,
@@ -2098,23 +1935,10 @@ def agent_reach_route_plan(
     browser_host: str = "",
 ) -> int:
     platform = detect_platform(input_value)
-    try:
-        command = standalone_agent_reach_command("doctor", "--json")
-        completed = run_capture(command, timeout=90)
-    except (AgentReachAdapterError, OSError, subprocess.SubprocessError) as exc:
-        print(f"agent-reach doctor failed: {exc}", file=sys.stderr)
-        return 1
-    if completed.returncode != 0:
-        print(completed.stderr or completed.stdout, file=sys.stderr, end="")
-        return completed.returncode
-    try:
-        doctor = json.loads(completed.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        print(f"agent-reach doctor returned invalid JSON: {exc}", file=sys.stderr)
-        return 1
+    report = acquisition_providers.build_capability_report()
     plan = route_plan_for(
         platform,
-        doctor if isinstance(doctor, dict) else {},
+        report,
         input_value,
         analysis_target=analysis_target,
         operation=operation,

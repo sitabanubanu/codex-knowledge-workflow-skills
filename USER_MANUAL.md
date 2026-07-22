@@ -1,193 +1,96 @@
-# User Manual
+# 用户手册
 
-## Start With the Result Index
-
-Every run writes:
-
-```text
-result_index.md
-logs/result_index.json
-logs/status_summary.json
-```
-
-The result index reports acquisition status, source status, target, whether
-full analysis is allowed, whether each provenance layer is current, stale-file
-presence, and the next safe action.
-
-## Choose the Target, Not Only the URL
-
-Use `--target` to state what material you intend to analyze:
-
-```text
-video_content   requires video_transcript
-social_post     requires social_post_text
-web_article     requires article_body
-repository      requires repository_document
-search_triage   remains secondary
-```
-
-`--operation auto` selects the corresponding operation. You can also set
-`read`, `search`, or `extract_transcript` explicitly.
-
-Examples:
+## 先从总控台开始
 
 ```powershell
-python .\kw.py run --input <youtube-or-bilibili-url> --target video_content --operation extract_transcript --mode audit
-python .\kw.py run --input <x-or-xiaohongshu-url> --target social_post --operation read --mode audit
-python .\kw.py run --input https://example.com/article --target web_article --operation read --mode audit
-python .\kw.py run --input https://github.com/owner/repo --target repository --operation read --mode audit
+kw run --input <URL或文件> --target <目标> --operation <操作> --mode audit
 ```
 
-Do not select `social_post` when the actual task is to analyze an embedded
-video. The post caption and video transcript are separate source scopes.
+常见目标：
 
-## Inspect Capability Before a Live Run
+| target | 需要的主材料 |
+| --- | --- |
+| `video_content` | 字幕、transcript，或可进入本地 ASR 的音视频 |
+| `social_post` | 帖子正文 |
+| `web_article` | 文章正文 |
+| `repository` | README 或仓库文档 |
+| `search_triage` | 搜索结果，仅用于选材 |
+
+帖子正文不能替代帖子中视频的 transcript；搜索结果不能直接解锁正式报告。
+
+## 三段产品流程
+
+1. 需要“先找资料”时，使用 `web-intent-scout` 建立意图图、查询族、来源台账和候选清单。
+2. 将选中的 URL、查询或本地材料交给 `knowledge-workflow-console`。总控台获取材料、运行 Source Gate 和证据审计。
+3. 选择 `knowledge-learning-article` 生成学习文章，或选择 `knowledge-document-composer` 生成忠于来源的正式文档。
+
+## 运行前检查获取路线
 
 ```powershell
-python .\kw.py agent-reach doctor
-python .\kw.py agent-reach plan --input <url> --target <target> --operation <operation>
+kw source doctor
+kw source matrix
+kw source plan --input <URL> --target <目标> --operation <操作>
 ```
 
-The plan distinguishes `active_backend_ready`, `operation_supported`, and
-`capability_ready`. Acquisition executes only when capability is ready.
+路线只有在 Provider ready、操作受支持、浏览器宿主要求满足时才会执行。
 
-## Full Agent-Reach Channels
-
-`kw acquire` is intentionally a structured adapter, not a duplicate of every
-moving Agent-Reach native command. Inspect the live upstream inventory first:
+## 分阶段运行
 
 ```powershell
-python .\kw.py agent-reach matrix
+kw acquire --input <URL或查询> --target <目标> --operation <操作> --project-root <项目目录>
+kw validate-bundle --bundle <项目目录>\00_acquisition\manifest.json
+kw ingest --bundle <项目目录>\00_acquisition\manifest.json --project-root <项目目录>
+kw audit --project-root <项目目录>
+kw compose --project-root <项目目录>
+kw status --project-root <项目目录> --pretty
+kw result --project-root <项目目录> --pretty
 ```
 
-For a ready channel shown as `native_export_import`, use the native command
-from the installed `$agent-reach` skill, save only task-primary text, subtitle,
-or media locally, then create a formal Bundle v2 handoff:
+## 导入其他渠道的授权材料
+
+当渠道没有内置结构化直连时，先通过用户有权使用的浏览器、CLI、API 或导出功能把主材料保存到本地，再执行：
 
 ```powershell
-python .\kw.py agent-reach import `
-  --input-file .\exports\primary.txt `
-  --source-url <original-url> `
-  --platform reddit `
-  --target social_post `
-  --operation read `
-  --browser-host edge `
-  --credentialed-session `
-  --project-root <project>
+kw source import `
+  --input-file <本地主材料> `
+  --source-url <原始URL> `
+  --platform <平台> `
+  --target <目标> `
+  --operation <操作> `
+  --project-root <项目目录>
 ```
 
-The import command accepts every Agent-Reach channel platform id. Use
-`--browser-host` only for an OpenCLI-derived export and
-`--credentialed-session` when an authorized session or cookie served it. Raw
-search output, metadata, screenshots, and page shells remain insufficient.
-Read [the integration guide](docs/agent-reach-integration-guide.md) for the
-complete 15-channel map and setup requirements.
+只有正文、subtitle、transcript、音频或视频等目标兼容材料可以作为主材料。metadata、截图、搜索摘要和页面外壳仍不能通过正常报告许可。
 
-## End-to-End Run
+## YouTube 与媒体
+
+`kw run` 和 `kw acquire` 支持 `--youtube-cookies`、`--youtube-browser edge|chrome`、`--ytdlp`、`--node`、字幕语言、JS runtime 和超时等参数。
+
+- `probe`：只读 metadata。
+- `subtitles`：只尝试字幕。
+- `audio`：获取音频，交给 evidence layer 的本地 ASR。
+- `auto`：先字幕，再获取媒体并进入 ASR。
+
+获取层不会自行把原始音频标为 transcript；只有 ASR 成功、派生文本哈希被 gate receipt 绑定后，流程才继续。
+
+## Resume 与历史
+
+同一项目目录绑定一个来源、目标和操作。只有完全匹配时才可：
 
 ```powershell
-python .\kw.py run --input <url-or-file> --target <target> --operation <operation> --mode audit
+kw run ... --project-root <原项目目录> --resume
 ```
 
-The route is:
+旧尝试会进入 `acquisition_history/` 和 `run_history/`。来源文件变化、目标变化或操作变化时请使用新目录。
 
-```text
-preflight
-  -> staged acquisition attempt
-  -> validated Bundle v2
-  -> target/scope source gate
-  -> normalization or ASR
-  -> claims and evidence audit
-  -> document planning
-  -> quality gate and final report
-  -> provenance-aware result index
-```
+## 交付条件
 
-## Run Stages Separately
+正式学习文章或报告需要：
 
-```powershell
-python .\kw.py acquire --input <url-or-query> --target <target> --operation <operation> --project-root <project>
-python .\kw.py validate-bundle --bundle <project>\00_acquisition\manifest.json
-python .\kw.py ingest --bundle <project>\00_acquisition\manifest.json --project-root <project>
-python .\kw.py audit --project-root <project>
-python .\kw.py compose --project-root <project>
-python .\kw.py status --project-root <project>
-python .\kw.py result --project-root <project>
-```
+- 当前 Bundle v2 校验通过；
+- SourceStatus 合约允许进入分析；
+- evidence audit 无阻断问题；
+- gate、analysis、composer/learning 和 final receipt 的哈希都与当前文件一致；
+- 对应 quality gate 批准交付。
 
-Raw Agent-Reach output is never sent directly to the composer.
-
-## Search
-
-Use `--query` to force the input to the search route, even if the text resembles
-a local path:
-
-```powershell
-python .\kw.py acquire --query --input "research question" --target search_triage --operation search --project-root <project>
-```
-
-Search results remain secondary and cannot unlock a normal final report.
-
-## YouTube Options
-
-The primary `kw run` and `kw acquire` paths apply these options to yt-dlp:
-
-- `--youtube-cookies <path|auto>`;
-- `--youtube-browser edge|chrome` to select the browser that actually owns the
-  authorized login state. The browser-control plugin name is not evidence of
-  the host browser identity. Use only one of `--youtube-cookies` and
-  `--youtube-browser`;
-- `--browser-host edge|chrome` to declare the real host for OpenCLI or a
-  browser export. OpenCLI acquisition blocks when this identity is absent;
-  Chrome and Edge never fall back to one another;
-- `--ytdlp`, `--node`, `--use-js-runtime`;
-- `--use-remote-components`;
-- `--subtitle-languages`;
-- `--ytdlp-player-clients`, `--ytdlp-extractor-args`;
-- `--youtube-visitor-data`, `--youtube-po-token`;
-- `--ytdlp-proxy`, `--ytdlp-impersonate`;
-- request sleep, retry sleep, and timeout options.
-
-Sensitive values are passed to the process but redacted from persisted output.
-`--platform-mode probe` reads metadata only; `subtitles` avoids transcription
-fallback; `audio` uses the Agent-Reach transcription route; `auto` tries
-subtitles and then transcription.
-
-## Resume and History
-
-A project root belongs to one source, target, and operation. Reuse without
-`--resume` fails.
-
-```powershell
-python .\kw.py run --input <same-input> --target <same-target> --operation <same-operation> --project-root <same-project> --resume
-```
-
-Resume creates a new attempt. Previous acquisition and downstream trees move
-to `acquisition_history/` and `run_history/`. A changed local file, different
-target, or different operation requires a new project root.
-
-## Blocked or Degraded Runs
-
-A safe degraded run answers:
-
-1. What was acquired?
-2. Which target scope is still missing?
-3. Why is full analysis blocked?
-4. Which authorized artifact or backend is needed next?
-
-It may ask for a transcript, subtitle, local media for ASR, an authorized
-browser export, or a healthy backend. It must not manufacture missing source
-material.
-
-## Delivery Conditions
-
-`final_report.md` is deliverable only when:
-
-- source status is `source_confirmed` or `source_partial`;
-- the target-compatible scope passed the gate;
-- evidence audit and claim map are present;
-- quality gate approves the report;
-- gate, analysis, composer, and final-report receipts all match current hashes.
-
-`kw export`, normal templates, quality review, and batch synthesis reject stale
-or unverified outputs even when old files remain on disk.
+每次先打开 `result_index.md`。它会说明当前可交付物、阻断原因、过期文件和下一步。

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Source Acquisition"
+  short_description: "Plans native routes and writes Bundle v2."
+  default_prompt: "Use $acquire-source-material to acquire this authorized source into a validated Bundle v2."

@@ -1,71 +1,43 @@
-# Supported Platforms and Operations
+# 平台与操作矩阵
 
-Platform support is an operation-specific capability, not a promise that every
-URL can be fetched.
+平台支持是“Provider + 操作 + 当前环境”的组合，不是对每个 URL 的成功承诺。
 
-The adapter executes a route only when Agent-Reach doctor reports the active
-backend as `status: ok` and this repository implements the requested operation.
+## 内置结构化路线
 
-| Input | Implemented operation | Current adapter route | Evidence boundary |
+| 输入 | 操作 | 原生 Provider 路线 | 证据边界 |
 | --- | --- | --- | --- |
-| Local transcript/subtitle | `extract_transcript` | local Bundle v2 copy | Non-empty transcript scope can confirm `video_content`. |
-| Local audio/video | `extract_transcript` | local bundle, then ASR | Media alone is degraded; a hashed ASR transcript can confirm the source. |
-| Ordinary web page | `read` | Jina Reader selected by Agent-Reach | `article_body` is primary only for target `web_article`. |
-| YouTube | `extract_transcript`, `read` | yt-dlp metadata/subtitles; Agent-Reach transcription fallback | Only subtitle/transcript scope unlocks `video_content`; metadata never does. |
-| Bilibili | `extract_transcript` with ready OpenCLI; `read`/`extract_transcript` with ready bili-cli | OpenCLI subtitle JSON, or bili-cli detail/audio plus Agent-Reach transcription | The public Bilibili search API is search-only and is blocked for transcript extraction. |
-| GitHub repository | `read` | gh metadata and temporary clone for README | Repository document scope can confirm target `repository`. |
-| Xiaohongshu note | `read` | ready OpenCLI, xiaohongshu-mcp, or xhs-cli | Note text confirms `social_post`; it does not confirm an embedded video. No anonymous Jina fallback is used. |
-| X/Twitter status | `read` with ready twitter-cli | twitter-cli single-status route | Tweet text confirms `social_post`; it does not confirm embedded media. OpenCLI search support is not treated as a single-status reader. |
-| Query | `search` | Exa through mcporter | Search results remain `secondary_only` and are for triage. |
+| 本地 transcript/subtitle | `extract_transcript` | Bundle v2 本地复制与规范化 | 非空、目标匹配的 transcript 可确认 `video_content`。 |
+| 本地音视频 | `extract_transcript` | Bundle v2 -> evidence-layer ASR | 媒体本身是 `pending_derivation`；派生 transcript 校验后才确认来源。 |
+| 普通网页 | `read` | `curl` + Jina Reader | `article_body` 只对 `web_article` 是主材料。 |
+| YouTube | `read` / `extract_transcript` | `yt-dlp` metadata、字幕、媒体；可选 OpenCLI 可见 transcript | metadata 不解锁视频分析；下载媒体进入本地 ASR。 |
+| Bilibili | `read` / `extract_transcript` | `bili` detail/audio；可选 OpenCLI subtitle | search-only 能力不能冒充 transcript；audio 进入本地 ASR。 |
+| GitHub | `read` | `gh` metadata + 临时 clone README | repository document 可确认 `repository`。 |
+| X/Twitter status | `read` | `twitter` 或已授权 OpenCLI article | 帖子正文只确认 `social_post`，不确认嵌入视频。 |
+| 小红书 note | `read` | OpenCLI、xiaohongshu MCP 或 `xhs` | note 正文只确认 `social_post`；不使用匿名网页 fallback。 |
+| 查询 | `search` | `mcporter` 中的 Exa | 结果始终是 `secondary_only`，只用于选材。 |
 
-## Browser-Assisted Acquisition
+## Provider-neutral 导入路线
 
-OpenCLI can use an existing authorized Chromium-browser session when its extension is
-installed, connected, and doctor reports `status: ok`. If doctor reports
-`warn`, the run is blocked rather than pretending the browser route worked.
-
-A Codex browser-control session may be used manually to inspect or export
-authorized visible material. The exported text, subtitle, or media must still
-enter through a bundle artifact. Browser metadata, screenshots, and page shell
-state do not become Source automatically.
-
-## Full Agent-Reach Upstream Coverage
-
-The table above describes only bespoke `kw acquire` adapters. It is not a
-list of everything available through Agent-Reach. The upstream layer currently
-owns 15 channels: web, YouTube, RSS, Exa search, GitHub, Twitter/X, Bilibili,
-Xiaohongshu, Reddit, Facebook, Instagram, LinkedIn, Xiaoyuzhou, V2EX, and
-Xueqiu.
-
-Run the live inventory instead of relying on this static file:
+RSS、Reddit、Facebook、Instagram、LinkedIn、小宇宙、V2EX、雪球以及其他授权渠道，可先通过用户有权使用的浏览器、CLI、API 或导出功能保存主材料，再运行：
 
 ```powershell
-python .\kw.py agent-reach matrix
+kw source import --input-file <材料> --source-url <URL> --platform <平台> --target <目标> --operation <操作> --project-root <项目目录>
 ```
 
-For a channel without a bespoke adapter, use the native Agent-Reach command
-selected by doctor, save primary material locally, then use:
+所有导入都写相同的 Bundle v2，经过相同的范围检查、哈希验证和 Source Gate。Provider ready 不等于报告许可。
+
+## 查看当前能力
 
 ```powershell
-python .\kw.py agent-reach import --input-file <primary.txt> --source-url <original-url> --platform <upstream-platform> --target <target> --operation <operation> --project-root <project>
+kw source doctor
+kw source matrix
+kw source plan --input <URL或查询> --target <目标> --operation <操作>
 ```
 
-Pass `--browser-host edge|chrome` and `--credentialed-session` when the native
-route used OpenCLI or another authorized session. Native availability is still
-subject to platform limits and the imported artifact still needs to pass the
-source gate.
+## 明确不支持
 
-## Deliberately Unsupported
-
-- CAPTCHA bypass;
-- paywall bypass;
-- private or unauthorized content;
-- region or account-permission bypass;
-- using a search backend as a content extractor;
-- treating metadata, comments, snippets, screenshots, or post captions as a
-  video transcript;
-- automatic single-status X reading through OpenCLI until Agent-Reach exposes
-  and documents a stable command used by this adapter.
-
-Unsupported, unhealthy, or capability-mismatched routes still produce a valid
-blocked or degraded acquisition bundle with an explicit next action.
+- 绕过 CAPTCHA、付费墙、私密访问、地区或账号权限；
+- 用搜索结果冒充正文；
+- 用 metadata、评论、截图或帖子 caption 冒充视频 transcript；
+- 在浏览器宿主不明时猜测 Edge/Chrome 或静默切换；
+- Provider 失败后继续生成正常完整报告。

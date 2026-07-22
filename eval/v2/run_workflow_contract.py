@@ -20,10 +20,12 @@ EVAL_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = EVAL_ROOT.parents[1]
 INPUT_PATH = EVAL_ROOT / "inputs" / "tasks.json"
 FIXTURE_PATH = EVAL_ROOT / "harness" / "workflow_fixtures.json"
+RESULT_SCHEMA_PATH = EVAL_ROOT / "schemas" / "decision_result.schema.json"
 
 sys.path.insert(0, str(REPO_ROOT))
 
 from kw_cli import bundle, ingest  # noqa: E402
+from schema_validation import validate_instance  # noqa: E402
 
 
 def utc_now() -> str:
@@ -70,23 +72,7 @@ def response_mode(status: dict[str, Any]) -> str:
 
 
 def validate_result(result: dict[str, Any]) -> None:
-    required = {
-        "task_id",
-        "group",
-        "pipeline_decision",
-        "full_report_permission",
-        "response_mode",
-        "scope_status",
-        "source_status",
-        "elapsed_seconds",
-    }
-    missing = sorted(required - set(result))
-    if missing:
-        raise ValueError("result missing fields: " + ", ".join(missing))
-    if result["pipeline_decision"] not in {"continue_full", "continue_partial", "stop_before_audit"}:
-        raise ValueError(f"invalid pipeline_decision: {result['pipeline_decision']!r}")
-    if not isinstance(result["full_report_permission"], bool):
-        raise ValueError("full_report_permission must be boolean")
+    validate_instance(result, RESULT_SCHEMA_PATH, label="decision result")
 
 
 def material_path(task: dict[str, Any]) -> Path | None:

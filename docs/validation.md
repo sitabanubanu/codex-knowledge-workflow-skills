@@ -32,9 +32,11 @@ python .\tests\test_acquisition_bundle_schema.py
 python .\tests\test_local_bundle_ingest.py
 python .\tests\test_source_status_contract.py
 python .\tests\test_media_asr_end_to_end.py
-python .\tests\test_agent_reach_acquire_offline.py
+python .\tests\test_native_acquisition_offline.py
+python .\tests\test_source_export.py
+python .\tests\test_native_provider_independence.py
 python .\tests\test_source_gate_from_bundle.py
-python .\tests\test_no_fake_report_from_agent_reach_failures.py
+python .\tests\test_no_fake_report_from_acquisition_failures.py
 python .\tests\test_run_provenance.py
 ```
 

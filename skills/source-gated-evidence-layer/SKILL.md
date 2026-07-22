@@ -20,17 +20,18 @@ Use this skill only after a promoted acquisition bundle exists.
 6. Run segmentation, inventory, source logic, claims, evidence audit, and pack
    building.
 7. Write `analysis_receipt.json` bound to the current gate and pack hash.
-8. Send only the current audited pack to `knowledge-document-composer`.
+8. Send only the current audited pack to `knowledge-learning-article` or
+   `knowledge-document-composer`, according to the requested deliverable.
 9. On a new bundle, archive prior downstream trees under `run_history/`.
 
 For `secondary_only`, `source_blocked`, `source_failed`, or
 `degraded_report_only`, write an explicit degraded report and next action. Do
-not fetch URLs, call Agent-Reach, repair missing material, promote metadata, or
-write a normal final report.
+not fetch URLs, call acquisition providers, repair missing material, promote
+metadata, or write a normal final report.
 
 ```powershell
-python kw.py ingest --bundle <project>\00_acquisition\manifest.json --project-root <project>
-python kw.py audit --project-root <project>
+kw ingest --bundle <project>\00_acquisition\manifest.json --project-root <project>
+kw audit --project-root <project>
 ```
 
 Read all files under `references/` before changing gate, claim, audit, or

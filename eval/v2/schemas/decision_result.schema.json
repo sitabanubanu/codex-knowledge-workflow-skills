@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Knowledge Workflow evaluation v2 decision result",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "task_id",
     "group",
@@ -10,16 +11,20 @@
     "response_mode",
     "scope_status",
     "source_status",
-    "elapsed_seconds"
+    "elapsed_seconds",
+    "status_schema_version",
+    "project_root"
   ],
   "properties": {
-    "task_id": {"type": "string"},
-    "group": {"type": "string"},
+    "task_id": {"type": "string", "minLength": 1},
+    "group": {"const": "Knowledge Workflow"},
     "pipeline_decision": {"enum": ["continue_full", "continue_partial", "stop_before_audit"]},
     "full_report_permission": {"type": "boolean"},
     "response_mode": {"enum": ["full_report", "partial_report", "degraded_explanation", "failure_notice"]},
     "scope_status": {"enum": ["matched", "partial_match", "target_mismatch", "pending_derivation", "not_evaluated"]},
-    "source_status": {"type": "string"},
-    "elapsed_seconds": {"type": "number", "minimum": 0}
+    "source_status": {"enum": ["source_confirmed", "source_partial", "secondary_only", "source_blocked", "source_failed", "degraded_report_only"]},
+    "elapsed_seconds": {"type": "number", "minimum": 0},
+    "status_schema_version": {"type": "integer", "minimum": 1},
+    "project_root": {"type": "string", "minLength": 1}
   }
 }

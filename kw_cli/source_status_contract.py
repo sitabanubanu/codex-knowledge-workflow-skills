@@ -275,6 +275,22 @@ def validate_source_status(payload: dict[str, Any]) -> list[str]:
         if not isinstance(payload.get(key), str):
             errors.append(f"{key} must be a string")
 
+    if state in SOURCE_STATUSES and isinstance(payload.get("analysis_target"), str):
+        expected_full, expected_composer, expected_report = permissions_for_status(
+            str(state), str(payload.get("analysis_target") or "auto")
+        )
+        expected_primary = state in {"source_confirmed", "source_partial"}
+        expected_permissions = {
+            "can_enter_full_decomposition": expected_full,
+            "can_enter_document_composer": expected_composer,
+            "primary_material_available": expected_primary,
+        }
+        for key, expected in expected_permissions.items():
+            if payload.get(key) is not expected:
+                errors.append(f"{state} requires {key}={str(expected).lower()}")
+        if payload.get("allowed_report_type") != expected_report:
+            errors.append(f"{state} requires allowed_report_type={expected_report!r}")
+
     if state == "source_confirmed":
         if scope != "matched" or decision != "continue_full":
             errors.append("source_confirmed requires matched scope and continue_full")
@@ -285,8 +301,11 @@ def validate_source_status(payload: dict[str, Any]) -> list[str]:
             errors.append("source_partial requires partial_match and continue_partial")
         if not all(payload.get(key) is True for key in ("can_enter_full_decomposition", "can_enter_document_composer", "primary_material_available")):
             errors.append("source_partial requires partial, composer, and primary permissions")
-    elif decision != "stop_before_audit" or payload.get("can_enter_full_decomposition") is not False:
-        errors.append("non-admitted source statuses must stop before audit")
+    else:
+        if scope in {"matched", "partial_match"}:
+            errors.append("non-admitted source statuses cannot declare matched scope")
+        if decision != "stop_before_audit":
+            errors.append("non-admitted source statuses must stop before audit")
 
     if scope == "target_mismatch" and state != "degraded_report_only":
         errors.append("target_mismatch requires degraded_report_only compatibility status")

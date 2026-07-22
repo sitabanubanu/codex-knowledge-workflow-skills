@@ -10,6 +10,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 INPUTS = ROOT / "inputs" / "tasks.json"
+INPUT_SCHEMA = ROOT / "schemas" / "task_inputs.schema.json"
+
+from schema_validation import validate_instance
 
 FORBIDDEN_KEYS = {
     "class",
@@ -55,6 +58,11 @@ def walk(value: Any, path: str = "$") -> list[str]:
 
 def main() -> int:
     payload = json.loads(INPUTS.read_text(encoding="utf-8"))
+    try:
+        validate_instance(payload, INPUT_SCHEMA, label="neutral evaluation inputs")
+    except ValueError as exc:
+        print(str(exc))
+        return 1
     findings = walk(payload)
     for path in sorted((ROOT / "inputs" / "materials").glob("*")):
         if not path.is_file():

@@ -1,5 +1,8 @@
 # Live Acquisition Bundle v2 Validation - 2026-07-11
 
+> Frozen historical validation from the pre-v0.7 acquisition architecture.
+> It must not be read as the current provider matrix or rerun instructions.
+
 This validation used one Xiaohongshu post, one X post, and one YouTube video.
 The detailed runtime reports remain under
 `test_outputs/live-v2-20260710/content-report.md` and `process-report.md`.

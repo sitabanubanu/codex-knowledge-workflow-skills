@@ -127,6 +127,36 @@ def test_invalid_combinations(failures: list[str]) -> None:
         failures,
     )
 
+    blocked = build(manifest(status="blocked"), "source_blocked")
+    blocked_composer = copy.deepcopy(blocked)
+    blocked_composer["can_enter_document_composer"] = True
+    assert_true(
+        "blocked composer permission rejected",
+        bool(source_status_contract.validate_source_status(blocked_composer)),
+        failures,
+    )
+    blocked_primary = copy.deepcopy(blocked)
+    blocked_primary["primary_material_available"] = True
+    assert_true(
+        "blocked primary-material flag rejected",
+        bool(source_status_contract.validate_source_status(blocked_primary)),
+        failures,
+    )
+    blocked_report = copy.deepcopy(blocked)
+    blocked_report["allowed_report_type"] = "full_video_analysis_pack"
+    assert_true(
+        "blocked full-report type rejected",
+        bool(source_status_contract.validate_source_status(blocked_report)),
+        failures,
+    )
+    confirmed_report = copy.deepcopy(valid)
+    confirmed_report["allowed_report_type"] = "degraded_source_report"
+    assert_true(
+        "confirmed degraded-report type rejected",
+        bool(source_status_contract.validate_source_status(confirmed_report)),
+        failures,
+    )
+
 
 def test_atomic_writer_preserves_valid_status(failures: list[str]) -> None:
     valid = build(

@@ -45,12 +45,13 @@ operation. Reuse requires explicit matching resume.
 
 ## Acquisition
 
-Producer: agent-reach-console or local bundle builder.
+Producer: acquire-source-material or local bundle builder.
 
 ```text
 00_acquisition/manifest.json
 00_acquisition/artifacts/*
-00_acquisition/logs/agent_reach_doctor.json
+00_acquisition/logs/capability_report.json
+00_acquisition/logs/provider_runtime.json
 00_acquisition/logs/route_plan.json
 00_acquisition/logs/commands.jsonl
 ```

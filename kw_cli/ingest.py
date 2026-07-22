@@ -166,6 +166,8 @@ def current_provenance(project_root: Path) -> dict[str, Any]:
     status = read_json(source_status_path)
     gate = read_json(gate_receipt_path)
     reasons: list[str] = []
+    status_errors = source_status_contract.validate_source_status(status) if status else ["source status is missing"]
+    reasons.extend(f"invalid source status contract: {error}" for error in status_errors)
     if not manifest_path.is_file():
         reasons.append("current acquisition manifest is missing")
     elif status.get("gate_input_sha256") != file_sha256(manifest_path):
@@ -622,6 +624,10 @@ def run_audit_pipeline(*, project_root: Path, document_goal: str, final_language
     video_root = project_root / "10_video"
     document_root = project_root / "20_document"
     source_status = read_json(video_root / "00_source" / "source_status.json")
+    try:
+        source_status_contract.require_valid_source_status(source_status)
+    except source_status_contract.SourceStatusContractError as exc:
+        raise IngestError(f"refusing to audit an invalid source status: {exc}") from exc
     state = source_status.get("source_status")
     if state not in ALLOWED_DECOMPOSITION_STATUSES:
         return {"status": "skipped", "reason": f"source gate does not allow audit: {state}"}

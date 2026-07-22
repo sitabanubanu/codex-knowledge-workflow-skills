@@ -95,7 +95,7 @@ python .\kw.py preflight `
 Inspect the actual acquisition capability before running:
 
 ```powershell
-python .\kw.py agent-reach plan `
+python .\kw.py source plan `
   --input "https://www.youtube.com/watch?v=..." `
   --target video_content `
   --operation extract_transcript

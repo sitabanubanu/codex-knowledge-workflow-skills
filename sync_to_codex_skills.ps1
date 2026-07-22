@@ -10,11 +10,13 @@ $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sourceRoot = Join-Path $repoRoot "skills"
 $skills = @(
   "knowledge-workflow-console",
-  "agent-reach-console",
-  "browser-host-identity",
+  "acquire-source-material",
+  "web-intent-scout",
   "source-gated-evidence-layer",
+  "knowledge-learning-article",
   "knowledge-document-composer"
 )
+$obsoleteSkills = @("agent-reach-console")
 
 function Assert-ContainedPath {
   param(
@@ -95,6 +97,24 @@ New-Item -ItemType Directory -Force -Path $CodexSkillsRoot | Out-Null
 $codexRootFull = [System.IO.Path]::GetFullPath($CodexSkillsRoot)
 
 $changes = 0
+foreach ($skill in $obsoleteSkills) {
+  $dst = Join-Path $codexRootFull $skill
+  Assert-ContainedPath -Parent $codexRootFull -Child $dst
+  if (-not (Test-Path -LiteralPath $dst)) {
+    continue
+  }
+  if ($VerifyOnly) {
+    Write-Host "[verify] obsolete installed skill: $skill"
+    $changes += 1
+  } elseif ($DryRun) {
+    Write-Host "[verify] would remove obsolete installed skill: $skill"
+    $changes += 1
+  } else {
+    Write-Host "[remove] obsolete installed skill: $skill"
+    Remove-Item -LiteralPath $dst -Recurse -Force
+  }
+}
+
 foreach ($skill in $skills) {
   $src = Join-Path $sourceRoot $skill
   $dst = Join-Path $codexRootFull $skill

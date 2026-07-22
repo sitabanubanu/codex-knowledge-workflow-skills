@@ -7,14 +7,14 @@ description: Extract, normalize, segment, and audit first-hand video, audio, sub
 
 Use this skill to turn source-gated transcript, subtitle, ASR, or approved local
 material into a structured knowledge package. In v0.6, platform acquisition is
-owned by `agent-reach-console`; this skill's old platform acquisition scripts
+owned by `acquire-source-material`; this skill's old platform acquisition scripts
 are legacy compatibility paths.
 
 Core workflow:
 1. Inspect the source and collect metadata.
 2. Before processing any video URL or platform page, read references/chrome-routing.md, references/chrome-probe-contract.md, references/source-status.md, and references/platform-prerequisites.md.
 3. When starting a new platform workflow, diagnosing an environment failure, or handing the workflow to a new Agent, run scripts/doctor.py and save doctor_report.json / doctor_report.md under logs or 00_source. Doctor is read-only: it checks yt-dlp, ffmpeg/ffprobe, faster-whisper, Node.js, Chrome plugin files, cookies-file presence, Chromium App-Bound signals, Python encoding, and UTF-8 writing, but does not fetch media, launch Chrome, install extensions, or reveal cookie values.
-4. Legacy only: use scripts/acquisition_runner.py for old first-pass platform acquisition probing. New URL acquisition should create `00_acquisition/manifest.json` through `agent-reach-console`.
+4. Legacy only: use scripts/acquisition_runner.py for old first-pass platform acquisition probing. New URL acquisition should create `00_acquisition/manifest.json` through `acquire-source-material`.
 5. Legacy only: use scripts/platform_media_runner.py for old URL-to-material chains. New URL acquisition should be handed off through the acquisition bundle protocol.
 6. Use scripts/acquisition_probe.py to record source status, source classes, failed probes, Chrome routing state, and the next allowed route when probe results already exist or when another tool produced the evidence.
 7. Platform blocks, HTTP 429, bot/CAPTCHA/login barriers, RequestBlocked errors, or Hearsay URL timeouts on platform URLs must enter the Chrome route decision in references/chrome-routing.md instead of repeating the same extractor.

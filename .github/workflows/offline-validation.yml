@@ -35,23 +35,14 @@ jobs:
       - name: Install editable CLI
         run: python -m pip install -e .
 
-      - name: Run local transcript demo
-        run: kw demo
-
-      - name: Run offline regression suite
-        run: python tests/knowledge_workflow_regression.py
-
-      - name: Run real workflow acceptance
-        run: python tests/real_workflow_acceptance.py
-
-      - name: Validate canonical source-status contract
-        run: python tests/test_source_status_contract.py
-
-      - name: Run offline media ASR end-to-end regression
-        run: python tests/test_media_asr_end_to_end.py
+      - name: Run complete offline product validation
+        run: kw validate --output-root test_outputs/validation/ci
 
       - name: Lint evaluation v2 inputs for gold leakage
         run: python eval/v2/leakage_lint.py
+
+      - name: Validate evaluation v2 JSON Schema enforcement
+        run: python eval/v2/schema_contract_test.py
 
       - name: Run evaluation v2 offline contract smoke
         run: python eval/v2/run_workflow_contract.py --output-root test_outputs/eval_v2/workflow

@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.0
+
+- Removed Agent Reach imports, commands, installer, runtime resolver, and
+  user-facing acquisition skill.
+- Added a project-owned native Provider registry and `kw source` command group.
+- Added the `acquire-source-material` Skill and provider-neutral export import.
+- Added `web-intent-scout` and `knowledge-learning-article` to the repository
+  and managed workflow sync set.
+- Changed URL media acquisition to hand raw media to the evidence-layer ASR
+  path instead of using an upstream transcription fallback.
+- Updated active architecture, installation, manual, platform, protocol,
+  troubleshooting, and validation documentation.
+- Added independence and no-fabrication regressions for the new acquisition
+  boundary.
+- Enforced evaluation v2 task/result JSON Schemas and added negative schema
+  contract tests.
+- Bumped package version to `0.7.0`.
+
 ## v0.6.1
 
 - Added Source Status Contract v1 with one authoritative derivation path for
