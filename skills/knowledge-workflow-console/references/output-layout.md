@@ -3,6 +3,10 @@
 ```text
 <project>/
   logs/
+    discovery/
+      web_scout_dossier.md             # optional planning artifact
+      candidate_shortlist.json         # optional candidate handoff
+      selection.json                   # optional selected URL/query
     run_identity.json
     preflight.json
     preflight.md
@@ -36,6 +40,19 @@
     video_analysis_pack.md
     source_analysis_pack.md
     analysis_receipt.json
+  15_learning/
+    learning_request.json
+    learning_enrichment.json              # optional Agent-authored analysis
+    knowledge_map.json
+    argument_graph.json
+    concept_cards.json
+    example_roles.json
+    prerequisite_map.json
+    transfer_patterns.json
+    learning_path.json
+    learning_analysis_pack.json
+    learning_analysis_pack.md
+    learning_analysis_receipt.json
   20_document/
     composer_intake.json
     claim_map.json
@@ -44,6 +61,10 @@
     quality_gate.json
     final_report.md
     final_report_receipt.json
+    learning_article_candidate.md
+    learning_quality_gate.json
+    learning_article.md
+    learning_article_receipt.json
   30_final/
   result_index.md
 ```
@@ -55,6 +76,13 @@ user entry is `result_index.md`.
 
 `10_video` remains for compatibility even for non-video source targets. Use
 `source_analysis_pack.md` for non-video target output when present.
+
+`logs/discovery` is optional and planning-only. Its shortlist, scorecard, or
+dossier never substitutes for an acquired Bundle v2 artifact.
+
+`15_learning` is a downstream interpretation layer. It must never replace or
+rewrite `10_video` source evidence. `20_document/learning_article.md` is the
+stable learning deliverable when its receipt is current.
 
 ## Current Versus Existing
 

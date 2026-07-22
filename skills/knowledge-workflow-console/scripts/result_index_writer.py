@@ -71,8 +71,14 @@ def choose_status(
     return "unknown"
 
 
-def action_items(status: str, user_action: str) -> list[str]:
+def action_items(status: str, user_action: str, *, learning_article_exists: bool = False) -> list[str]:
     if status == "success":
+        if learning_article_exists:
+            return [
+                "Read 20_document/learning_article.md first.",
+                "Use 15_learning/learning_analysis_pack.md to inspect the knowledge map and learning path.",
+                "Use 20_document/learning_quality_gate.json to inspect learning-quality approval details.",
+            ]
         return [
             "Read 20_document/final_report.md first.",
             "Use 10_video/video_analysis_pack.md when you need the structured source decomposition.",
@@ -119,6 +125,7 @@ def build_result(project_root: Path) -> dict[str, Any]:
     project_root = project_root.resolve()
     logs_root = project_root / "logs"
     video_root = project_root / "10_video"
+    learning_root = project_root / "15_learning"
     document_root = project_root / "20_document"
     acquisition_root = project_root / "00_acquisition"
 
@@ -126,21 +133,31 @@ def build_result(project_root: Path) -> dict[str, Any]:
     acquisition_manifest = read_json(acquisition_root / "manifest.json")
     source_status = read_json(video_root / "00_source" / "source_status.json")
     quality_gate = read_json(document_root / "quality_gate.json")
+    learning_quality_gate = read_json(document_root / "learning_quality_gate.json")
     platform_result = read_json(video_root / "00_source" / "platform_media_result.json")
     preflight = read_json(logs_root / "preflight.json")
     provenance = inspect_provenance(project_root)
 
     source_state = source_status.get("source_status") or run_state.get("source_status") or "unknown"
     raw_final_report_exists = (document_root / "final_report.md").is_file()
+    raw_learning_article_exists = (document_root / "learning_article.md").is_file()
+    raw_learning_pack_exists = (learning_root / "learning_analysis_pack.json").is_file()
     raw_pack_exists = (video_root / "video_analysis_pack.md").is_file() or (video_root / "source_analysis_pack.md").is_file()
     raw_transcript_exists = (video_root / "01_transcript" / "clean_transcript.jsonl").is_file()
     final_report_exists = bool(provenance["final_report_current"])
+    learning_article_exists = bool(provenance["learning_article_current"])
+    learning_analysis_exists = bool(provenance["learning_analysis_current"])
     pack_exists = bool(provenance["analysis_current"])
     transcript_exists = bool(provenance["gate_current"] and raw_transcript_exists)
-    quality_approved = bool(final_report_exists and quality_gate.get("approved_for_final_report"))
+    quality_approved = bool(
+        (final_report_exists and quality_gate.get("approved_for_final_report"))
+        or (learning_article_exists and learning_quality_gate.get("approved_for_learning_article"))
+    )
     full_allowed = bool(provenance["gate_current"] and source_status.get("can_enter_full_decomposition")) and source_state in {"source_confirmed", "source_partial"}
     stale_output_files_present = bool(
         (raw_final_report_exists and not final_report_exists)
+        or (raw_learning_article_exists and not learning_article_exists)
+        or (raw_learning_pack_exists and not learning_analysis_exists)
         or (raw_pack_exists and not pack_exists)
         or (raw_transcript_exists and not transcript_exists)
     )
@@ -150,7 +167,7 @@ def build_result(project_root: Path) -> dict[str, Any]:
     status = choose_status(
         run_state=run_state,
         source_state=source_state,
-        final_report_exists=final_report_exists,
+        final_report_exists=final_report_exists or learning_article_exists,
         pack_exists=pack_exists,
         transcript_exists=transcript_exists,
         quality_approved=quality_approved,
@@ -170,7 +187,11 @@ def build_result(project_root: Path) -> dict[str, Any]:
         or ""
     )
     if status == "success":
-        reason = "Final report exists and the quality gate approved it."
+        reason = (
+            "Learning article exists and the learning quality gate approved it."
+            if learning_article_exists
+            else "Final report exists and the quality gate approved it."
+        )
         user_action = ""
     elif stale_output_files_present and not reason:
         reason = "Output files exist, but their provenance receipts do not match the current acquisition run."
@@ -184,6 +205,10 @@ def build_result(project_root: Path) -> dict[str, Any]:
         file_entry(project_root, "Clean transcript", video_root / "01_transcript" / "clean_transcript.jsonl"),
         file_entry(project_root, "Evidence audit", video_root / "05_gap_check" / "evidence_audit.json"),
         file_entry(project_root, "Video analysis pack", video_root / "video_analysis_pack.md"),
+        file_entry(project_root, "Learning analysis pack", learning_root / "learning_analysis_pack.md"),
+        file_entry(project_root, "Learning path", learning_root / "learning_path.json"),
+        file_entry(project_root, "Learning quality gate", document_root / "learning_quality_gate.json"),
+        file_entry(project_root, "Learning article", document_root / "learning_article.md"),
         file_entry(project_root, "Quality gate", document_root / "quality_gate.json"),
         file_entry(project_root, "Final report", document_root / "final_report.md"),
     ]
@@ -199,14 +224,18 @@ def build_result(project_root: Path) -> dict[str, Any]:
         "full_analysis_allowed": full_allowed,
         "video_analysis_pack_exists": pack_exists,
         "final_report_exists": final_report_exists,
+        "learning_analysis_pack_exists": learning_analysis_exists,
+        "learning_article_exists": learning_article_exists,
         "quality_gate_approved": quality_approved,
         "gate_provenance_current": bool(provenance["gate_current"]),
         "analysis_provenance_current": bool(provenance["analysis_current"]),
+        "learning_analysis_provenance_current": bool(provenance["learning_analysis_current"]),
         "final_report_provenance_current": bool(provenance["final_report_current"]),
+        "learning_article_provenance_current": bool(provenance["learning_article_current"]),
         "stale_output_files_present": stale_output_files_present,
         "reason": reason,
         "user_action_required": user_action,
-        "next_actions": action_items(status, str(user_action or "")),
+        "next_actions": action_items(status, str(user_action or ""), learning_article_exists=learning_article_exists),
         "key_files": key_files,
     }
 
@@ -223,10 +252,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
         f"- Full analysis allowed: `{payload['full_analysis_allowed']}`",
         f"- Video analysis pack exists: `{payload['video_analysis_pack_exists']}`",
         f"- Final report exists: `{payload['final_report_exists']}`",
+        f"- Learning analysis pack exists: `{payload['learning_analysis_pack_exists']}`",
+        f"- Learning article exists: `{payload['learning_article_exists']}`",
         f"- Quality gate approved: `{payload['quality_gate_approved']}`",
         f"- Gate provenance current: `{payload['gate_provenance_current']}`",
         f"- Analysis provenance current: `{payload['analysis_provenance_current']}`",
+        f"- Learning analysis provenance current: `{payload['learning_analysis_provenance_current']}`",
         f"- Final report provenance current: `{payload['final_report_provenance_current']}`",
+        f"- Learning article provenance current: `{payload['learning_article_provenance_current']}`",
         f"- Stale output files present: `{payload['stale_output_files_present']}`",
         "",
     ]
@@ -357,6 +390,40 @@ def self_test() -> None:
         success = write_result_index(root)
         assert success["status"] == "success", success
         assert (root / "result_index.md").is_file()
+
+        learning_pack = root / "15_learning" / "learning_analysis_pack.json"
+        learning_receipt = root / "15_learning" / "learning_analysis_receipt.json"
+        learning_quality = root / "20_document" / "learning_quality_gate.json"
+        learning_article = root / "20_document" / "learning_article.md"
+        write_json(learning_pack, {"schema_version": "learning-analysis-pack.v1", "knowledge_map": {}})
+        write_json(
+            learning_receipt,
+            {
+                **ids,
+                "source_status": "source_confirmed",
+                "analysis_receipt_sha256": sha256_file(analysis_path),
+                "learning_analysis_pack": "learning_analysis_pack.json",
+                "learning_analysis_pack_sha256": sha256_file(learning_pack),
+            },
+        )
+        write_json(learning_quality, {"approved_for_learning_article": True, "blocking_gates": []})
+        write_text(learning_article, "# Learning Article\n")
+        write_json(
+            root / "20_document" / "learning_article_receipt.json",
+            {
+                **ids,
+                "source_status": "source_confirmed",
+                "learning_analysis_receipt_sha256": sha256_file(learning_receipt),
+                "learning_quality_gate_sha256": sha256_file(learning_quality),
+                "learning_article_sha256": sha256_file(learning_article),
+                "approved_for_learning_article": True,
+            },
+        )
+        learning_success = write_result_index(root)
+        assert learning_success["learning_analysis_pack_exists"] is True, learning_success
+        assert learning_success["learning_article_exists"] is True, learning_success
+        assert learning_success["status"] == "success", learning_success
+        assert "learning_article.md" in learning_success["next_actions"][0], learning_success
 
         degraded = Path(tmp) / "degraded"
         write_json(

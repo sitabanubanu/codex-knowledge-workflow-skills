@@ -41,8 +41,10 @@ def inspect_provenance(project_root: Path) -> dict[str, Any]:
     source_status_path = project_root / "10_video" / "00_source" / "source_status.json"
     gate_path = project_root / "10_video" / "00_source" / "gate_receipt.json"
     analysis_path = project_root / "10_video" / "analysis_receipt.json"
+    learning_path = project_root / "15_learning" / "learning_analysis_receipt.json"
     composer_path = project_root / "20_document" / "composer_receipt.json"
     final_path = project_root / "20_document" / "final_report_receipt.json"
+    learning_final_path = project_root / "20_document" / "learning_article_receipt.json"
 
     status = read_json(source_status_path)
     gate = read_json(gate_path)
@@ -66,6 +68,15 @@ def inspect_provenance(project_root: Path) -> dict[str, Any]:
         and analysis.get("analysis_pack_sha256") == sha256_file(analysis_pack)
         and analysis.get("gate_receipt_sha256") == sha256_file(gate_path)
     )
+    learning = read_json(learning_path)
+    learning_pack = project_root / "15_learning" / str(learning.get("learning_analysis_pack") or "learning_analysis_pack.json")
+    learning_current = bool(
+        analysis_current
+        and receipt_matches(learning, status)
+        and learning.get("analysis_receipt_sha256") == sha256_file(analysis_path)
+        and learning_pack.is_file()
+        and learning.get("learning_analysis_pack_sha256") == sha256_file(learning_pack)
+    )
     composer = read_json(composer_path)
     composer_current = bool(
         analysis_current
@@ -83,11 +94,25 @@ def inspect_provenance(project_root: Path) -> dict[str, Any]:
         and final.get("final_report_sha256") == sha256_file(final_report)
         and final.get("quality_gate_sha256") == sha256_file(project_root / "20_document" / "quality_gate.json")
     )
+    learning_final = read_json(learning_final_path)
+    learning_article = project_root / "20_document" / "learning_article.md"
+    learning_article_current = bool(
+        learning_current
+        and receipt_matches(learning_final, status)
+        and learning_final.get("learning_analysis_receipt_sha256") == sha256_file(learning_path)
+        and learning_final.get("learning_article_sha256") == sha256_file(learning_article)
+        and learning_final.get("learning_quality_gate_sha256")
+        == sha256_file(project_root / "20_document" / "learning_quality_gate.json")
+        and learning_final.get("approved_for_learning_article") is True
+    )
     return {
         "gate_current": gate_current,
         "analysis_current": analysis_current,
+        "learning_analysis_current": learning_current,
         "composer_current": composer_current,
         "final_report_current": final_current,
+        "learning_article_current": learning_article_current,
         "analysis_pack": analysis_pack,
+        "learning_analysis_pack": learning_pack,
         "reasons": reasons,
     }

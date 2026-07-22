@@ -1,4 +1,4 @@
 interface:
   display_name: "Knowledge Workflow Console"
-  short_description: "Routes targets through four trusted workflow stages."
-  default_prompt: "Use $knowledge-workflow-console to select the analysis target, run the required stages, and report current provenance."
+  short_description: "Routes discovery, evidence, and learning delivery."
+  default_prompt: "Use $knowledge-workflow-console to discover a suitable source when needed, run source-gated analysis, and deliver a provenance-checked learning article or report."

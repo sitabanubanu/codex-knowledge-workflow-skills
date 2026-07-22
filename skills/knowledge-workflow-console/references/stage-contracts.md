@@ -1,5 +1,25 @@
 # Stage Contracts
 
+## Web Discovery
+
+Producer: web-intent-scout, orchestrated by the workflow console. Optional when
+the user already supplied the source.
+
+```text
+logs/discovery/web_scout_dossier.md
+logs/discovery/candidate_shortlist.json
+logs/discovery/selection.json
+```
+
+The shortlist records candidate URLs and source types. The selection records
+the chosen URL or explicit acquisition query plus the selection rationale.
+Persisted URLs must follow the same redaction policy as preflight records.
+
+Discovery artifacts support route selection only. They are not acquisition
+artifacts, do not establish `source_status`, and must never be cited as Source
+evidence merely because Web Scout inspected or summarized a page. The selected
+material must be acquired again through Bundle v2 and pass the source gate.
+
 ## Preflight
 
 Producer: workflow console.
@@ -73,6 +93,34 @@ ASR; the derived transcript hash is added to the gate receipt.
 
 The analysis receipt binds the current gate, evidence audit, and selected pack.
 
+## Learning Analysis And Learning Article
+
+Producer: knowledge-learning-article. Use only for a learning-article request.
+
+```text
+15_learning/learning_request.json
+15_learning/learning_enrichment.json          # optional Agent enrichment
+15_learning/knowledge_map.json
+15_learning/argument_graph.json
+15_learning/concept_cards.json
+15_learning/example_roles.json
+15_learning/prerequisite_map.json
+15_learning/transfer_patterns.json
+15_learning/learning_path.json
+15_learning/learning_analysis_pack.json
+15_learning/learning_analysis_pack.md
+15_learning/learning_analysis_receipt.json
+20_document/learning_article_candidate.md
+20_document/learning_quality_gate.json
+20_document/learning_article.md
+20_document/learning_article_receipt.json
+```
+
+The learning analysis receipt binds the current source analysis receipt and
+learning pack hashes. The learning article receipt binds the learning receipt,
+quality gate, and final article hash. Timestamps remain evidence locators, not
+the primary article structure.
+
 ## Document Planning
 
 Producer: knowledge-document-composer.
@@ -96,6 +144,9 @@ The composer receipt binds claim map and intake to the analysis receipt.
 
 The final receipt binds quality gate and report to the composer receipt. Export,
 quality review, normal templates, and batch synthesis require this receipt.
+
+For the learning route, `learning_article.md` is deliverable only with a current
+`learning_article_receipt.json` whose quality gate approves the article.
 
 ## Status and Result
 
