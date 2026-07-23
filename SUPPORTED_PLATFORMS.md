@@ -13,6 +13,7 @@
 | Bilibili | `read` / `extract_transcript` | `bili` detail/audio；可选 OpenCLI subtitle | search-only 能力不能冒充 transcript；audio 进入本地 ASR。 |
 | GitHub | `read` | `gh` metadata + 临时 clone README | repository document 可确认 `repository`。 |
 | X/Twitter status | `read` | `twitter` 或已授权 OpenCLI article | 帖子正文只确认 `social_post`，不确认嵌入视频。 |
+| X/Twitter 内嵌视频 | `extract_transcript` | `yt-dlp` 字幕/媒体 -> evidence-layer ASR | 必须以 `video_content` 为目标；帖子正文和 caption 不能冒充 transcript。 |
 | 小红书 note | `read` | OpenCLI、xiaohongshu MCP 或 `xhs` | note 正文只确认 `social_post`；不使用匿名网页 fallback。 |
 | 查询 | `search` | `mcporter` 中的 Exa | 结果始终是 `secondary_only`，只用于选材。 |
 

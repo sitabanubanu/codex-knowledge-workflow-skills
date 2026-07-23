@@ -24,10 +24,12 @@ Bilibili 搜索能力不能代替视频字幕；普通网页 reader 不能代替
 
 1. 在真实使用的 Edge 或 Chrome 中安装并连接扩展。
 2. 保持该浏览器打开，并通过用户自己的授权账号登录。
-3. 运行 `opencli daemon status` 和 `kw source doctor`。
+3. 运行 `opencli doctor` 和 `kw source doctor`。
 4. 使用 `--browser-host edge` 或 `--browser-host chrome` 显式声明真实宿主。
 
-不要从插件名字猜浏览器，不要静默切换浏览器，也不要未经许可关闭浏览器来解锁 cookie 数据库。
+`opencli doctor` 显示 connected 只证明 daemon 与某个扩展已连接，不证明连接的是 Edge 还是 Chrome，也不证明当前页面包含目标正文或字幕。不要从插件名字猜浏览器，不要静默切换浏览器，也不要未经许可关闭浏览器来解锁 cookie 数据库。
+
+OpenCLI 是可选浏览器采集适配器。它不可用时，只阻断依赖该浏览器会话的路线；本地文件、公开网页、GitHub、公开 `yt-dlp`、授权导入和本地 ASR 仍可独立运行。
 
 ## 获取成功但没有正式报告
 
