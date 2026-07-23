@@ -27,6 +27,17 @@ Use `chrome` only when Chrome is the real host browser. A control plugin named
 Chrome can be running inside Edge, so declare `--browser-host edge` for
 OpenCLI and never infer the host from a tool label.
 
+For an X status whose embedded video is the task target:
+
+```powershell
+kw acquire --input <x-status-url> --target video_content --operation extract_transcript --project-root <project>
+```
+
+This operation uses the native yt-dlp X-video capability. It tries embedded
+subtitles first and downloads media only for the evidence layer's ASR handoff.
+Use `--target social_post --operation read` instead when the post text itself is
+the requested material.
+
 ## Provider-Neutral Imports
 
 When a structured adapter is unavailable, use an authorized browser, CLI, API,

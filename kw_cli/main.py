@@ -24,9 +24,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CONSOLE = REPO_ROOT / "skills" / "knowledge-workflow-console"
 VIDEO = REPO_ROOT / "skills" / "knowledge-video-decomposer"
 DOCUMENT = REPO_ROOT / "skills" / "knowledge-document-composer"
+LEARNING = REPO_ROOT / "skills" / "knowledge-learning-article"
 OUTPUT_BASE = REPO_ROOT / "outputs" / "knowledge-workflow"
 DEFAULT_YOUTUBE_COOKIES = REPO_ROOT / "work" / "youtube-cookies" / "youtube.cookies.txt"
-PROJECT_VERSION = "0.7.0"
+PROJECT_VERSION = "0.7.1"
 
 TRANSCRIPT_EXTENSIONS = {".txt", ".md", ".srt", ".vtt", ".jsonl", ".json"}
 MEDIA_EXTENSIONS = {".mp3", ".mp4", ".m4a", ".webm", ".wav", ".mov", ".opus"}
@@ -64,6 +65,11 @@ RUN_OPTION_DEFAULTS = {
     "browser_platform": None,
     "content_scope": None,
     "partial_export": False,
+    "deliverable": "source_report",
+    "learning_enrichment": None,
+    "learning_goal": "系统理解这份材料，并知道应该如何学习和应用其中的知识",
+    "learner_level": "unknown",
+    "learning_depth": "standard",
 }
 
 
@@ -341,6 +347,7 @@ def write_run_state(
     input_value: str,
     status: str,
     workflow_outcome: str,
+    requested_deliverable: str = "source_report",
     failure_reason: str = "",
     degraded_reason: str = "",
     user_action_required: str = "",
@@ -353,6 +360,7 @@ def write_run_state(
         "schema_version": 3,
         "mode": "platform_url" if input_kind == "url" else "local_file",
         "requested_mode": mode,
+        "requested_deliverable": requested_deliverable,
         "status": status,
         "workflow_outcome": workflow_outcome,
         "project_root": str(project_root),
@@ -403,6 +411,237 @@ def youtube_options_from_args(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def _inventory_rows(project_root: Path, relative_path: str, key: str) -> list[dict]:
+    payload = read_json(project_root / relative_path)
+    rows = payload.get(key)
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _has_evidence(row: dict) -> bool:
+    spans = row.get("evidence_spans")
+    return isinstance(spans, list) and any(isinstance(span, dict) for span in spans)
+
+
+def learning_inventory_issues(project_root: Path) -> list[str]:
+    claims = _inventory_rows(project_root, "10_video/03_inventory/claims.json", "claims")
+    concepts = _inventory_rows(project_root, "10_video/03_inventory/concepts.json", "concepts")
+    examples = _inventory_rows(project_root, "10_video/03_inventory/examples.json", "examples")
+    segments = _inventory_rows(project_root, "10_video/02_segments/argument_segments.json", "segments")
+    issues: list[str] = []
+    if not any(row.get("claim_type") == "source_claim" and _has_evidence(row) for row in claims):
+        issues.append("source_claims_missing")
+    if not concepts:
+        issues.append("source_concepts_empty")
+    elif not any(_has_evidence(row) for row in concepts):
+        issues.append("source_concepts_unanchored")
+    if not examples:
+        issues.append("source_examples_empty")
+    elif not any(_has_evidence(row) for row in examples):
+        issues.append("source_examples_unanchored")
+    if not segments:
+        issues.append("argument_segments_empty")
+    else:
+        if not any(_has_evidence(row) for row in segments):
+            issues.append("argument_segments_unanchored")
+        heuristic_text = " ".join(
+            " ".join(str(row.get(field) or "") for field in ("title", "summary", "notes"))
+            for row in segments
+        ).lower()
+        if "heuristic" in heuristic_text:
+            issues.append("argument_segments_heuristic")
+    return issues
+
+
+def admitted_learning_source(project_root: Path) -> dict:
+    gate = read_json(project_root / "10_video" / "00_source" / "gate_receipt.json")
+    candidates = [
+        artifact
+        for artifact in gate.get("derived_artifacts") or []
+        if isinstance(artifact, dict)
+        and artifact.get("type") == "transcript"
+        and str(artifact.get("path") or "").endswith(".jsonl")
+    ]
+    for artifact in candidates:
+        raw_path = str(artifact.get("path") or "")
+        path = (project_root / raw_path).resolve()
+        try:
+            path.relative_to(project_root)
+        except ValueError:
+            continue
+        if (
+            path.is_file()
+            and artifact.get("sha256") == bundle.sha256_file(path)
+            and artifact.get("bytes") == path.stat().st_size
+        ):
+            return {
+                "path": raw_path,
+                "sha256": artifact.get("sha256"),
+                "bytes": artifact.get("bytes"),
+                "content_scope": artifact.get("content_scope"),
+            }
+    raise KwError(
+        "no current normalized transcript is registered in the gate receipt; "
+        "re-run `kw ingest` before preparing learning enrichment"
+    )
+
+
+def prepare_learning_enrichment_request(
+    *,
+    project_root: Path,
+    learning_goal: str,
+    audience: str,
+    learner_level: str,
+    final_language: str,
+    depth: str,
+) -> Path:
+    provenance = ingest.current_provenance(project_root)
+    if not provenance["gate_current"] or not provenance["analysis_current"]:
+        raise KwError("learning enrichment requires a current gate receipt and source analysis receipt")
+    source = admitted_learning_source(project_root)
+    issues = learning_inventory_issues(project_root)
+    repair_scope = {
+        "source_concepts_empty": "concepts",
+        "source_concepts_unanchored": "concepts",
+        "source_examples_empty": "examples",
+        "source_examples_unanchored": "examples",
+        "argument_segments_empty": "argument_structure",
+        "argument_segments_unanchored": "argument_structure",
+        "argument_segments_heuristic": "argument_structure",
+    }
+    required_scopes = ["source_framing"]
+    for issue in issues:
+        scope = repair_scope.get(issue)
+        if scope and scope not in required_scopes:
+            required_scopes.append(scope)
+    hard_blocks = [issue for issue in issues if issue == "source_claims_missing"]
+    request = {
+        "schema_version": "learning-enrichment-request.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "project_root": str(project_root),
+        "learning_request": {
+            "learning_goal": learning_goal,
+            "audience": audience,
+            "learner_level": learner_level,
+            "final_language": final_language,
+            "depth": depth,
+        },
+        "admitted_source_artifact": source,
+        "detected_upstream_issues": issues,
+        "hard_blocks": hard_blocks,
+        "can_author_enrichment": not hard_blocks,
+        "required_reanalysis_scopes": required_scopes,
+        "output_path": "15_learning/learning_enrichment.json",
+        "contract": "skills/knowledge-learning-article/references/evidence-reanalysis-contract.md",
+        "instructions": [
+            "Read the admitted normalized source artifact before writing semantic rows.",
+            "Use only real transcript IDs, covering times, verbatim excerpts, and explicit support rationales.",
+            "Label source framing synthesis as Inference and reanalysis inventory rows as Source.",
+            "Do not remove or bypass heuristic and evidence gates; repair missing semantics through evidence-bound reanalysis.",
+            "After writing learning_enrichment.json, run `kw learn --project-root <project>`.",
+        ],
+    }
+    output = project_root / "15_learning" / "learning_enrichment_request.json"
+    write_text(output, json.dumps(request, ensure_ascii=False, indent=2))
+    return output
+
+
+def install_learning_enrichment(project_root: Path, source: Path | None) -> Path | None:
+    destination = project_root / "15_learning" / "learning_enrichment.json"
+    if source is None:
+        return destination if destination.is_file() else None
+    resolved = source.expanduser().resolve()
+    if not resolved.is_file():
+        raise KwError(f"learning enrichment file does not exist: {resolved}")
+    payload = read_json(resolved)
+    if not payload:
+        raise KwError(f"learning enrichment must be a non-empty JSON object: {resolved}")
+    if resolved != destination.resolve():
+        write_text(destination, json.dumps(payload, ensure_ascii=False, indent=2))
+    return destination
+
+
+def run_learning_pipeline(
+    *,
+    project_root: Path,
+    enrichment: Path | None,
+    learning_goal: str,
+    audience: str,
+    learner_level: str,
+    final_language: str,
+    depth: str,
+) -> dict:
+    command = [
+        sys.executable,
+        str(LEARNING / "scripts" / "learning_pipeline_runner.py"),
+        "--project-root",
+        str(project_root),
+        "--learning-goal",
+        learning_goal,
+        "--audience",
+        audience,
+        "--learner-level",
+        learner_level,
+        "--final-language",
+        final_language,
+        "--depth",
+        depth,
+    ]
+    if enrichment:
+        command.extend(["--enrichment", str(enrichment)])
+    code = run_command(command, cwd=LEARNING / "scripts", show_output=True)
+    if code != 0:
+        validation = read_json(project_root / "15_learning" / "source_reanalysis_validation.json")
+        blocking = validation.get("blocking_codes") if isinstance(validation.get("blocking_codes"), list) else []
+        detail = f": {', '.join(str(item) for item in blocking)}" if blocking else ""
+        raise KwError(f"learning pipeline failed its evidence or quality gate{detail}")
+    quality = read_json(project_root / "20_document" / "learning_quality_gate.json")
+    if not quality.get("approved_for_learning_article"):
+        raise KwError("learning pipeline completed without an approved learning article")
+    receipt = project_root / "20_document" / "learning_article_receipt.json"
+    article = project_root / "20_document" / "learning_article.md"
+    if not receipt.is_file() or not article.is_file():
+        raise KwError("learning pipeline reported success without the final article and receipt")
+    return {
+        "status": "completed",
+        "learning_article": str(article),
+        "learning_article_receipt": str(receipt),
+        "learning_quality_gate": str(project_root / "20_document" / "learning_quality_gate.json"),
+    }
+
+
+def update_learning_run_state(
+    project_root: Path,
+    *,
+    status: str,
+    workflow_outcome: str,
+    failure_reason: str = "",
+    user_action_required: str = "",
+) -> None:
+    path = project_root / "logs" / "run_state.json"
+    payload = read_json(path)
+    provenance = ingest.current_provenance(project_root)
+    payload.update(
+        {
+            "runner": payload.get("runner") or "knowledge-workflow-cli",
+            "schema_version": max(int(payload.get("schema_version") or 0), 3),
+            "status": status,
+            "workflow_outcome": workflow_outcome,
+            "project_root": str(project_root),
+            "gate_provenance_current": bool(provenance["gate_current"]),
+            "analysis_provenance_current": bool(provenance["analysis_current"]),
+            "final_report_provenance_current": bool(provenance["final_report_current"]),
+            "learning_analysis_provenance_current": workflow_outcome == "learning_article_ready",
+            "learning_article_provenance_current": workflow_outcome == "learning_article_ready",
+            "current_stage": (
+                "learning_article_ready" if workflow_outcome == "learning_article_ready" else "learning_pipeline"
+            ),
+            "failure_reason": failure_reason,
+            "user_action_required": user_action_required,
+        }
+    )
+    write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+
 def print_flow_summary(project_root: Path) -> None:
     manifest = current_acquisition_manifest(project_root)
     source_status = current_source_status(project_root)
@@ -438,6 +677,7 @@ def run_new_flow(args: argparse.Namespace) -> int:
                 input_value=input_value,
                 status="completed",
                 workflow_outcome=workflow_outcome,
+                requested_deliverable=args.deliverable,
             )
             write_result(project_root, args.pretty)
             print_flow_summary(project_root)
@@ -523,13 +763,49 @@ def run_new_flow(args: argparse.Namespace) -> int:
             degraded_reason = source_status.get("status_reason") or str(ingest_result.get("error") or "")
             user_action_required = source_status.get("next_step") or ""
 
-        if (
-            args.mode == "audit"
-            and workflow_outcome == "analysis_pack_and_document_planning"
-            and (project_root / "20_document" / "composer_intake.json").is_file()
-        ):
-            ingest.compose_final_report(project_root=project_root, pretty=args.pretty)
-            workflow_outcome = "final_report_ready"
+        source_report_requested = args.deliverable in {"source_report", "both"}
+        learning_article_requested = args.deliverable in {"learning_article", "both"}
+        if workflow_outcome == "analysis_pack_and_document_planning":
+            if (
+                source_report_requested
+                and args.mode == "audit"
+                and (project_root / "20_document" / "composer_intake.json").is_file()
+            ):
+                ingest.compose_final_report(project_root=project_root, pretty=args.pretty)
+                workflow_outcome = "final_report_ready"
+            if learning_article_requested:
+                request_path = prepare_learning_enrichment_request(
+                    project_root=project_root,
+                    learning_goal=args.learning_goal,
+                    audience=args.audience,
+                    learner_level=args.learner_level,
+                    final_language=args.final_language,
+                    depth=args.learning_depth,
+                )
+                enrichment = install_learning_enrichment(project_root, args.learning_enrichment)
+                if enrichment or args.learning_depth == "brief":
+                    run_learning_pipeline(
+                        project_root=project_root,
+                        enrichment=enrichment,
+                        learning_goal=args.learning_goal,
+                        audience=args.audience,
+                        learner_level=args.learner_level,
+                        final_language=args.final_language,
+                        depth=args.learning_depth,
+                    )
+                    workflow_outcome = (
+                        "source_report_and_learning_article_ready"
+                        if source_report_requested and args.mode == "audit"
+                        else "learning_article_ready"
+                    )
+                    user_action_required = ""
+                else:
+                    workflow_outcome = "learning_enrichment_required"
+                    user_action_required = (
+                        "Have the Agent read the admitted source named in "
+                        f"{request_path}, write 15_learning/learning_enrichment.json, "
+                        "then run `kw learn --project-root <project>`."
+                    )
     except (KwError, bundle.BundleError, ingest.IngestError, acquisition_adapter.AcquisitionAdapterError) as exc:
         exit_code = 1
         failure_reason = str(exc)
@@ -544,6 +820,7 @@ def run_new_flow(args: argparse.Namespace) -> int:
                 input_value=input_value,
                 status="failed" if exit_code else "completed",
                 workflow_outcome=workflow_outcome,
+                requested_deliverable=args.deliverable,
                 failure_reason=failure_reason,
                 degraded_reason=degraded_reason,
                 user_action_required=user_action_required,
@@ -734,6 +1011,62 @@ def cmd_compose(args: argparse.Namespace) -> int:
     print(f"Compose status: {result.get('status', 'unknown')}")
     print(f"Result index: {project_root / 'result_index.md'}")
     return 0
+
+
+def cmd_learn(args: argparse.Namespace) -> int:
+    project_root = args.project_root.resolve()
+    exit_code = 0
+    failure_reason = ""
+    try:
+        request_path = prepare_learning_enrichment_request(
+            project_root=project_root,
+            learning_goal=args.learning_goal,
+            audience=args.audience,
+            learner_level=args.learner_level,
+            final_language=args.final_language,
+            depth=args.depth,
+        )
+        enrichment = install_learning_enrichment(project_root, args.enrichment)
+        if enrichment is None and args.depth != "brief":
+            raise KwError(
+                "standard/deep learning output requires Agent-authored evidence-bound enrichment; "
+                f"complete {request_path} into 15_learning/learning_enrichment.json and retry"
+            )
+        result = run_learning_pipeline(
+            project_root=project_root,
+            enrichment=enrichment,
+            learning_goal=args.learning_goal,
+            audience=args.audience,
+            learner_level=args.learner_level,
+            final_language=args.final_language,
+            depth=args.depth,
+        )
+        update_learning_run_state(
+            project_root,
+            status="completed",
+            workflow_outcome="learning_article_ready",
+        )
+        print(f"Learning status: {result.get('status', 'unknown')}")
+        print(f"Learning article: {result.get('learning_article', '')}")
+    except (KwError, ingest.IngestError) as exc:
+        exit_code = 1
+        failure_reason = str(exc)
+        update_learning_run_state(
+            project_root,
+            status="failed",
+            workflow_outcome="learning_pipeline_failed",
+            failure_reason=failure_reason,
+            user_action_required="Fix the reported evidence/enrichment gate, then rerun `kw learn`.",
+        )
+        print(failure_reason, file=sys.stderr)
+    try:
+        write_status(project_root, args.pretty)
+        write_result(project_root, args.pretty)
+    except KwError as exc:
+        exit_code = 1
+        print(str(exc), file=sys.stderr)
+    print(f"Result index: {project_root / 'result_index.md'}")
+    return exit_code
 
 
 def cmd_validate_bundle(args: argparse.Namespace) -> int:
@@ -1727,6 +2060,7 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
                 str(VIDEO / "scripts" / "doctor.py"),
                 str(VIDEO / "scripts" / "chrome_media_probe.py"),
                 "tests/knowledge_workflow_regression.py",
+                "tests/test_learning_console_handoff.py",
             ],
         ),
         ("demo", [sys.executable, "kw.py", "demo"]),
@@ -1751,6 +2085,7 @@ def validation_command_list(args: argparse.Namespace) -> list[tuple[str, list[st
         ("no_fake_report_from_acquisition_failures", [sys.executable, "tests/test_no_fake_report_from_acquisition_failures.py"]),
         ("run_provenance", [sys.executable, "tests/test_run_provenance.py"]),
         ("browser_export_flow", [sys.executable, "tests/test_browser_export_flow.py"]),
+        ("learning_console_handoff", [sys.executable, "tests/test_learning_console_handoff.py"]),
     ]
     if args.include_live_platform:
         commands.append(("live_platform_smoke", [sys.executable, "tests/live_platform_smoke.py"]))
@@ -1986,14 +2321,38 @@ def make_parser() -> argparse.ArgumentParser:
     compose.add_argument("--pretty", action="store_true")
     compose.set_defaults(func=cmd_compose)
 
+    learn = subparsers.add_parser(
+        "learn",
+        help="Run the evidence-gated learning analysis and learning-article pipeline for an audited project.",
+    )
+    learn.add_argument("--project-root", type=Path, required=True)
+    learn.add_argument("--enrichment", type=Path, help="Agent-authored learning enrichment JSON; copied into 15_learning.")
+    learn.add_argument("--learning-goal", default="系统理解这份材料，并知道应该如何学习和应用其中的知识")
+    learn.add_argument("--audience", default="希望系统学习该主题的读者")
+    learn.add_argument("--learner-level", default="unknown")
+    learn.add_argument("--final-language", default="zh-CN")
+    learn.add_argument("--depth", choices=["brief", "standard", "deep"], default="standard")
+    learn.add_argument("--pretty", action="store_true")
+    learn.set_defaults(func=cmd_learn)
+
     run = subparsers.add_parser("run", help="Run a local transcript, media file, or URL through the workflow.")
     run.add_argument("--input", required=True)
     run.add_argument("--mode", choices=["quick", "standard", "audit"], default="audit")
+    run.add_argument(
+        "--deliverable",
+        choices=["source_report", "learning_article", "both"],
+        default="source_report",
+        help="Final product route. Learning routes pause for Agent enrichment when semantic repair is required.",
+    )
     run.add_argument("--project-root", type=Path)
     run.add_argument("--language", default="unknown")
     run.add_argument("--final-language", default="current conversation language")
     run.add_argument("--document-goal", default="source-faithful knowledge report")
     run.add_argument("--audience", default="reader who needs an auditable source-faithful explanation")
+    run.add_argument("--learning-enrichment", type=Path, help="Existing Agent-authored learning enrichment JSON.")
+    run.add_argument("--learning-goal", default="系统理解这份材料，并知道应该如何学习和应用其中的知识")
+    run.add_argument("--learner-level", default="unknown")
+    run.add_argument("--learning-depth", choices=["brief", "standard", "deep"], default="standard")
     add_source_target_arguments(run)
     run.add_argument("--browser-source-url", help="Original URL for a local artifact exported from an authorized browser session.")
     run.add_argument("--browser-platform", choices=["bilibili", "github", "web", "x", "xiaohongshu", "youtube"])

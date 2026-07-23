@@ -320,18 +320,22 @@ def has_usable_text(path: Path) -> bool:
     return False
 
 
-def choose_primary_text_artifact(manifest_path: Path, manifest: dict[str, Any], source_status: str) -> Path | None:
+def choose_primary_text_artifact_entry(
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    source_status: str,
+) -> tuple[dict[str, Any], Path] | None:
     wanted_class = "partial_primary" if source_status == "source_partial" else "primary"
     target = str(manifest.get("analysis_target") or "video_content")
     allowed_scopes = source_gate.TARGET_PRIMARY_SCOPES.get(target, set())
-    candidates = []
+    candidates: list[tuple[dict[str, Any], Path]] = []
     for artifact, path in artifact_paths(manifest_path, manifest):
         if (
             artifact.get("source_class") == wanted_class
             and artifact.get("type") in TRANSCRIPT_TYPES
             and artifact.get("content_scope") in allowed_scopes
         ):
-            candidates.append(path)
+            candidates.append((artifact, path))
     if not candidates and source_status == "source_partial":
         for artifact, path in artifact_paths(manifest_path, manifest):
             if (
@@ -339,8 +343,13 @@ def choose_primary_text_artifact(manifest_path: Path, manifest: dict[str, Any], 
                 and artifact.get("type") in TRANSCRIPT_TYPES
                 and artifact.get("content_scope") in allowed_scopes
             ):
-                candidates.append(path)
+                candidates.append((artifact, path))
     return candidates[0] if candidates else None
+
+
+def choose_primary_text_artifact(manifest_path: Path, manifest: dict[str, Any], source_status: str) -> Path | None:
+    chosen = choose_primary_text_artifact_entry(manifest_path, manifest, source_status)
+    return chosen[1] if chosen else None
 
 
 def choose_primary_media_artifact(manifest_path: Path, manifest: dict[str, Any]) -> Path | None:
@@ -395,8 +404,6 @@ def run_asr_for_media_bundle(
         str(video_root),
         "--model",
         asr_model,
-        "--language",
-        language if language != "unknown" else "",
         "--device",
         asr_device,
         "--compute-type",
@@ -407,12 +414,14 @@ def run_asr_for_media_bundle(
     ]
     if asr_python:
         command.extend(["--asr-python", asr_python])
+    if language and language != "unknown":
+        command.extend(["--language", language])
     if asr_jsonl:
         command.extend(["--asr-jsonl", str(asr_jsonl.expanduser().resolve())])
     if pretty:
         command.append("--pretty")
 
-    completed = run_command([item for item in command if item != ""], cwd=VIDEO / "scripts")
+    completed = run_command(command, cwd=VIDEO / "scripts")
     if completed.returncode == 0:
         status_path = video_root / "00_source" / "source_status.json"
         transcript_path = video_root / "01_transcript" / "clean_transcript.jsonl"
@@ -491,10 +500,16 @@ def run_required(command: list[str], *, cwd: Path) -> None:
         )
 
 
-def normalize_primary_text(manifest_path: Path, manifest: dict[str, Any], project_root: Path, source_status: str) -> None:
-    artifact_path = choose_primary_text_artifact(manifest_path, manifest, source_status)
-    if artifact_path is None:
-        return
+def normalize_primary_text(
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    project_root: Path,
+    source_status: str,
+) -> dict[str, Any] | None:
+    chosen = choose_primary_text_artifact_entry(manifest_path, manifest, source_status)
+    if chosen is None:
+        return None
+    artifact, artifact_path = chosen
     if not has_usable_text(artifact_path):
         raise IngestError(f"primary text artifact contains no usable text: {artifact_path}")
     video_root = project_root / "10_video"
@@ -507,6 +522,26 @@ def normalize_primary_text(manifest_path: Path, manifest: dict[str, Any], projec
         str(video_root),
     ]
     run_required(command, cwd=VIDEO / "scripts")
+    transcript_path = video_root / "01_transcript" / "clean_transcript.jsonl"
+    if not transcript_path.is_file() or transcript_path.stat().st_size == 0:
+        raise IngestError("transcript normalizer completed without producing clean_transcript.jsonl")
+    if not has_usable_text(transcript_path):
+        raise IngestError("normalized clean_transcript.jsonl contains no usable text")
+    try:
+        relative_path = transcript_path.relative_to(project_root).as_posix()
+        source_relative_path = artifact_path.relative_to(project_root).as_posix()
+    except ValueError as exc:
+        raise IngestError("normalized transcript or its source artifact escaped the project root") from exc
+    return {
+        "path": relative_path,
+        "type": "transcript",
+        "content_scope": str(artifact.get("content_scope") or "video_transcript"),
+        "bytes": transcript_path.stat().st_size,
+        "sha256": file_sha256(transcript_path),
+        "created_by": "transcript_normalizer",
+        "derived_from": source_relative_path,
+        "derived_from_sha256": file_sha256(artifact_path),
+    }
 
 
 def degraded_report_text(manifest: dict[str, Any], status: dict[str, Any]) -> str:
@@ -581,7 +616,7 @@ def ingest_bundle(*, manifest_path: Path, project_root: Path) -> dict[str, Any]:
 
     try:
         if source_status in ALLOWED_DECOMPOSITION_STATUSES:
-            normalize_primary_text(manifest_path, manifest, project_root, source_status)
+            derived_artifact = normalize_primary_text(manifest_path, manifest, project_root, source_status)
             normalized = read_json(video_source_root / "source_status.json")
             normalized.update(
                 {
@@ -593,7 +628,11 @@ def ingest_bundle(*, manifest_path: Path, project_root: Path) -> dict[str, Any]:
             )
             normalized.update(status)
             write_source_status(video_source_root, normalized)
-            write_gate_receipt(video_source_root, read_json(video_source_root / "source_status.json"))
+            write_gate_receipt(
+                video_source_root,
+                read_json(video_source_root / "source_status.json"),
+                derived_artifacts=[derived_artifact] if derived_artifact else [],
+            )
         else:
             write_source_status(video_source_root, status)
             write_gate_receipt(video_source_root, status)

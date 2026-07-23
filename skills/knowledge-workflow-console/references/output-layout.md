@@ -42,8 +42,9 @@
     source_analysis_pack.md
     analysis_receipt.json
   15_learning/
+    learning_enrichment_request.json      # console-generated Agent work order
     learning_request.json
-    learning_enrichment.json              # optional Agent-authored analysis
+    learning_enrichment.json              # Agent-authored evidence-bound analysis
     knowledge_map.json
     argument_graph.json
     concept_cards.json

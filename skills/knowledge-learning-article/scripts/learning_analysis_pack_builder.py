@@ -93,6 +93,30 @@ def merge_agent_rows(upstream: list[dict[str, Any]], agent_value: Any, kind: str
     return rows
 
 
+def select_inventory_rows(
+    upstream: list[dict[str, Any]],
+    agent_value: Any,
+    kind: str,
+    scope: str,
+    enrichment: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Use validated reconstruction as the authority for an explicitly repaired scope."""
+
+    config = enrichment.get("source_reanalysis")
+    if not isinstance(config, dict) or config.get("mode") != "evidence_bound":
+        return merge_agent_rows(upstream, agent_value, kind)
+    scopes = string_list(config.get("scopes"))
+    outcomes = config.get("inventory_outcomes")
+    outcome = str(outcomes.get(scope) or "") if isinstance(outcomes, dict) else ""
+    if scope not in scopes:
+        return merge_agent_rows(upstream, agent_value, kind)
+    if outcome == "none_identified_in_source":
+        return []
+    if outcome == "reconstructed":
+        return merge_agent_rows([], agent_value, kind)
+    return merge_agent_rows(upstream, agent_value, kind)
+
+
 def evidence_category(item: dict[str, Any], extra: dict[str, Any], evidence: list[dict[str, Any]]) -> str:
     requested = first_text(extra.get("category"), item.get("category"))
     if requested not in {"Source", "Inference", "Extension"}:
@@ -137,8 +161,20 @@ def build_concepts(
     claims: list[dict[str, Any]],
     enrichment: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    concepts = merge_agent_rows(concepts, enrichment.get("concepts"), "concept")
-    examples = merge_agent_rows(examples, enrichment.get("examples"), "example")
+    concepts = select_inventory_rows(
+        concepts,
+        enrichment.get("concepts"),
+        "concept",
+        "concepts",
+        enrichment,
+    )
+    examples = select_inventory_rows(
+        examples,
+        enrichment.get("examples"),
+        "example",
+        "examples",
+        enrichment,
+    )
     enrich_map = mapping(enrichment.get("concept_enrichment"))
     example_by_concept: dict[str, list[str]] = {}
     for example in examples:
@@ -194,7 +230,13 @@ def build_concepts(
 
 
 def build_examples(examples: list[dict[str, Any]], enrichment: dict[str, Any]) -> list[dict[str, Any]]:
-    examples = merge_agent_rows(examples, enrichment.get("examples"), "example")
+    examples = select_inventory_rows(
+        examples,
+        enrichment.get("examples"),
+        "example",
+        "examples",
+        enrichment,
+    )
     enrich_map = mapping(enrichment.get("example_enrichment"))
     rows: list[dict[str, Any]] = []
     for index, example in enumerate(examples, start=1):

@@ -248,33 +248,29 @@ def write_capability_report(
     return payload
 
 
-def active_backend_from_report(report: dict[str, Any], platform: str) -> str:
+def capability_key_for_platform(platform: str, operation: str = "") -> str:
     if platform == "search":
-        platform = "exa_search"
+        return "exa_search"
     if platform == "x":
-        platform = "twitter"
-    item = report.get(platform)
+        return "x_video" if operation == "extract_transcript" else "twitter"
+    return platform
+
+
+def active_backend_from_report(report: dict[str, Any], platform: str, operation: str = "") -> str:
+    item = report.get(capability_key_for_platform(platform, operation))
     if isinstance(item, dict):
         return str(item.get("active_backend") or "")
     return ""
 
 
-def capability_key_for_platform(platform: str) -> str:
-    if platform == "search":
-        return "exa_search"
-    if platform == "x":
-        return "twitter"
-    return platform
-
-
-def capability_item_for_platform(report: dict[str, Any], platform: str) -> dict[str, Any]:
-    item = report.get(capability_key_for_platform(platform))
+def capability_item_for_platform(report: dict[str, Any], platform: str, operation: str = "") -> dict[str, Any]:
+    item = report.get(capability_key_for_platform(platform, operation))
     return item if isinstance(item, dict) else {}
 
 
-def active_backend_is_ready(report: dict[str, Any], platform: str) -> bool:
-    item = capability_item_for_platform(report, platform)
-    return bool(active_backend_from_report(report, platform)) and item.get("status") == "ok"
+def active_backend_is_ready(report: dict[str, Any], platform: str, operation: str = "") -> bool:
+    item = capability_item_for_platform(report, platform, operation)
+    return bool(active_backend_from_report(report, platform, operation)) and item.get("status") == "ok"
 
 
 def web_fallback_backend(report: dict[str, Any]) -> str:
@@ -308,6 +304,8 @@ def backend_supports_operation(platform: str, backend: str, operation: str, inpu
         return ("bili-cli" in lowered or "bili cli" in lowered) and operation in {"read", "extract_transcript"}
     if platform == "x":
         is_status_url = "/status/" in urlparse(input_value).path
+        if "yt-dlp" in lowered:
+            return operation == "extract_transcript" and is_status_url
         if "twitter-cli" in lowered:
             return operation == "read" and is_status_url
         if backend == "OpenCLI":
@@ -333,11 +331,11 @@ def route_plan_for(
     operation: str = "auto",
     browser_host: str = "",
 ) -> dict[str, Any]:
-    item = capability_item_for_platform(capability_report, platform)
-    active_backend = active_backend_from_report(capability_report, platform)
     chosen_target = source_gate.infer_analysis_target(platform, analysis_target)
     chosen_operation = source_gate.infer_operation(chosen_target, operation)
-    backend_ready = active_backend_is_ready(capability_report, platform)
+    item = capability_item_for_platform(capability_report, platform, chosen_operation)
+    active_backend = active_backend_from_report(capability_report, platform, chosen_operation)
+    backend_ready = active_backend_is_ready(capability_report, platform, chosen_operation)
     operation_supported = backend_supports_operation(platform, active_backend, chosen_operation, input_value)
     declared_browser_host = normalize_browser_host(browser_host)
     browser_host_required = active_backend == "OpenCLI"
@@ -349,7 +347,7 @@ def route_plan_for(
         "platform": platform,
         "analysis_target": chosen_target,
         "operation": chosen_operation,
-        "capability_key": capability_key_for_platform(platform),
+        "capability_key": capability_key_for_platform(platform, chosen_operation),
         "provider_status": item.get("status") or "",
         "provider_message": item.get("message") or "",
         "active_backend": active_backend,
@@ -370,7 +368,7 @@ def route_plan_for(
     }
 
     hints = PLATFORM_SETUP_HINTS.get(platform)
-    if hints and not active_backend_is_ready(capability_report, platform):
+    if hints and not active_backend_is_ready(capability_report, platform, chosen_operation):
         plan["install_commands"] = hints["install_commands"]
         plan["manual_steps"] = hints["manual_steps"]
     if browser_host_required and not declared_browser_host:
@@ -382,13 +380,19 @@ def route_plan_for(
             *plan.get("manual_steps", []),
             "Identify the browser that actually hosts the OpenCLI extension and login, then retry with --browser-host edge or --browser-host chrome.",
         ]
-    elif active_backend and not active_backend_is_ready(capability_report, platform):
+    elif active_backend and not active_backend_is_ready(capability_report, platform, chosen_operation):
         plan["blocked_until_ready_reason"] = "The selected native provider did not pass its readiness probe."
     elif active_backend and not operation_supported:
         plan["blocked_until_ready_reason"] = f"The active backend does not support operation {chosen_operation!r} for this input."
 
     if platform == "x":
-        if active_backend == "twitter-cli":
+        if active_backend == "yt-dlp":
+            plan["preferred_commands"] = [
+                "yt-dlp --skip-download --write-subs --write-auto-subs <STATUS_URL>",
+                "yt-dlp -f bestaudio/best <STATUS_URL>",
+            ]
+            plan["primary_scope"] = "embedded-video subtitle when available; otherwise media for evidence-layer ASR"
+        elif active_backend == "twitter-cli":
             plan["preferred_commands"] = ["twitter tweet <URL_OR_ID>"]
             plan["primary_scope"] = "tweet_text_and_thread_context_if_returned; not video transcript"
         elif active_backend == "OpenCLI":
@@ -519,6 +523,19 @@ def youtube_next_action(failures: list[dict[str, Any]], *, metadata_only: bool =
     if metadata_only:
         return "Provide transcript/subtitle, authorized local audio/video, or run an authorized transcription route."
     return "Provide transcript/subtitle or authorized local audio/video."
+
+
+def browser_cookie_database_unavailable(reason: str) -> bool:
+    lowered = str(reason or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "could not copy chrome cookie database",
+            "could not copy edge cookie database",
+            "could not copy browser cookie database",
+            "cookie database is locked",
+        )
+    )
 
 
 def make_failed_manifest(
@@ -666,16 +683,24 @@ def acquire_x(
     *,
     capability_report: dict[str, Any],
     options: dict[str, Any],
+    operation: str,
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str, str, dict[str, bool]]:
-    active_backend = active_backend_from_report(capability_report, "x")
-    plan = route_plan_for("x", capability_report, input_value)
+    browser_host = browser_host_from_options(options)
+    active_backend = active_backend_from_report(capability_report, "x", operation)
+    plan = route_plan_for(
+        "x",
+        capability_report,
+        input_value,
+        operation=operation,
+        browser_host=browser_host,
+    )
     metadata = {"route_plan": plan}
     privacy = {"cookies_used": False, "browser_session_used": False}
     bundle_root = project_root / "00_acquisition"
     artifacts_root = bundle_root / "artifacts"
 
-    if not active_backend_is_ready(capability_report, "x"):
-        item = capability_item_for_platform(capability_report, "x")
+    if not active_backend_is_ready(capability_report, "x", operation):
+        item = capability_item_for_platform(capability_report, "x", operation)
         return (
             "blocked",
             [],
@@ -688,6 +713,23 @@ def acquire_x(
                 }
             ],
             "Install/configure twitter-cli or OpenCLI, run `python kw.py source doctor`, then retry.",
+            active_backend,
+            privacy,
+        )
+
+    if active_backend == "yt-dlp" and operation == "extract_transcript":
+        status, artifacts, x_metadata, failures, next_action, privacy = acquire_x_video(
+            input_value,
+            project_root,
+            command_log,
+            options=options,
+        )
+        return (
+            status,
+            artifacts,
+            {**metadata, **x_metadata},
+            failures,
+            next_action,
             active_backend,
             privacy,
         )
@@ -966,7 +1008,11 @@ def _split_csv(value: Any) -> list[str]:
     return [item.strip() for item in str(value).split(",") if item.strip()]
 
 
-def _youtube_common_options(options: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+def _youtube_common_options(
+    options: dict[str, Any],
+    *,
+    include_youtube_extractor_options: bool = True,
+) -> tuple[list[str], dict[str, Any]]:
     command_options: list[str] = []
     applied: dict[str, Any] = {
         "access_file_used": False,
@@ -1043,20 +1089,21 @@ def _youtube_common_options(options: dict[str, Any]) -> tuple[list[str], dict[st
             youtube_parts.append(text.split(":", 1)[1])
         else:
             passthrough.append(text)
-    player_clients = _split_csv(options.get("ytdlp_player_clients"))
-    if player_clients:
-        youtube_parts.append("player_client=" + ",".join(player_clients))
-        applied["player_clients"] = player_clients
-    visitor_data = str(options.get("youtube_visitor_data") or "").strip()
-    if visitor_data:
-        youtube_parts.append(f"visitor_data={visitor_data}")
-        applied["browser_challenge_context_used"] = True
-    po_tokens = [str(item).strip() for item in options.get("youtube_po_token") or [] if str(item).strip()]
-    for token in po_tokens:
-        youtube_parts.append(f"po_token={token}")
-    if po_tokens:
-        applied["proof_context_count"] = len(po_tokens)
-    if youtube_parts:
+    if include_youtube_extractor_options:
+        player_clients = _split_csv(options.get("ytdlp_player_clients"))
+        if player_clients:
+            youtube_parts.append("player_client=" + ",".join(player_clients))
+            applied["player_clients"] = player_clients
+        visitor_data = str(options.get("youtube_visitor_data") or "").strip()
+        if visitor_data:
+            youtube_parts.append(f"visitor_data={visitor_data}")
+            applied["browser_challenge_context_used"] = True
+        po_tokens = [str(item).strip() for item in options.get("youtube_po_token") or [] if str(item).strip()]
+        for token in po_tokens:
+            youtube_parts.append(f"po_token={token}")
+        if po_tokens:
+            applied["proof_context_count"] = len(po_tokens)
+    if include_youtube_extractor_options and youtube_parts:
         command_options.extend(["--extractor-args", "youtube:" + ";".join(youtube_parts)])
     for extractor_arg in passthrough:
         command_options.extend(["--extractor-args", extractor_arg])
@@ -1109,11 +1156,22 @@ def _youtube_download_media(
     common_options: list[str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     output_template = str(artifacts_root / "youtube_media.%(ext)s")
-    command = [ytdlp, *common_options, "--no-playlist", "-f", "bestaudio/best", "-o", output_template, input_value]
+    command = [
+        ytdlp,
+        *common_options,
+        "--no-playlist",
+        "-f",
+        "worstaudio[ext=m4a]/worstaudio/bestaudio/best",
+        "-o",
+        output_template,
+        input_value,
+    ]
     try:
         completed = run_capture(command, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as exc:
         append_command_log(command_log, command=command, returncode=1, note=str(exc))
+        for partial in artifacts_root.glob("youtube_media*.part"):
+            partial.unlink(missing_ok=True)
         return [], {"stage": "youtube_media", "reason": str(exc)}
     append_command_log(command_log, command=command, returncode=completed.returncode, note="yt-dlp media acquisition for evidence-layer ASR")
     candidates = sorted(
@@ -1134,8 +1192,236 @@ def _youtube_download_media(
                 created_by="yt-dlp",
             )
         ], None
+    for partial in artifacts_root.glob("youtube_media*.part"):
+        partial.unlink(missing_ok=True)
     reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "media acquisition produced no usable file"
     return [], {"stage": "youtube_media", "reason": reason}
+
+
+def _safe_x_video_metadata(payload: dict[str, Any], input_value: str) -> dict[str, Any]:
+    safe_keys = (
+        "id",
+        "title",
+        "description",
+        "duration",
+        "timestamp",
+        "upload_date",
+        "uploader",
+        "uploader_id",
+        "channel",
+        "channel_id",
+        "availability",
+        "live_status",
+        "language",
+    )
+    result = {key: payload.get(key) for key in safe_keys if payload.get(key) is not None}
+    result["webpage_url"] = redact_value_for_record(str(payload.get("webpage_url") or input_value))
+    subtitles = payload.get("subtitles") if isinstance(payload.get("subtitles"), dict) else {}
+    auto_captions = payload.get("automatic_captions") if isinstance(payload.get("automatic_captions"), dict) else {}
+    result["subtitle_languages"] = sorted(str(key) for key in subtitles)
+    result["automatic_caption_languages"] = sorted(str(key) for key in auto_captions)
+    return sanitize_data(result)
+
+
+def _x_download_media(
+    *,
+    input_value: str,
+    artifacts_root: Path,
+    bundle_root: Path,
+    command_log: Path,
+    timeout: int,
+    ytdlp: str,
+    common_options: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    output_template = str(artifacts_root / "x_media.%(ext)s")
+    command = [
+        ytdlp,
+        *common_options,
+        "--no-playlist",
+        "-f",
+        "worstaudio[ext=m4a]/worstaudio/bestaudio/best",
+        "-o",
+        output_template,
+        input_value,
+    ]
+    try:
+        completed = run_capture(command, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as exc:
+        append_command_log(command_log, command=command, returncode=1, note=str(exc))
+        for partial in artifacts_root.glob("x_media*.part"):
+            partial.unlink(missing_ok=True)
+        return [], {"stage": "x_video_media", "reason": str(exc)}
+    append_command_log(
+        command_log,
+        command=command,
+        returncode=completed.returncode,
+        note="yt-dlp X embedded media acquisition for evidence-layer ASR",
+    )
+    candidates = sorted(
+        path
+        for path in artifacts_root.glob("x_media.*")
+        if path.is_file() and bundle.artifact_type_for(path) in {"audio", "video"}
+    )
+    if completed.returncode == 0 and candidates:
+        media = candidates[0]
+        return [
+            bundle.artifact_entry(
+                bundle_root=bundle_root,
+                path=media,
+                artifact_type=bundle.artifact_type_for(media),
+                source_class="primary",
+                content_scope="media",
+                description="X embedded media acquired by yt-dlp for source-gated local ASR.",
+                created_by="yt-dlp",
+            )
+        ], None
+    for partial in artifacts_root.glob("x_media*.part"):
+        partial.unlink(missing_ok=True)
+    reason = completed.stderr[-1000:] or completed.stdout[-1000:] or "media acquisition produced no usable file"
+    return [], {"stage": "x_video_media", "reason": reason}
+
+
+def x_video_next_action(failures: list[dict[str, Any]], *, metadata_only: bool = False) -> str:
+    reason = "\n".join(str(item.get("reason") or "") for item in failures).lower()
+    if "login" in reason or "cookie" in reason or "authentication" in reason:
+        return (
+            "Retry with the explicitly selected authorized Edge/Chrome cookie source, "
+            "or provide a user-exported subtitle/transcript/media file."
+        )
+    if metadata_only:
+        return "The X post was identified, but no subtitle or media was acquired. Provide an authorized local export."
+    return "Retry the native yt-dlp X video route or provide an authorized subtitle/transcript/media file."
+
+
+def acquire_x_video(
+    input_value: str,
+    project_root: Path,
+    command_log: Path,
+    *,
+    options: dict[str, Any],
+) -> tuple[str, list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], str, dict[str, bool]]:
+    bundle_root = project_root / "00_acquisition"
+    artifacts_root = bundle_root / "artifacts"
+    artifacts_root.mkdir(parents=True, exist_ok=True)
+    metadata_path = artifacts_root / "x_video_metadata.json"
+    output_template = str(artifacts_root / "x_video.%(ext)s")
+    ytdlp_value = options.get("ytdlp")
+    ytdlp = str(Path(ytdlp_value).expanduser().resolve()) if ytdlp_value else "yt-dlp"
+    if ytdlp_value and not Path(ytdlp).is_file():
+        raise AcquisitionAdapterError(f"yt-dlp executable does not exist: {ytdlp}")
+    common_options, applied = _youtube_common_options(
+        options,
+        include_youtube_extractor_options=False,
+    )
+    timeout = int(options.get("platform_timeout_seconds") or 90)
+    if timeout <= 0:
+        raise AcquisitionAdapterError("--platform-timeout-seconds must be greater than zero")
+    mode = str(options.get("platform_mode") or "auto")
+    if mode not in {"auto", "probe", "subtitles", "audio"}:
+        raise AcquisitionAdapterError(f"unsupported X embedded-video platform mode: {mode}")
+    subtitle_languages = str(options.get("subtitle_languages") or "all,-live_chat")
+    metadata_command = [ytdlp, *common_options, "--skip-download", "--dump-single-json", input_value]
+    subtitle_command = [
+        ytdlp,
+        *common_options,
+        "--skip-download",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-langs",
+        subtitle_languages,
+        "--convert-subs",
+        "vtt",
+        "-o",
+        output_template,
+        input_value,
+    ]
+    artifacts: list[dict[str, Any]] = []
+    metadata: dict[str, Any] = {
+        "platform_mode": mode,
+        "applied_options": applied,
+        "primary_scope": "x_embedded_video_transcript_or_media",
+    }
+    failures: list[dict[str, Any]] = []
+    privacy = _youtube_privacy(applied)
+    try:
+        meta = run_capture(metadata_command, timeout=timeout)
+        append_command_log(command_log, command=metadata_command, returncode=meta.returncode, note="yt-dlp X video metadata")
+        if meta.returncode == 0 and meta.stdout.strip():
+            try:
+                parsed = json.loads(meta.stdout)
+                safe_metadata = _safe_x_video_metadata(parsed if isinstance(parsed, dict) else {}, input_value)
+                bundle.write_json(metadata_path, safe_metadata)
+                artifacts.append(
+                    bundle.artifact_entry(
+                        bundle_root=bundle_root,
+                        path=metadata_path,
+                        artifact_type="metadata",
+                        source_class="metadata_only",
+                        content_scope="metadata",
+                        description="Redacted yt-dlp metadata for the X embedded video.",
+                        created_by="yt-dlp",
+                    )
+                )
+                metadata["title"] = safe_metadata.get("title")
+            except json.JSONDecodeError:
+                failures.append({"stage": "x_video_metadata_parse", "reason": "yt-dlp metadata was not valid JSON"})
+        else:
+            failures.append({"stage": "x_video_metadata", "reason": meta.stderr[-1000:] or meta.stdout[-1000:]})
+        if mode in {"auto", "subtitles"}:
+            subs = run_capture(subtitle_command, timeout=max(timeout, 120))
+            append_command_log(command_log, command=subtitle_command, returncode=subs.returncode, note="yt-dlp X video subtitles")
+            if subs.returncode != 0:
+                retry = run_capture(subtitle_command, timeout=max(timeout, 120))
+                append_command_log(
+                    command_log,
+                    command=subtitle_command,
+                    returncode=retry.returncode,
+                    note="yt-dlp X video subtitles retry",
+                )
+                subs = retry
+            if subs.returncode != 0:
+                failures.append({"stage": "x_video_subtitles", "reason": subs.stderr[-1000:] or subs.stdout[-1000:]})
+    except (OSError, subprocess.SubprocessError) as exc:
+        failures.append({"stage": "x_video", "reason": str(exc)})
+        return "failed", artifacts, metadata, failures, x_video_next_action(failures), privacy
+
+    subtitle_files = sorted(artifacts_root.glob("x_video*.vtt")) + sorted(artifacts_root.glob("x_video*.srt"))
+    for subtitle in subtitle_files:
+        artifacts.append(
+            bundle.artifact_entry(
+                bundle_root=bundle_root,
+                path=subtitle,
+                artifact_type="subtitle",
+                source_class="primary",
+                content_scope="video_transcript",
+                description="X embedded-video subtitle acquired by yt-dlp.",
+                created_by="yt-dlp",
+            )
+        )
+    if any(item.get("source_class") == "primary" for item in artifacts):
+        metadata["execution_backend"] = "yt-dlp"
+        return "material_acquired", artifacts, metadata, failures, "ingest_bundle", privacy
+    if mode in {"auto", "audio"}:
+        media_artifacts, media_failure = _x_download_media(
+            input_value=input_value,
+            artifacts_root=artifacts_root,
+            bundle_root=bundle_root,
+            command_log=command_log,
+            timeout=max(timeout, 600),
+            ytdlp=ytdlp,
+            common_options=common_options,
+        )
+        artifacts.extend(media_artifacts)
+        if media_failure:
+            failures.append(media_failure)
+        if media_artifacts:
+            metadata["execution_backend"] = "yt-dlp_media_then_evidence_asr"
+            return "material_acquired", artifacts, metadata, failures, "ingest_bundle", privacy
+    if artifacts:
+        return "metadata_only", artifacts, metadata, failures, x_video_next_action(failures, metadata_only=True), privacy
+    combined_reason = "\n".join(str(item.get("reason") or "") for item in failures)
+    status = blocked_status_from_reason(combined_reason) if failures else "failed"
+    return status, artifacts, metadata, failures, x_video_next_action(failures), privacy
 
 
 def _youtube_opencli_transcript(
@@ -1267,6 +1553,61 @@ def acquire_youtube(
     try:
         meta = run_capture(metadata_command, timeout=timeout)
         append_command_log(command_log, command=metadata_command, returncode=meta.returncode, note="yt-dlp metadata")
+        initial_metadata_reason = meta.stderr[-1000:] or meta.stdout[-1000:]
+        if (
+            meta.returncode != 0
+            and applied.get("browser_name")
+            and browser_cookie_database_unavailable(initial_metadata_reason)
+        ):
+            failures.append(
+                {
+                    "stage": "youtube_browser_cookie_access",
+                    "reason": initial_metadata_reason,
+                }
+            )
+            fallback_options = {**options, "youtube_browser": None}
+            fallback_common_options, fallback_applied = _youtube_common_options(fallback_options)
+            fallback_metadata_command = [
+                ytdlp,
+                *fallback_common_options,
+                "--skip-download",
+                "--dump-single-json",
+                input_value,
+            ]
+            meta = run_capture(fallback_metadata_command, timeout=timeout)
+            append_command_log(
+                command_log,
+                command=fallback_metadata_command,
+                returncode=meta.returncode,
+                note="yt-dlp anonymous metadata fallback after locked browser cookie database",
+            )
+            metadata["browser_access_fallback"] = {
+                "attempted": True,
+                "reason": "selected browser cookie database was locked or unavailable",
+                "anonymous_public_route_used": meta.returncode == 0,
+            }
+            if meta.returncode == 0:
+                failures = [
+                    failure
+                    for failure in failures
+                    if failure.get("stage") != "youtube_browser_cookie_access"
+                ]
+                common_options = fallback_common_options
+                metadata["active_ytdlp_options"] = fallback_applied
+                subtitle_command = [
+                    ytdlp,
+                    *common_options,
+                    "--skip-download",
+                    "--write-subs",
+                    "--write-auto-subs",
+                    "--sub-langs",
+                    subtitle_languages,
+                    "--convert-subs",
+                    "vtt",
+                    "-o",
+                    output_template,
+                    input_value,
+                ]
         if meta.returncode == 0 and meta.stdout.strip():
             try:
                 parsed = json.loads(meta.stdout)
@@ -1319,7 +1660,7 @@ def acquire_youtube(
             artifacts_root=artifacts_root,
             bundle_root=bundle_root,
             command_log=command_log,
-            timeout=max(timeout, 180),
+            timeout=max(timeout, 600),
             ytdlp=ytdlp,
             common_options=common_options,
         )
@@ -1640,7 +1981,6 @@ def _acquire_source_material_into(
         )
     browser_host = browser_host_from_options(youtube_options)
     capability_report = write_capability_report(project_root, command_log, options=youtube_options)
-    active_backend = active_backend_from_report(capability_report, platform)
     route_plan = route_plan_for(
         platform,
         capability_report,
@@ -1649,6 +1989,7 @@ def _acquire_source_material_into(
         operation=operation,
         browser_host=browser_host,
     )
+    active_backend = str(route_plan.get("active_backend") or "")
     write_route_plan(project_root, route_plan)
     privacy_flags: dict[str, bool] = {
         "cookies_used": False,
@@ -1708,6 +2049,7 @@ def _acquire_source_material_into(
             command_log,
             capability_report=capability_report,
             options=youtube_options or {},
+            operation=operation,
         )
     elif platform == "xiaohongshu":
         status, artifacts, metadata, failures, next_action, active_backend, privacy_flags = acquire_xiaohongshu(

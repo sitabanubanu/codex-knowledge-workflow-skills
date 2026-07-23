@@ -32,8 +32,11 @@ current working directory contains `kw.py`.
 8. Route the promoted manifest to `source-gated-evidence-layer`.
 9. For a source-faithful report, continue to `knowledge-document-composer` only
    when the current gate and analysis receipts allow it. For personal learning,
-   route the same current audited pack to `knowledge-learning-article` and
-   require its learning quality gate and receipt before delivery.
+   run the console with `--deliverable learning_article`. Read the generated
+   `15_learning/learning_enrichment_request.json`, return to its gate-admitted
+   normalized source, write evidence-bound `learning_enrichment.json`, and then
+   call `kw learn`. Require the learning quality gate and receipt before
+   delivery. Never generate Source rows from the heuristic inventory alone.
 10. Treat `knowledge-video-decomposer` as an internal script library, never as
    a competing user-facing route.
 11. Use a new project root by default. Reuse requires `--resume` and an exact
@@ -55,6 +58,19 @@ Primary command:
 kw run --input <url-or-file> --target <target> --operation <operation> --mode audit
 ```
 
+For a learning article:
+
+```powershell
+kw run --input <url-or-file> --target <target> --operation <operation> --mode audit --deliverable learning_article
+# The Agent reads learning_enrichment_request.json and the admitted source,
+# then writes 15_learning/learning_enrichment.json.
+kw learn --project-root <project> --depth standard
+```
+
+The pause between these commands is intentional. Semantic enrichment is an
+Agent judgment step; the CLI prepares and verifies it but must not replace it
+with deterministic heuristic prose.
+
 Use explicit stages when diagnosing:
 
 ```powershell
@@ -62,6 +78,7 @@ kw acquire ...
 kw ingest ...
 kw audit ...
 kw compose ...
+kw learn ...
 kw status --project-root <project>
 kw result --project-root <project>
 ```

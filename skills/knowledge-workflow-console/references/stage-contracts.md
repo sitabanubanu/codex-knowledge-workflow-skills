@@ -100,7 +100,8 @@ Producer: knowledge-learning-article. Use only for a learning-article request.
 
 ```text
 15_learning/learning_request.json
-15_learning/learning_enrichment.json          # optional Agent enrichment
+15_learning/learning_enrichment_request.json  # console-generated, receipt-bound Agent work order
+15_learning/learning_enrichment.json          # Agent-authored; required for standard/deep repair
 15_learning/knowledge_map.json
 15_learning/argument_graph.json
 15_learning/concept_cards.json
@@ -121,6 +122,12 @@ The learning analysis receipt binds the current source analysis receipt and
 learning pack hashes. The learning article receipt binds the learning receipt,
 quality gate, and final article hash. Timestamps remain evidence locators, not
 the primary article structure.
+
+When the upstream semantic inventory is empty, unanchored, or heuristic, the
+console must stop after writing `learning_enrichment_request.json`. The Agent
+must read the exact normalized source artifact registered in the Gate Receipt,
+write evidence-bound enrichment, and invoke `kw learn`. Changing either the
+source artifact or enrichment hash makes the learning deliverable stale.
 
 ## Document Planning
 

@@ -74,12 +74,18 @@ layer. Do not route users to it as an alternative workflow.
 | --- | --- | --- |
 | YouTube/Bilibili/local media content | `video_content` | `extract_transcript` |
 | X/Xiaohongshu post body | `social_post` | `read` |
+| X status embedded video | `video_content` | `extract_transcript` |
 | Ordinary web article | `web_article` | `read` |
 | GitHub repository document | `repository` | `read` |
 | Open-web query | `search_triage` | `search` |
 
 After acquisition, treat `learning_article` as a downstream delivery operation,
 not as a replacement for the platform acquisition operation recorded in Bundle v2.
+
+For X, `read` and `extract_transcript` are separate capabilities. Tweet text
+uses twitter-cli/OpenCLI when ready. Embedded-video extraction uses native
+yt-dlp subtitle acquisition first and media-for-ASR second; tweet text never
+substitutes for the requested video transcript.
 
 Ask or infer the target from the requested analysis, not only the URL host. A
 social post containing a video is ambiguous: post analysis and video analysis
@@ -102,6 +108,9 @@ require different scopes.
 6. Ingest through the target/scope source gate.
 7. Stop degraded when the matching primary scope is absent.
 8. Continue to evidence and the selected document/learning route only with current receipts.
+9. For standard/deep learning output, write the evidence-bound Agent enrichment
+   requested by the console and run `kw learn`; do not suppress heuristic
+   inventory findings.
 
 ## Local Route
 

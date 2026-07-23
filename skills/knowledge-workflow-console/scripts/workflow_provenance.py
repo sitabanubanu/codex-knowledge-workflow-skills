@@ -35,6 +35,18 @@ def receipt_matches(receipt: dict[str, Any], status: dict[str, Any]) -> bool:
     return bool(receipt) and all((receipt.get(key) or "") == (status.get(key) or "") for key in PROVENANCE_KEYS)
 
 
+def contained_receipt_path(project_root: Path, value: str, *, base: Path | None = None) -> Path | None:
+    if not value:
+        return None
+    candidate = Path(value)
+    resolved = candidate.resolve() if candidate.is_absolute() else ((base or project_root) / candidate).resolve()
+    try:
+        resolved.relative_to(project_root)
+    except ValueError:
+        return None
+    return resolved
+
+
 def inspect_provenance(project_root: Path) -> dict[str, Any]:
     project_root = project_root.resolve()
     manifest_path = project_root / "00_acquisition" / "manifest.json"
@@ -70,12 +82,43 @@ def inspect_provenance(project_root: Path) -> dict[str, Any]:
     )
     learning = read_json(learning_path)
     learning_pack = project_root / "15_learning" / str(learning.get("learning_analysis_pack") or "learning_analysis_pack.json")
+    learning_root = project_root / "15_learning"
+    enrichment_value = str(learning.get("enrichment_path") or "")
+    enrichment_path = contained_receipt_path(project_root, enrichment_value)
+    enrichment_current = bool(
+        (not enrichment_value and not learning.get("enrichment_sha256"))
+        or (
+            enrichment_path
+            and enrichment_path.is_file()
+            and learning.get("enrichment_sha256") == sha256_file(enrichment_path)
+        )
+    )
+    validation_value = str(learning.get("source_reanalysis_validation") or "")
+    validation_path = contained_receipt_path(project_root, validation_value, base=learning_root)
+    validation_current = bool(
+        validation_path
+        and validation_path.is_file()
+        and learning.get("source_reanalysis_validation_sha256") == sha256_file(validation_path)
+    )
+    source_artifact_value = str(learning.get("source_artifact") or "")
+    source_artifact_path = contained_receipt_path(project_root, source_artifact_value)
+    source_artifact_current = bool(
+        learning.get("source_reanalysis_mode") != "evidence_bound"
+        or (
+            source_artifact_path
+            and source_artifact_path.is_file()
+            and learning.get("source_artifact_sha256") == sha256_file(source_artifact_path)
+        )
+    )
     learning_current = bool(
         analysis_current
         and receipt_matches(learning, status)
         and learning.get("analysis_receipt_sha256") == sha256_file(analysis_path)
         and learning_pack.is_file()
         and learning.get("learning_analysis_pack_sha256") == sha256_file(learning_pack)
+        and enrichment_current
+        and validation_current
+        and source_artifact_current
     )
     composer = read_json(composer_path)
     composer_current = bool(

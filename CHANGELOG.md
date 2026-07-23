@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.7.1
+
+- Added a native X embedded-video route that uses yt-dlp for metadata and
+  subtitles, retries transient subtitle failures, and hands media to the
+  evidence-layer ASR path only when needed.
+- Added a safe public YouTube fallback when the selected Edge cookie database
+  is locked but the same video remains anonymously accessible; browser host
+  identity and fallback provenance remain explicit.
+- Fixed unknown-language ASR invocation so it no longer leaves an orphaned
+  `--language` flag.
+- Registered normalized and ASR-derived transcripts in Gate Receipt with
+  byte-count and SHA-256 binding, including tamper regressions.
+- Added `--deliverable learning_article|both`, the evidence-bound
+  `learning_enrichment_request.json` handoff, and `kw learn`.
+- Made validated Agent reconstruction authoritative only for explicitly
+  declared semantic inventory scopes, preventing noisy heuristic concepts or
+  examples from leaking back into the learning article.
+- Added native acquisition, Gate Receipt, learning-console, provenance, and
+  real YouTube/X acceptance coverage while keeping Agent Reach absent.
+- Bumped package version to `0.7.1`.
+
 ## v0.7.0
 
 - Removed Agent Reach imports, commands, installer, runtime resolver, and

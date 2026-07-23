@@ -10,7 +10,8 @@ Knowledge Workflow provider capability report.
 | Bilibili | `extract_transcript` / ready OpenCLI; `read` or extraction / ready bili-cli | Bilibili search API cannot extract content. |
 | GitHub | `read` / ready gh CLI | Repository README can be task-primary. |
 | Xiaohongshu | `read` / ready OpenCLI, xiaohongshu-mcp, or xhs-cli | Note text is `social_post_text`, not embedded-video transcript. |
-| X | `read` / ready twitter-cli or OpenCLI `twitter article` for a single status | OpenCLI search alone is not a single-status reader. |
+| X post text | `read` / ready twitter-cli or OpenCLI `twitter article` for a single status | OpenCLI search alone is not a single-status reader. |
+| X embedded video | `extract_transcript` / yt-dlp subtitle, then yt-dlp media for evidence-layer ASR | Post text and metadata do not satisfy a video-content target. |
 | Search | `search` / ready Exa via mcporter | Search results remain secondary. |
 
 Rules:

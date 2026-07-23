@@ -105,10 +105,12 @@ def write_fixture(root: Path) -> None:
     write_json(manifest_path, {"schema_version": 2, "status": "material_acquired"})
     ids = {
         "run_id": "run_learning_fixture",
+        "attempt_id": "attempt_learning_fixture",
         "bundle_id": "bundle_learning_fixture",
         "source_id": "source_learning_fixture",
         "source_fingerprint": "fingerprint_learning_fixture",
         "analysis_target": "video_content",
+        "operation": "extract_transcript",
         "gate_input_sha256": sha256_file(manifest_path),
     }
     video_root = root / "10_video"
@@ -117,10 +119,23 @@ def write_fixture(root: Path) -> None:
         status_path,
         {
             **ids,
+            "schema_version": 1,
             "source_status": "source_confirmed",
+            "scope_status": "matched",
+            "pipeline_decision": "continue_full",
             "primary_material_available": True,
             "can_enter_full_decomposition": True,
-            "allowed_report_type": "full",
+            "can_enter_document_composer": True,
+            "allowed_report_type": "full_video_analysis_pack",
+            "source_classes": ["primary"],
+            "status_reason": "Primary transcript material is available.",
+            "failed_probes": [],
+            "next_step": "run_evidence_audit",
+            "acquisition_bundle_status": "material_acquired",
+            "acquisition_layer": "test_fixture",
+            "active_backend": "fixture",
+            "approved_scope": ["video_transcript"],
+            "uncovered_scopes": [],
         },
     )
     transcript_rows = [
@@ -145,6 +160,7 @@ def write_fixture(root: Path) -> None:
                 {
                     "path": "10_video/01_transcript/clean_transcript.jsonl",
                     "sha256": sha256_file(transcript_path),
+                    "bytes": transcript_path.stat().st_size,
                     "type": "transcript",
                     "content_scope": "video_transcript",
                 }
@@ -448,6 +464,44 @@ def self_test() -> None:
         assert receipt["source_artifact_sha256"] == sha256_file(
             reanalysis_root / "10_video" / "01_transcript" / "clean_transcript.jsonl"
         ), receipt
+
+        replacement_root = base / "validated-reconstruction-replaces-noise"
+        write_fixture(replacement_root)
+        write_json(
+            replacement_root / "10_video" / "03_inventory" / "concepts.json",
+            {
+                "concepts": [
+                    {
+                        "id": "concept_noisy_upstream",
+                        "term": "误识别概念",
+                        "definition": "启发式库存中的噪声条目。",
+                        "evidence_spans": [fixture_span("t0001", "普通摘要会丢失知识结构", 0.0, 12.0)],
+                    }
+                ]
+            },
+        )
+        write_json(
+            replacement_root / "10_video" / "03_inventory" / "examples.json",
+            {
+                "examples": [
+                    {
+                        "id": "example_noisy_upstream",
+                        "name": "误识别案例",
+                        "description": "启发式库存中的噪声条目。",
+                        "evidence_spans": [fixture_span("t0001", "普通摘要会丢失知识结构", 0.0, 12.0)],
+                    }
+                ]
+            },
+        )
+        replacement_result = run_pipeline(fixture_args(replacement_root))
+        assert replacement_result["approved_for_learning_article"] is True, replacement_result
+        replacement_pack = read_json(replacement_root / "15_learning" / "learning_analysis_pack.json")
+        replacement_concept_ids = {row["id"] for row in replacement_pack["knowledge_map"]["concepts"]}
+        replacement_example_ids = {row["id"] for row in replacement_pack["examples"]}
+        assert "concept_noisy_upstream" not in replacement_concept_ids, replacement_concept_ids
+        assert "example_noisy_upstream" not in replacement_example_ids, replacement_example_ids
+        assert {"agent_concept_001", "agent_concept_002"} <= replacement_concept_ids, replacement_concept_ids
+        assert {"agent_example_001"} <= replacement_example_ids, replacement_example_ids
 
         enrichment_path = reanalysis_root / "15_learning" / "learning_enrichment.json"
         changed_enrichment = read_json(enrichment_path)

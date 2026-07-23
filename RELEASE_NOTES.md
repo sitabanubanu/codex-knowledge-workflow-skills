@@ -1,5 +1,46 @@
 # Release Notes
 
+## v0.7.1
+
+This patch completes the first live acceptance pass after the native
+acquisition migration. Agent Reach remains absent; the restored OpenCLI Edge
+extension is an optional browser bridge rather than a workflow controller.
+
+### Fixed
+
+- X embedded video is now a first-class `extract_transcript` capability
+  separate from X post-text reading. The route retries transient subtitle
+  failures and falls back to evidence-layer ASR only when needed.
+- YouTube can continue through a recorded anonymous-public fallback when Edge
+  cookie storage is locked but the video itself is public.
+- Unknown-language ASR no longer emits an incomplete command-line flag.
+- Gate Receipt now binds normalized and ASR-derived transcripts by relative
+  path, bytes, and SHA-256.
+- Evidence-bound Agent reconstruction replaces heuristic rows only in scopes
+  explicitly declared and validated for reconstruction.
+
+### Added
+
+- `kw run --deliverable learning_article|both`.
+- A provenance-bound `learning_enrichment_request.json` Agent handoff and
+  production `kw learn` continuation command.
+- End-to-end learning provenance checks covering the source transcript,
+  enrichment, reanalysis validation, quality gate, and final article.
+- Offline regressions for X subtitle/media routing, locked Edge cookies,
+  derived transcript tampering, and the console-to-learning handoff.
+
+### Live acceptance and limits
+
+- The supplied X video completed through native subtitle acquisition, Source
+  Gate, evidence audit, learning reanalysis, and an approved learning article.
+- The supplied YouTube video had no platform subtitles, completed through
+  public audio acquisition plus local faster-whisper ASR, and produced an
+  approved learning article.
+- These runs prove the repaired routes execute end to end in the tested
+  environment. They are not product-superiority or universal platform-access
+  claims.
+- Package version is `0.7.1`.
+
 ## v0.7.0
 
 This release removes Agent Reach as a runtime and workflow dependency while

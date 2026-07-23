@@ -236,6 +236,7 @@ def build_capability_report(
         "owner": "knowledge-workflow",
         "web": curl,
         "youtube": _first_ready(ytdlp, opencli, backends=["yt-dlp", "OpenCLI"]),
+        "x_video": _first_ready(ytdlp, backends=["yt-dlp"]),
         "github": gh,
         "bilibili": _first_ready(bili, opencli, backends=["bili-cli", "OpenCLI"]),
         "twitter": _first_ready(twitter, opencli, backends=["twitter-cli", "OpenCLI"]),

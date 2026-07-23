@@ -393,9 +393,18 @@ def self_test() -> None:
 
         learning_pack = root / "15_learning" / "learning_analysis_pack.json"
         learning_receipt = root / "15_learning" / "learning_analysis_receipt.json"
+        reanalysis_validation = root / "15_learning" / "source_reanalysis_validation.json"
         learning_quality = root / "20_document" / "learning_quality_gate.json"
         learning_article = root / "20_document" / "learning_article.md"
         write_json(learning_pack, {"schema_version": "learning-analysis-pack.v1", "knowledge_map": {}})
+        write_json(
+            reanalysis_validation,
+            {
+                "schema_version": "learning-source-reanalysis-validation.v1",
+                "mode": "normal",
+                "approved_for_learning_analysis": True,
+            },
+        )
         write_json(
             learning_receipt,
             {
@@ -404,6 +413,11 @@ def self_test() -> None:
                 "analysis_receipt_sha256": sha256_file(analysis_path),
                 "learning_analysis_pack": "learning_analysis_pack.json",
                 "learning_analysis_pack_sha256": sha256_file(learning_pack),
+                "source_reanalysis_mode": "normal",
+                "source_reanalysis_validation": "source_reanalysis_validation.json",
+                "source_reanalysis_validation_sha256": sha256_file(reanalysis_validation),
+                "enrichment_path": "",
+                "enrichment_sha256": "",
             },
         )
         write_json(learning_quality, {"approved_for_learning_article": True, "blocking_gates": []})
