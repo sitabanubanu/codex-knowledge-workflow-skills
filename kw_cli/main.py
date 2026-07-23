@@ -269,12 +269,12 @@ def ensure_project_root(args: argparse.Namespace) -> Path:
 def contained_child_path(parent: Path, child: Path, label: str) -> Path:
     resolved_parent = parent.resolve()
     resolved_child = child.resolve()
-    if resolved_child == resolved_parent:
-        raise KwError(f"refusing to use {label} as the output root itself: {resolved_child}")
     try:
-        resolved_child.relative_to(resolved_parent)
+        relative = bundle.relative_path_within(resolved_parent, resolved_child)
     except ValueError as exc:
         raise KwError(f"refusing to use {label} outside output root: {resolved_child}") from exc
+    if relative == Path("."):
+        raise KwError(f"refusing to use {label} as the output root itself: {resolved_child}")
     return resolved_child
 
 
@@ -465,7 +465,7 @@ def admitted_learning_source(project_root: Path) -> dict:
         raw_path = str(artifact.get("path") or "")
         path = (project_root / raw_path).resolve()
         try:
-            path.relative_to(project_root)
+            bundle.relative_path_within(project_root, path)
         except ValueError:
             continue
         if (

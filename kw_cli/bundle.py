@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -175,13 +176,34 @@ def normalize_artifact_path(bundle_root: Path, path_value: str) -> Path:
     return bundle_root / path
 
 
+def relative_path_within(root: Path, path: Path) -> Path:
+    """Return a safe relative path, including across Windows 8.3 path aliases."""
+    resolved_root = root.expanduser().resolve()
+    resolved_path = path.expanduser().resolve()
+    try:
+        return resolved_path.relative_to(resolved_root)
+    except ValueError as lexical_error:
+        # GitHub Windows runners can expose the same directory as both
+        # C:\Users\runneradmin and C:\Users\RUNNER~1. Path.relative_to()
+        # compares those spellings lexically, so confirm the physical parent
+        # before rejecting an otherwise contained artifact.
+        for parent in (resolved_path, *resolved_path.parents):
+            try:
+                if os.path.samefile(parent, resolved_root):
+                    suffix = resolved_path.parts[len(parent.parts) :]
+                    return Path(*suffix) if suffix else Path(".")
+            except (OSError, ValueError):
+                continue
+        raise lexical_error
+
+
 def contained_artifact_path(bundle_root: Path, path_value: str) -> Path:
     if Path(path_value).is_absolute():
         raise BundleError(f"artifact path must be relative to bundle root: {path_value}")
     root = bundle_root.resolve()
     resolved = (root / path_value).resolve()
     try:
-        resolved.relative_to(root)
+        relative_path_within(root, resolved)
     except ValueError as exc:
         raise BundleError(f"artifact path escapes bundle root: {path_value}") from exc
     return resolved
@@ -204,7 +226,7 @@ def artifact_entry(
     bundle_root = bundle_root.resolve()
     path = path.resolve()
     try:
-        rel_path = path.relative_to(bundle_root).as_posix()
+        rel_path = relative_path_within(bundle_root, path).as_posix()
     except ValueError as exc:
         raise BundleError(f"artifact is outside bundle root: {path}") from exc
     entry: dict[str, Any] = {

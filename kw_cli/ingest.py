@@ -142,7 +142,7 @@ def derived_artifact_reasons(project_root: Path, gate: dict[str, Any]) -> list[s
             continue
         path = (project_root / raw_path).resolve()
         try:
-            path.relative_to(project_root)
+            bundle.relative_path_within(project_root, path)
         except ValueError:
             reasons.append(f"gate derived artifact escapes the project root: {raw_path}")
             continue
@@ -439,7 +439,7 @@ def run_asr_for_media_bundle(
             write_text(video_root / "00_source" / "degraded_source_report.md", degraded_report_text(failed_manifest, status))
             return {"status": "failed", "source_status": "source_failed", "error": reason}
         derived_artifact = {
-            "path": str(transcript_path.relative_to(project_root).as_posix()),
+            "path": bundle.relative_path_within(project_root, transcript_path).as_posix(),
             "type": "transcript",
             "content_scope": "video_transcript",
             "bytes": transcript_path.stat().st_size,
@@ -528,8 +528,8 @@ def normalize_primary_text(
     if not has_usable_text(transcript_path):
         raise IngestError("normalized clean_transcript.jsonl contains no usable text")
     try:
-        relative_path = transcript_path.relative_to(project_root).as_posix()
-        source_relative_path = artifact_path.relative_to(project_root).as_posix()
+        relative_path = bundle.relative_path_within(project_root, transcript_path).as_posix()
+        source_relative_path = bundle.relative_path_within(project_root, artifact_path).as_posix()
     except ValueError as exc:
         raise IngestError("normalized transcript or its source artifact escaped the project root") from exc
     return {

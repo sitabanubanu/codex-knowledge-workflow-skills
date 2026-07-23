@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from kw_cli import bundle
 
@@ -105,6 +106,32 @@ def test_path_traversal_is_rejected(failures: list[str]) -> None:
         assert_true("path traversal fails", not result["valid"], failures)
 
 
+def test_filesystem_alias_fallback_keeps_containment_safe(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="kw-bundle-path-alias-") as tmp:
+        root = Path(tmp) / "project"
+        artifact = root / "artifacts" / "transcript.txt"
+        outside = Path(tmp) / "outside.txt"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("Primary transcript.\n", encoding="utf-8")
+        outside.write_text("Outside.\n", encoding="utf-8")
+
+        # Force the lexical branch to fail as it does for RUNNER~1 versus
+        # runneradmin on GitHub Windows, then exercise the samefile fallback.
+        with patch.object(Path, "relative_to", side_effect=ValueError("filesystem alias")):
+            relative = bundle.relative_path_within(root, artifact)
+            assert_true(
+                "same physical parent survives lexical alias mismatch",
+                relative.as_posix() == "artifacts/transcript.txt",
+                failures,
+            )
+            try:
+                bundle.relative_path_within(root, outside)
+            except ValueError:
+                pass
+            else:
+                failures.append("filesystem alias fallback still rejects outside paths")
+
+
 def test_artifact_hash_tamper_is_rejected(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="kw-bundle-hash-") as tmp:
         root = Path(tmp)
@@ -181,6 +208,7 @@ def main() -> int:
     test_metadata_only_cannot_be_primary(failures)
     test_secret_fields_are_rejected(failures)
     test_path_traversal_is_rejected(failures)
+    test_filesystem_alias_fallback_keeps_containment_safe(failures)
     test_artifact_hash_tamper_is_rejected(failures)
     test_browser_export_preserves_url_scope_and_privacy(failures)
     test_browser_export_rejects_wrong_scope(failures)
