@@ -38,6 +38,14 @@ jobs:
       - name: Run complete offline product validation
         run: kw validate --output-root test_outputs/validation/ci
 
+      - name: Upload validation diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-${{ runner.os }}-py${{ matrix.python-version }}
+          path: test_outputs/validation/ci
+          if-no-files-found: error
+
       - name: Lint evaluation v2 inputs for gold leakage
         run: python eval/v2/leakage_lint.py
 
